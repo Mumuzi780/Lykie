@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 · Lykie</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m23">
+</head>
+<body class="login-body">
+  <form class="login-card" method="post" action="/login" autocomplete="on">
+    <h1 class="brand-title">Lykie</h1>
+    <p class="login-tagline">过考试的时候，我在。</p>
+    <p class="login-lead">内测账号登录。没有账号的话，让开号的人给你建一个。</p>
+    {% if error %}
+    <p class="login-error">{{ error }}</p>
+    {% endif %}
+    {% if not has_users %}
+    <p class="login-hint">还没有账号。在项目目录运行：<code>python add_user.py 用户名</code></p>
+    {% endif %}
+    <label class="login-label" for="username">用户名</label>
+    <input id="username" name="username" type="text" required maxlength="24" autofocus>
+    <label class="login-label" for="password">密码</label>
+    <input id="password" name="password" type="password" required minlength="4">
+    <button type="submit" class="btn primary login-submit">进入</button>
+  </form>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+</body>
+</html>

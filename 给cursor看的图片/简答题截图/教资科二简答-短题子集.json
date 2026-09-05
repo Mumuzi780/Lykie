@@ -1,0 +1,1381 @@
+{
+  "name": "教资科二简答-短题",
+  "note": "从96道中按规则自动抽出：3–8个分点、单点≤18字、总分≤80、均长≤14、无嵌套/前导长段；id=截图编号。供无脑背题试点。",
+  "count": 20,
+  "source_total": 96,
+  "questions": [
+    {
+      "id": "2",
+      "num": "2",
+      "type": "fill",
+      "stem": "一堂好课的标准有哪些？",
+      "options": [],
+      "answer": "1. 目标明确\n2. 重点突出\n3. 内容正确\n4. 方法得当\n5. 表达清晰\n6. 组织严密\n7. 气氛热烈。",
+      "analysis": "关键词：目标、重点、内容、方法、表达、组织、气氛",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "2.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "目标明确",
+          "keywords": [
+            "目标"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "重点突出",
+          "keywords": [
+            "重点"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "内容正确",
+          "keywords": [
+            "内容"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "方法得当",
+          "keywords": [
+            "方法"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "表达清晰",
+          "keywords": [
+            "表达"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "组织严密",
+          "keywords": [
+            "组织"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 7,
+          "text": "气氛热烈。",
+          "keywords": [
+            "气氛"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "目标",
+        "重点",
+        "内容",
+        "方法",
+        "表达",
+        "组织",
+        "气氛"
+      ]
+    },
+    {
+      "id": "3",
+      "num": "3",
+      "type": "fill",
+      "stem": "为什么说教学过程是一种特殊的认识活动？",
+      "options": [],
+      "answer": "1. 认识的间接性。\n2. 认识的交往性。\n3. 认识的教育性。\n4. 认识的简捷性。\n5. 有指导的认识。",
+      "analysis": "关键词：间接性、交往性、教育性、简捷性、有指导",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "3.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "认识的间接性。",
+          "keywords": [
+            "间接性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "认识的交往性。",
+          "keywords": [
+            "交往性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "认识的教育性。",
+          "keywords": [
+            "教育性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "认识的简捷性。",
+          "keywords": [
+            "简捷性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "有指导的认识。",
+          "keywords": [
+            "有指导"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "间接性",
+        "交往性",
+        "教育性",
+        "简捷性",
+        "有指导"
+      ]
+    },
+    {
+      "id": "5",
+      "num": "5",
+      "type": "fill",
+      "stem": "教学过程的结构是什么？",
+      "options": [],
+      "answer": "1. 心理准备；\n2. 领会知识；\n3. 巩固知识；\n4. 运用知识；\n5. 检查效果。",
+      "analysis": "关键词：准备、领会、巩固、运用、检查",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "5.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "心理准备；",
+          "keywords": [
+            "准备"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "领会知识；",
+          "keywords": [
+            "领会"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "巩固知识；",
+          "keywords": [
+            "巩固"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "运用知识；",
+          "keywords": [
+            "运用"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "检查效果。",
+          "keywords": [
+            "检查"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "准备",
+        "领会",
+        "巩固",
+        "运用",
+        "检查"
+      ]
+    },
+    {
+      "id": "6",
+      "num": "6",
+      "type": "fill",
+      "stem": "请简要说明常用的教学原则。",
+      "options": [],
+      "answer": "1. 直观性原则\n2. 启发性原则\n3. 巩固性原则\n4. 循序渐进原则（又称系统性原则）\n5. 因材施教原则\n6. 理论联系实际原则\n7. 量力性原则\n8. 思想性和科学性统一的原则",
+      "analysis": "关键词：直观性、启发性、巩固性、系统性、因材施教、理论联系实际、量力性、思想性与科学性统一",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "6.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "直观性原则",
+          "keywords": [
+            "直观性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "启发性原则",
+          "keywords": [
+            "启发性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "巩固性原则",
+          "keywords": [
+            "巩固性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "循序渐进原则（又称系统性原则）",
+          "keywords": [
+            "系统性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "因材施教原则",
+          "keywords": [
+            "因材施教"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "理论联系实际原则",
+          "keywords": [
+            "理论联系实际"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 7,
+          "text": "量力性原则",
+          "keywords": [
+            "量力性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 8,
+          "text": "思想性和科学性统一的原则",
+          "keywords": [
+            "思想性与科学性统一"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "直观性",
+        "启发性",
+        "巩固性",
+        "系统性",
+        "因材施教",
+        "理论联系实际",
+        "量力性",
+        "思想性与科学性统一"
+      ],
+      "cloze_unordered": true
+    },
+    {
+      "id": "9",
+      "num": "9",
+      "type": "fill",
+      "stem": "谈话法的实施要求有哪些？",
+      "options": [],
+      "answer": "1. 要准备好问题和谈话计划；\n2. 要善问；\n3. 要善于启发诱导；\n4. 要做好归纳、小结。",
+      "analysis": "关键词：问题和谈话计划、问、启发诱导、归纳、小结",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "9.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "要准备好问题和谈话计划；",
+          "keywords": [
+            "问题和谈话计划"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "要善问；",
+          "keywords": [
+            "问"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "要善于启发诱导；",
+          "keywords": [
+            "启发诱导"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "要做好归纳、小结。",
+          "keywords": [
+            "归纳、小结"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "问题和谈话计划",
+        "问",
+        "启发诱导",
+        "归纳、小结"
+      ]
+    },
+    {
+      "id": "12",
+      "num": "12",
+      "type": "fill",
+      "stem": "如何培养良好态度与品德？",
+      "options": [],
+      "answer": "1. 有效地说服\n2. 树立良好的榜样\n3. 利用群体约定\n4. 角色扮演\n5. 价值辨析\n6. 给予恰当的奖励与惩罚",
+      "analysis": "关键词：说服、榜样、约定、角色、价值辨析、奖励与惩罚",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "12.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "有效地说服",
+          "keywords": [
+            "说服"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "树立良好的榜样",
+          "keywords": [
+            "榜样"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "利用群体约定",
+          "keywords": [
+            "约定"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "角色扮演",
+          "keywords": [
+            "角色"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "价值辨析",
+          "keywords": [
+            "价值辨析"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "给予恰当的奖励与惩罚",
+          "keywords": [
+            "奖励与惩罚"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "说服",
+        "榜样",
+        "约定",
+        "角色",
+        "价值辨析",
+        "奖励与惩罚"
+      ]
+    },
+    {
+      "id": "13",
+      "num": "13",
+      "type": "fill",
+      "stem": "简述中学德育的主要内容",
+      "options": [],
+      "answer": "1. 爱国主义和国际主义教育；\n2. 理想和传统教育；\n3. 集体主义教育；\n4. 劳动教育；\n5. 民主、纪律和法制教育；\n6. 人道主义和社会公德教育；\n7. 正确的人生观与科学世界观教育。",
+      "analysis": "关键词：爱国、国际、理想和传统、集体、劳动、民主、纪律和法制、人道、社会公德、人生观与科学世界观",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "13.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "爱国主义和国际主义教育；",
+          "keywords": [
+            "爱国",
+            "国际"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "理想和传统教育；",
+          "keywords": [
+            "理想和传统"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "集体主义教育；",
+          "keywords": [
+            "集体"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "劳动教育；",
+          "keywords": [
+            "劳动"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "民主、纪律和法制教育；",
+          "keywords": [
+            "民主、纪律和法制"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "人道主义和社会公德教育；",
+          "keywords": [
+            "人道",
+            "社会公德"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 7,
+          "text": "正确的人生观与科学世界观教育。",
+          "keywords": [
+            "人生观与科学世界观"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "爱国",
+        "国际",
+        "理想和传统",
+        "集体",
+        "劳动",
+        "民主、纪律和法制",
+        "人道",
+        "社会公德",
+        "人生观与科学世界观"
+      ]
+    },
+    {
+      "id": "14",
+      "num": "14",
+      "type": "fill",
+      "stem": "简述新时期德育发展的新主题",
+      "options": [],
+      "answer": "1. 安全教育与生命教育\n2. 生存教育与生活教育\n3. 升学就业指导教育",
+      "analysis": "关键词：安全、生命、生存、生活、升学就业",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "14.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "安全教育与生命教育",
+          "keywords": [
+            "安全",
+            "生命"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "生存教育与生活教育",
+          "keywords": [
+            "生存",
+            "生活"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "升学就业指导教育",
+          "keywords": [
+            "升学就业"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "安全",
+        "生命",
+        "生存",
+        "生活",
+        "升学就业"
+      ]
+    },
+    {
+      "id": "20",
+      "num": "20",
+      "type": "fill",
+      "stem": "中学常用的德育方法有哪些？",
+      "options": [],
+      "answer": "1. 说服教育法\n2. 榜样法\n3. 指导实践法\n4. 情感陶冶法\n5. 品德评价法\n6. 品德修养指导法",
+      "analysis": "关键词：说服、榜样、指导实践、陶冶、评价、修养指导",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "20.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "说服教育法",
+          "keywords": [
+            "说服"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "榜样法",
+          "keywords": [
+            "榜样"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "指导实践法",
+          "keywords": [
+            "指导实践"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "情感陶冶法",
+          "keywords": [
+            "陶冶"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "品德评价法",
+          "keywords": [
+            "评价"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "品德修养指导法",
+          "keywords": [
+            "修养指导"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "说服",
+        "榜样",
+        "指导实践",
+        "陶冶",
+        "评价",
+        "修养指导"
+      ]
+    },
+    {
+      "id": "26",
+      "num": "26",
+      "type": "fill",
+      "stem": "简述有意注意规律在教学中的应用。",
+      "options": [],
+      "answer": "1. 明确学习目的和任务；\n2. 激发和培养间接兴趣；\n3. 正确组织课堂教学；\n4. 采取方法，制止注意分散。",
+      "analysis": "章节：第1章、学习的认知基础（2/6）；关键词：目的、间接兴趣、课堂教学、制止注意分散",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "26.jpg",
+      "chapter": "第1章、学习的认知基础（2/6）",
+      "points": [
+        {
+          "index": 1,
+          "text": "明确学习目的和任务；",
+          "keywords": [
+            "目的"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "激发和培养间接兴趣；",
+          "keywords": [
+            "间接兴趣"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "正确组织课堂教学；",
+          "keywords": [
+            "课堂教学"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "采取方法，制止注意分散。",
+          "keywords": [
+            "制止注意分散"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "目的",
+        "间接兴趣",
+        "课堂教学",
+        "制止注意分散"
+      ]
+    },
+    {
+      "id": "34",
+      "num": "34",
+      "type": "fill",
+      "stem": "请问影响迁移的因素有哪些？",
+      "options": [],
+      "answer": "1. 学习情境的相似性；\n2. 学习材料的性质；\n3. 学习活动的多样性；\n4. 原学习的熟练和理解程度；\n5. 年龄特征；\n6. 智力水平。",
+      "analysis": "章节：第4章、学习迁移（1/2）；关键词：相似性、性质、多样性、熟练和理解程度、年龄、智力",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "34.jpg",
+      "chapter": "第4章、学习迁移（1/2）",
+      "points": [
+        {
+          "index": 1,
+          "text": "学习情境的相似性；",
+          "keywords": [
+            "相似性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "学习材料的性质；",
+          "keywords": [
+            "性质"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "学习活动的多样性；",
+          "keywords": [
+            "多样性"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "原学习的熟练和理解程度；",
+          "keywords": [
+            "熟练和理解程度"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "年龄特征；",
+          "keywords": [
+            "年龄"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "智力水平。",
+          "keywords": [
+            "智力"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "相似性",
+        "性质",
+        "多样性",
+        "熟练和理解程度",
+        "年龄",
+        "智力"
+      ]
+    },
+    {
+      "id": "37",
+      "num": "37",
+      "type": "fill",
+      "stem": "请问训练学习策略的教学方法有哪些？",
+      "options": [],
+      "answer": "1. 注重元认知监控和调节训练；\n2. 有效运用教学反馈；\n3. 提供足够的教学时间。",
+      "analysis": "章节：第5章、学习策略（2/2）；关键词：元认知监控和调节、教学反馈、教学时间",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "37.jpg",
+      "chapter": "第5章、学习策略（2/2）",
+      "points": [
+        {
+          "index": 1,
+          "text": "注重元认知监控和调节训练；",
+          "keywords": [
+            "元认知监控和调节"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "有效运用教学反馈；",
+          "keywords": [
+            "教学反馈"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "提供足够的教学时间。",
+          "keywords": [
+            "教学时间"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "元认知监控和调节",
+        "教学反馈",
+        "教学时间"
+      ]
+    },
+    {
+      "id": "65",
+      "num": "65",
+      "type": "fill",
+      "stem": "如何建立良好的师生关系？",
+      "options": [],
+      "answer": "1. 了解和研究学生。\n2. 树立正确的学生观。\n3. 提高教师自身的素质。\n4. 发扬教育民主。\n5. 正确处理师生矛盾。",
+      "analysis": "关键词：了解和研究、树立、提高、发扬、正确处理",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "65.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "了解和研究学生。",
+          "keywords": [
+            "了解和研究"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "树立正确的学生观。",
+          "keywords": [
+            "树立"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "提高教师自身的素质。",
+          "keywords": [
+            "提高"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "发扬教育民主。",
+          "keywords": [
+            "发扬"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "正确处理师生矛盾。",
+          "keywords": [
+            "正确处理"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "了解和研究",
+        "树立",
+        "提高",
+        "发扬",
+        "正确处理"
+      ]
+    },
+    {
+      "id": "77",
+      "num": "77",
+      "type": "fill",
+      "stem": "如何培养中学生良好的情绪？",
+      "options": [],
+      "answer": "1. 教会学生形成适宜的情绪状态；\n2. 丰富学生的情绪体验；\n3. 引导学生正确看待问题；\n4. 教会学生情绪调节的方法；\n5. 通过实际锻炼提高学生情绪调节能力。",
+      "analysis": "关键词：情绪状态、情绪体验、正确看待问题、情绪调节的方法、情绪调节能力",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "77.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "教会学生形成适宜的情绪状态；",
+          "keywords": [
+            "情绪状态"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "丰富学生的情绪体验；",
+          "keywords": [
+            "情绪体验"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "引导学生正确看待问题；",
+          "keywords": [
+            "正确看待问题"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "教会学生情绪调节的方法；",
+          "keywords": [
+            "情绪调节的方法"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "通过实际锻炼提高学生情绪调节能力。",
+          "keywords": [
+            "情绪调节能力"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "情绪状态",
+        "情绪体验",
+        "正确看待问题",
+        "情绪调节的方法",
+        "情绪调节能力"
+      ]
+    },
+    {
+      "id": "78",
+      "num": "78",
+      "type": "fill",
+      "stem": "请问影响人格形成的因素有哪些？",
+      "options": [],
+      "answer": "1. 遗传与生理对人格的影响；\n2. 自然环境与社会环境对人格的影响；\n3. 家庭；\n4. 自我调控因素；",
+      "analysis": "关键词：遗传与生理、自然环境与社会环境、自我调控",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "78.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "遗传与生理对人格的影响；",
+          "keywords": [
+            "遗传与生理"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "自然环境与社会环境对人格的影响；",
+          "keywords": [
+            "自然环境与社会环境"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "家庭；",
+          "keywords": [],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "自我调控因素；",
+          "keywords": [
+            "自我调控"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "遗传与生理",
+        "自然环境与社会环境",
+        "自我调控"
+      ]
+    },
+    {
+      "id": "87",
+      "num": "87",
+      "type": "fill",
+      "stem": "简述班主任工作内容",
+      "options": [],
+      "answer": "1. 了解和研究学生\n2. 组织和培养班集体\n3. 做好个别教育工作\n4. 协调好各方面的教育力量\n5. 操行评定\n6. 做好班主任工作计划和总结",
+      "analysis": "关键词：研究学生、班集体、个别、教育力量、操行评定、计划和总结",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "87.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "了解和研究学生",
+          "keywords": [
+            "研究学生"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "组织和培养班集体",
+          "keywords": [
+            "班集体"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "做好个别教育工作",
+          "keywords": [
+            "个别"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "协调好各方面的教育力量",
+          "keywords": [
+            "教育力量"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "操行评定",
+          "keywords": [
+            "操行评定"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "做好班主任工作计划和总结",
+          "keywords": [
+            "计划和总结"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "研究学生",
+        "班集体",
+        "个别",
+        "教育力量",
+        "操行评定",
+        "计划和总结"
+      ]
+    },
+    {
+      "id": "88",
+      "num": "88",
+      "type": "fill",
+      "stem": "如何组织和培养班集体？",
+      "options": [],
+      "answer": "1. 确立目标；\n2. 建立班委会；\n3. 培养正确的舆论和良好的班风；\n4. 有计划的组织开展班级活动。",
+      "analysis": "关键词：目标、班委会、班风、活动",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "88.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "确立目标；",
+          "keywords": [
+            "目标"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "建立班委会；",
+          "keywords": [
+            "班委会"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "培养正确的舆论和良好的班风；",
+          "keywords": [
+            "班风"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "有计划的组织开展班级活动。",
+          "keywords": [
+            "活动"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "目标",
+        "班委会",
+        "班风",
+        "活动"
+      ]
+    },
+    {
+      "id": "91",
+      "num": "91",
+      "type": "fill",
+      "stem": "简述维持课堂纪律的策略",
+      "options": [],
+      "answer": "1. 建立有效的课堂规则\n2. 合理组织课堂教学\n3. 做好课堂监控\n4. 培养学生的自律品质",
+      "analysis": "关键词：规则、教学、监控、品质",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "91.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "建立有效的课堂规则",
+          "keywords": [
+            "规则"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "合理组织课堂教学",
+          "keywords": [
+            "教学"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "做好课堂监控",
+          "keywords": [
+            "监控"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "培养学生的自律品质",
+          "keywords": [
+            "品质"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "规则",
+        "教学",
+        "监控",
+        "品质"
+      ]
+    },
+    {
+      "id": "93",
+      "num": "93",
+      "type": "fill",
+      "stem": "教师威信的建立途径有哪些？",
+      "options": [],
+      "answer": "1. 培养自身良好的道德品质\n2. 培养良好的认知能力和性格特征\n3. 注重良好仪表、风度和行为习惯的养成\n4. 给学生以良好的第一印象\n5. 做学生的朋友与知己",
+      "analysis": "关键词：道德品质、认知能力和性格特征、行为习惯、第一印象、朋友与知己",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "93.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "培养自身良好的道德品质",
+          "keywords": [
+            "道德品质"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "培养良好的认知能力和性格特征",
+          "keywords": [
+            "认知能力和性格特征"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "注重良好仪表、风度和行为习惯的养成",
+          "keywords": [
+            "行为习惯"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "给学生以良好的第一印象",
+          "keywords": [
+            "第一印象"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "做学生的朋友与知己",
+          "keywords": [
+            "朋友与知己"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "道德品质",
+        "认知能力和性格特征",
+        "行为习惯",
+        "第一印象",
+        "朋友与知己"
+      ]
+    },
+    {
+      "id": "95",
+      "num": "95",
+      "type": "fill",
+      "stem": "简述心理健康的标准",
+      "options": [],
+      "answer": "1. 自我意识正确；\n2. 人际关系协调；\n3. 性别角色分化；\n4. 社会适应良好；\n5. 情绪积极稳定；\n6. 人格结构完整。",
+      "analysis": "关键词：意识、人际、性别、适应、情绪、人格",
+      "status": "active",
+      "phase": "new",
+      "interval": 0,
+      "countdown": 0,
+      "streak": 0,
+      "answer_count": 0,
+      "correct_count": 0,
+      "source_image": "95.jpg",
+      "chapter": "",
+      "points": [
+        {
+          "index": 1,
+          "text": "自我意识正确；",
+          "keywords": [
+            "意识"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 2,
+          "text": "人际关系协调；",
+          "keywords": [
+            "人际"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 3,
+          "text": "性别角色分化；",
+          "keywords": [
+            "性别"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 4,
+          "text": "社会适应良好；",
+          "keywords": [
+            "适应"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 5,
+          "text": "情绪积极稳定；",
+          "keywords": [
+            "情绪"
+          ],
+          "is_preamble": false
+        },
+        {
+          "index": 6,
+          "text": "人格结构完整。",
+          "keywords": [
+            "人格"
+          ],
+          "is_preamble": false
+        }
+      ],
+      "keywords": [
+        "意识",
+        "人际",
+        "性别",
+        "适应",
+        "情绪",
+        "人格"
+      ]
+    }
+  ]
+}

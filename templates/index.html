@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lykie · 背题</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m25">
+  <link rel="stylesheet" href="/static/sa.css?v=m3">
+</head>
+<body class="mode-kill">
+  <div class="bank-drawer-backdrop" id="bankDrawerBackdrop"></div>
+  <div class="app">
+    <aside class="sidebar" id="bankSidebar">
+      <div class="sidebar-header">
+        <h2>题库</h2>
+        <div class="sidebar-actions">
+          <button id="importBtn" class="btn ghost">导入</button>
+          <button id="pasteBtn" class="btn ghost">粘贴</button>
+          <button type="button" id="bankDrawerCloseBtn" class="btn ghost bank-drawer-close">关闭</button>
+          <input type="file" id="fileInput" accept=".docx" hidden>
+        </div>
+      </div>
+      <ul class="bank-list" id="bankList"></ul>
+    </aside>
+
+    <div class="main">
+      <header>
+        <h1 class="brand-title">Lykie <span class="brand-sub" id="brandSub">背题</span></h1>
+        <div class="stats" id="stats">加载中…</div>
+        <div class="stats" id="saStats" hidden>加载中…</div>
+        <div class="actions" id="headerActions">
+          <button type="button" id="bankDrawerBtn" class="btn ghost bank-drawer-btn">题库</button>
+          <button id="saEditKwBtn" class="btn ghost mode-sa-only" type="button" hidden disabled>编辑关键词</button>
+          <button id="resetBtn" class="btn ghost danger mode-kill-only">重置进度</button>
+          <button id="saResetBtn" class="btn ghost danger mode-sa-only" type="button" hidden>重置简答进度</button>
+          <span class="account-name" title="当前账号">{{ username }}</span>
+          <a class="btn ghost" href="/logout">退出</a>
+        </div>
+      </header>
+
+      <main class="card-area">
+        <div class="study-stage" id="studyStage">
+          <button type="button" class="celestial-btn" id="celestialBtn" title="切换深浅色" aria-label="切换深浅色">
+            <img class="celestial-icon celestial-sun" id="celestialSun" src="/static/lykie/sun-solid-teal.png?v=6" alt="" draggable="false" hidden>
+            <img class="celestial-icon celestial-moon" id="celestialMoon" src="/static/lykie/moon-teal.png?v=1" alt="" draggable="false" hidden>
+          </button>
+        </div>
+        <div class="empty" id="emptyState">
+          <p>还没有题库</p>
+          <p class="hint">点「题库」导入或粘贴 .docx，开始背题</p>
+        </div>
+
+        <div class="study-host" id="studyHost" hidden>
+          <button type="button" class="lykie-peeker-btn" id="lykiePeekerBtn" title="打开或收起 Lykie" aria-label="打开或收起 Lykie">
+            <img class="lykie-peeker" id="lykiePeeker" src="/static/lykie/lykie-peek-only.png?v=7" alt="" width="160" height="160" draggable="false">
+          </button>
+          <div class="card-stack" id="cardStack" hidden>
+            <div class="card" id="card">
+              <div class="card-top">
+                <span class="card-type" id="cardType"></span>
+                <div class="card-top-actions">
+                  <button id="askLykieBtn" class="btn ghost ask-lykie">问问 Lykie</button>
+                  <button id="editBtn" class="btn edit">编辑</button>
+                </div>
+              </div>
+              <div class="card-stem" id="cardStem"></div>
+              <div class="card-meta" id="cardMeta"></div>
+              <div class="options" id="options"></div>
+              <div class="fill-area" id="fillArea" hidden>
+                <input type="text" id="fillInput" placeholder="输入你的答案" autocomplete="off">
+              </div>
+              <div class="answer" id="answerBox" hidden></div>
+            </div>
+          </div>
+
+          <div class="sa-stack" id="saStack" hidden>
+            <div class="empty" id="saEmpty" hidden>
+              <p id="saEmptyTitle">暂无题目</p>
+              <p class="hint" id="saEmptyHint"></p>
+            </div>
+            <div class="card" id="saCard" hidden>
+              <div class="card-top">
+                <div class="card-top-left">
+                  <span class="card-type" id="saType">简答题</span>
+                  <span class="sa-stage" id="saStage"></span>
+                </div>
+                <div class="card-top-actions">
+                  <button id="saAskLykieBtn" class="btn ghost ask-lykie" type="button">问问 Lykie</button>
+                </div>
+              </div>
+              <div class="card-stem" id="saStem"></div>
+              <div class="card-meta" id="saPrompt"></div>
+              <div id="saBody"></div>
+              <div class="sa-feedback" id="saFeedback" hidden></div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer>
+        <div class="controls">
+          <div class="main-btns mode-kill-only" id="killControls">
+            <button id="confirmBtn" class="btn primary" hidden>确认答案</button>
+            <button id="nextBtn" class="btn primary" hidden>下一题</button>
+            <div class="judge-btns" id="judgeBtns" hidden>
+              <button id="wrongBtn" class="btn mark forgot">答错了</button>
+              <button id="rightBtn" class="btn mark remember">答对了</button>
+            </div>
+          </div>
+          <div class="main-btns mode-sa-only" id="saControls" hidden></div>
+          <button id="killBtn" class="btn kill mode-kill-only" hidden>
+            <span class="kill-fill" id="killFill"></span>
+            <span class="kill-label">斩</span>
+          </button>
+        </div>
+        <div class="progress mode-kill-only" id="progress"></div>
+      </footer>
+    </div>
+
+    <aside class="lykie-panel" id="lykiePanel">
+      <div class="lykie-header">
+        <div>
+          <h2>Lykie</h2>
+          <div class="lykie-status" id="lykieStatus">检查中…</div>
+        </div>
+        <button type="button" class="btn ghost" id="lykieCloseBtn" title="收起">收起</button>
+      </div>
+      <div class="lykie-messages" id="lykieMessages"></div>
+      <div class="lykie-chips" id="lykieChips" hidden></div>
+      <div class="lykie-toolbar">
+        <button type="button" id="lykieSkipWaitBtn" class="btn ghost lykie-tool" hidden>跳过等待</button>
+        <button type="button" id="lykieReplayStoryBtn" class="btn ghost lykie-tool" hidden>重温开场</button>
+        <button type="button" id="lykieClearChatBtn" class="btn ghost lykie-tool" title="清空自由聊到开场刚结束">清到开场后</button>
+        <button type="button" id="lykieCorrectBtn" class="btn ghost lykie-tool">纠正上一句</button>
+      </div>
+      <div class="lykie-composer">
+        <textarea id="lykieInput" rows="4" placeholder="跟她说点什么… 纠正可写：纠正：别分点，短句说" autocomplete="off"></textarea>
+        <button type="button" id="lykieSendBtn" class="lykie-send" title="发送" aria-label="发送">↑</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Lykie 点踩纠正弹窗 -->
+  <div class="modal" id="lykieFeedbackModal" hidden>
+    <div class="modal-box lykie-feedback-box">
+      <h3>纠正整次回复</h3>
+      <p class="hint" id="lykieFbUserSaid" style="white-space:pre-wrap"></p>
+      <div class="form-field">
+        <label>原整次回复（反例，已按条合并）</label>
+        <textarea id="lykieFbBad" rows="4" readonly></textarea>
+      </div>
+      <div class="form-field">
+        <label>理想整次回复（一行一句）。若应先不回：留空或写 [不回复]</label>
+        <textarea id="lykieFbGood" rows="4" placeholder="我刚在收拾东西呢&#10;你呢？&#10;&#10;（或留空 = 先不回）"></textarea>
+      </div>
+      <div class="form-field">
+        <label>修改点评（这一轮为什么这样回）</label>
+        <textarea id="lykieFbReview" rows="3" placeholder="用户只问记不记得，简单确认并反问有什么事；短句分条，别翻很长旧账。"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="lykieFbCancel" class="btn ghost">取消</button>
+        <button type="button" id="lykieFbSubmit" class="btn primary">保存并回退重问</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑弹窗 -->
+  <div class="modal" id="editModal" hidden>
+    <div class="modal-box">
+      <h3>编辑题目</h3>
+      <div class="form-field">
+        <label>题型</label>
+        <select id="editType">
+          <option value="choice">选择题</option>
+          <option value="judge">判断题</option>
+          <option value="fill">填空题</option>
+          <option value="short_answer">简答题</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>题干</label>
+        <textarea id="editStem" rows="3"></textarea>
+      </div>
+      <div class="form-field" id="editOptionsArea">
+        <label>选项（按 A/B/C/D 顺序，可留空）</label>
+        <input id="editOpt0" placeholder="选项 A">
+        <input id="editOpt1" placeholder="选项 B">
+        <input id="editOpt2" placeholder="选项 C">
+        <input id="editOpt3" placeholder="选项 D">
+      </div>
+      <div class="form-field">
+        <label>答案</label>
+        <select id="editAnswerChoice">
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+        </select>
+        <select id="editAnswerJudge">
+          <option value="对">对</option>
+          <option value="错">错</option>
+        </select>
+        <input id="editAnswerFill" placeholder="参考答案">
+      </div>
+      <div class="form-field" id="editKeywordsArea" hidden>
+        <label>关键词（顿号、逗号或换行分隔；挖空/默写用）</label>
+        <textarea id="editKeywords" rows="3" placeholder="例：直观性、启发性、巩固性"></textarea>
+      </div>
+      <div class="form-field">
+        <label>解析（可选，可留空）</label>
+        <textarea id="editAnalysis" rows="2" placeholder="题目解析"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="editCancelBtn" class="btn ghost">取消</button>
+        <button id="editSaveBtn" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 题库详情弹窗 -->
+  <div class="modal" id="bankModal" hidden>
+    <div class="modal-box bank-modal-box">
+      <div class="modal-header">
+        <h3 id="bankModalTitle">题库题目</h3>
+        <div class="modal-header-actions">
+          <button id="addQuestionBtn" class="btn ghost">新增题目</button>
+          <button id="bankModalClose" class="btn ghost">关闭</button>
+        </div>
+      </div>
+      <div class="question-list" id="questionList"></div>
+    </div>
+  </div>
+
+  <!-- 粘贴导入弹窗 -->
+  <div class="modal" id="pasteModal" hidden>
+    <div class="modal-box paste-modal-box">
+      <h3>粘贴导入题库</h3>
+      <div class="form-field">
+        <label>题库名称（可选）</label>
+        <input id="pasteName" placeholder="默认：粘贴导入">
+      </div>
+      <div class="form-field">
+        <label>题库文本</label>
+        <textarea id="pasteText" rows="10" placeholder="把题库内容粘贴到这里，格式同 Word：题号+题干、A/B/C/D 选项、参考答案："></textarea>
+      </div>
+      <div class="paste-actions">
+        <button id="pastePreviewBtn" class="btn ghost">预览解析</button>
+      </div>
+      <div id="pastePreview" class="paste-preview" hidden></div>
+      <div class="modal-actions">
+        <button id="pasteCancelBtn" class="btn ghost">取消</button>
+        <button id="pasteConfirmBtn" class="btn primary" disabled>确认导入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="saKwModal" hidden>
+    <div class="modal-box sa-kw-modal">
+      <h3>编辑关键词</h3>
+      <p class="hint" id="saKwStem"></p>
+      <div class="sa-kw-list" id="saKwList"></div>
+      <label class="sa-kw-unordered">
+        <input type="checkbox" id="saKwUnordered">
+        并列要点挖空可打乱顺序（仅清单类题勾选；句内前缀已锁定答案时不要勾）
+      </label>
+      <div class="modal-actions">
+        <button id="saKwCancelBtn" class="btn ghost" type="button">取消</button>
+        <button id="saKwSaveBtn" class="btn primary" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/sa.js?v=sa18"></script>
+  <script src="/static/script.js?v=m20"></script>
+  <script src="/static/story.js?v=accounts1"></script>
+</body>
+</html>

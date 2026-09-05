@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+data/upload.docx
+data/users.json
+data/users/
+data/secret_key
+.venv/
+venv/
+dist/
+*.zip
+story-editor/node_modules/
+.DS_Store
+Thumbs.db
