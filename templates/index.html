@@ -3,24 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
   <title>Lykie · 背题</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m25">
-  <link rel="stylesheet" href="/static/sa.css?v=m3">
+  <link rel="stylesheet" href="/static/style.css?v=m62">
+  <link rel="stylesheet" href="/static/sa.css?v=m5">
 </head>
-<body class="mode-kill">
+<body class="mode-kill" data-username="{{ username }}">
   <div class="bank-drawer-backdrop" id="bankDrawerBackdrop"></div>
   <div class="app">
     <aside class="sidebar" id="bankSidebar">
       <div class="sidebar-header">
         <h2>题库</h2>
         <div class="sidebar-actions">
-          <button id="importBtn" class="btn ghost">导入</button>
-          <button id="pasteBtn" class="btn ghost">粘贴</button>
+          <a id="importBtn" class="btn ghost" href="/import">导入</a>
+          <button type="button" id="folderCreateBtn" class="btn ghost">文件夹</button>
+          <button type="button" id="collectionCreateBtn" class="btn ghost">模考</button>
           <button type="button" id="bankDrawerCloseBtn" class="btn ghost bank-drawer-close">关闭</button>
-          <input type="file" id="fileInput" accept=".docx" hidden>
         </div>
       </div>
       <ul class="bank-list" id="bankList"></ul>
@@ -31,11 +33,14 @@
         <h1 class="brand-title">Lykie <span class="brand-sub" id="brandSub">背题</span></h1>
         <div class="stats" id="stats">加载中…</div>
         <div class="stats" id="saStats" hidden>加载中…</div>
+        <div class="stats mock-timer-wrap" id="mockTimerWrap" hidden>用时 <span id="mockTimer">0:00</span></div>
         <div class="actions" id="headerActions">
           <button type="button" id="bankDrawerBtn" class="btn ghost bank-drawer-btn">题库</button>
+          <button type="button" id="wrongBookBtn" class="btn ghost">错题本</button>
           <button id="saEditKwBtn" class="btn ghost mode-sa-only" type="button" hidden disabled>编辑关键词</button>
-          <button id="resetBtn" class="btn ghost danger mode-kill-only">重置进度</button>
-          <button id="saResetBtn" class="btn ghost danger mode-sa-only" type="button" hidden>重置简答进度</button>
+          <button id="resetBtn" class="btn ghost mode-kill-only">重置进度</button>
+          <button id="saResetBtn" class="btn ghost mode-sa-only" type="button" hidden>重置进度</button>
+          <button type="button" id="sfxToggleBtn" class="btn ghost sfx-toggle" title="音效开/关；Shift+点击试听全部" aria-label="音效开关">🔊</button>
           <span class="account-name" title="当前账号">{{ username }}</span>
           <a class="btn ghost" href="/logout">退出</a>
         </div>
@@ -47,15 +52,22 @@
             <img class="celestial-icon celestial-sun" id="celestialSun" src="/static/lykie/sun-solid-teal.png?v=6" alt="" draggable="false" hidden>
             <img class="celestial-icon celestial-moon" id="celestialMoon" src="/static/lykie/moon-teal.png?v=1" alt="" draggable="false" hidden>
           </button>
+          <div class="combo-badge is-idle" id="comboBadge" aria-live="polite" aria-label="连击">
+            <span class="combo-badge-num" id="comboBadgeNum">×0</span>
+            <span class="combo-badge-hint">连击</span>
+          </div>
         </div>
         <div class="empty" id="emptyState">
           <p>还没有题库</p>
-          <p class="hint">点「题库」导入或粘贴 .docx，开始背题</p>
+          <p class="hint">点「题库」→「导入」，粘贴文本或上传 .docx 开始背题</p>
         </div>
 
         <div class="study-host" id="studyHost" hidden>
           <button type="button" class="lykie-peeker-btn" id="lykiePeekerBtn" title="打开或收起 Lykie" aria-label="打开或收起 Lykie">
-            <img class="lykie-peeker" id="lykiePeeker" src="/static/lykie/lykie-peek-only.png?v=7" alt="" width="160" height="160" draggable="false">
+            <span class="lykie-peeker-stage" id="lykiePeeker">
+              <img class="lykie-peeker-layer lykie-peeker-head" src="/static/lykie/lykie-peek-head.png?v=4" alt="" width="160" height="160" draggable="false">
+              <img class="lykie-peeker-layer lykie-peeker-hands" src="/static/lykie/lykie-peek-hands.png?v=4" alt="" width="160" height="160" draggable="false">
+            </span>
           </button>
           <div class="card-stack" id="cardStack" hidden>
             <div class="card" id="card">
@@ -120,7 +132,7 @@
       </footer>
     </div>
 
-    <aside class="lykie-panel" id="lykiePanel">
+    <aside class="lykie-panel collapsed" id="lykiePanel">
       <div class="lykie-header">
         <div>
           <h2>Lykie</h2>
@@ -185,20 +197,13 @@
         <textarea id="editStem" rows="3"></textarea>
       </div>
       <div class="form-field" id="editOptionsArea">
-        <label>选项（按 A/B/C/D 顺序，可留空）</label>
-        <input id="editOpt0" placeholder="选项 A">
-        <input id="editOpt1" placeholder="选项 B">
-        <input id="editOpt2" placeholder="选项 C">
-        <input id="editOpt3" placeholder="选项 D">
+        <label>选项（可增删，最多 8 个；勾选正确答案，可多选）</label>
+        <div id="editOptionsList" class="edit-options-list"></div>
+        <button type="button" id="editAddOptBtn" class="btn ghost edit-add-opt">添加选项</button>
       </div>
       <div class="form-field">
         <label>答案</label>
-        <select id="editAnswerChoice">
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="C">C</option>
-          <option value="D">D</option>
-        </select>
+        <div id="editAnswerChoice" class="edit-answer-checks" hidden></div>
         <select id="editAnswerJudge">
           <option value="对">对</option>
           <option value="错">错</option>
@@ -234,29 +239,6 @@
     </div>
   </div>
 
-  <!-- 粘贴导入弹窗 -->
-  <div class="modal" id="pasteModal" hidden>
-    <div class="modal-box paste-modal-box">
-      <h3>粘贴导入题库</h3>
-      <div class="form-field">
-        <label>题库名称（可选）</label>
-        <input id="pasteName" placeholder="默认：粘贴导入">
-      </div>
-      <div class="form-field">
-        <label>题库文本</label>
-        <textarea id="pasteText" rows="10" placeholder="把题库内容粘贴到这里，格式同 Word：题号+题干、A/B/C/D 选项、参考答案："></textarea>
-      </div>
-      <div class="paste-actions">
-        <button id="pastePreviewBtn" class="btn ghost">预览解析</button>
-      </div>
-      <div id="pastePreview" class="paste-preview" hidden></div>
-      <div class="modal-actions">
-        <button id="pasteCancelBtn" class="btn ghost">取消</button>
-        <button id="pasteConfirmBtn" class="btn primary" disabled>确认导入</button>
-      </div>
-    </div>
-  </div>
-
   <div class="modal" id="saKwModal" hidden>
     <div class="modal-box sa-kw-modal">
       <h3>编辑关键词</h3>
@@ -273,8 +255,82 @@
     </div>
   </div>
 
-  <script src="/static/sa.js?v=sa18"></script>
-  <script src="/static/script.js?v=m20"></script>
-  <script src="/static/story.js?v=accounts1"></script>
+  <div class="modal" id="settleDetailModal" hidden>
+    <div class="modal-box settle-detail-box">
+      <div class="modal-header">
+        <h3 id="settleDetailTitle">成就详情</h3>
+        <button type="button" class="btn ghost" id="settleDetailCloseBtn">关闭</button>
+      </div>
+      <div id="settleDetailBody" class="settle-detail-body"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="bankMoveModal" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="bankMoveTitle">移入文件夹</h3>
+        <button type="button" class="btn ghost" id="bankMoveModalClose">关闭</button>
+      </div>
+      <p class="hint">选择目标文件夹，或移回根列表。</p>
+      <div id="bankMoveList" class="bank-move-list"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="collectionModal" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>组成模考</h3>
+        <button type="button" class="btn ghost" id="collectionModalClose">关闭</button>
+      </div>
+      <p class="hint">勾选至少 2 个客观题章节；建议先斩完再模考。</p>
+      <div class="form-field">
+        <label>模考名称（可留空）</label>
+        <input type="text" id="collectionNameInput" placeholder="例如：操作系统模考" autocomplete="off">
+      </div>
+      <div id="collectionBankChecks" class="collection-checks"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="collectionModalClose2">取消</button>
+        <button type="button" class="btn primary" id="collectionCreateSubmit">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="wrongBookModal" hidden>
+    <div class="modal-box wrong-book-box">
+      <div class="modal-header">
+        <h3>错题本</h3>
+        <button type="button" class="btn ghost" id="wrongBookModalClose">关闭</button>
+      </div>
+      <p class="hint">按模考划分；可勾选多个合成为大错题集。</p>
+      <div id="wrongBookList" class="wrong-book-list"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="wrongMergeBtn">合成选中</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="mockLeaveModal" hidden>
+    <div class="modal-box mock-leave-box">
+      <h3>模考进行中</h3>
+      <p class="mock-leave-lead">要离开考场吗？</p>
+      <ul class="mock-leave-tips">
+        <li><strong>暂时离开</strong>：计时暂停，点回模考可继续</li>
+        <li><strong>交卷</strong>：按已答题结算，本场结束</li>
+      </ul>
+      <div class="modal-actions mock-leave-actions">
+        <button type="button" class="btn ghost" id="mockLeaveStayBtn">继续考试</button>
+        <button type="button" class="btn" id="mockLeavePauseBtn">暂时离开</button>
+        <button type="button" class="btn primary" id="mockLeaveAbortBtn">交卷</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dialog.js?v=1"></script>
+  <script src="/static/sa.js?v=sa25"></script>
+  <script src="/static/sfx.js?v=11"></script>
+  <script src="/static/fx.js?v=5"></script>
+  <script src="/static/script.js?v=m48"></script>
+  <script src="/static/mock.js?v=8"></script>
+  <script src="/static/story.js?v=m3"></script>
 </body>
 </html>

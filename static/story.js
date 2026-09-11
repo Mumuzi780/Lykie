@@ -1,3 +1,22 @@
+
+function uiAlert(message, opts) {
+  if (window.LykieDialog) return LykieDialog.alert(message, opts);
+  window.alert(String(message == null ? '' : message));
+  return Promise.resolve(true);
+}
+function uiConfirm(message, opts) {
+  if (window.LykieDialog) return LykieDialog.confirm(message, opts);
+  return Promise.resolve(!!window.confirm(String(message == null ? '' : message)));
+}
+function uiPrompt(message, defaultValue, opts) {
+  if (window.LykieDialog) return LykieDialog.prompt(message, defaultValue, opts);
+  const v = window.prompt(
+    String(message == null ? '' : message),
+    defaultValue == null ? '' : String(defaultValue)
+  );
+  return Promise.resolve(v);
+}
+
 /**
  * 开场剧情 runner：同一 Lykie 面板播放 StoryGraph。
  * 选项 = 芯片填入输入框，可覆写后发送；大意匹配选项推进。
@@ -502,7 +521,7 @@
   const replay = $('lykieReplayStoryBtn');
   if (replay) {
     replay.onclick = () => {
-      if (confirm('重温开场剧情？当前面板消息会被清空。')) {
+      if (await uiConfirm('重温开场剧情？当前面板消息会被清空。')) {
         startFragment01(true);
       }
     };

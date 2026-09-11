@@ -15,9 +15,12 @@ from docx import Document
 
 from lykie import accounts as lykie_accounts
 from lykie import extract as lykie_extract
+from lykie import folders as lykie_folders
 from lykie import llm as lykie_llm
 from lykie import memory as lykie_memory
+from lykie import mock as lykie_mock
 from lykie import profile as lykie_profile
+from lykie import settle as lykie_settle
 from lykie import short_answer as lykie_sa
 from lykie import typo as lykie_typo
 from story import load_story, list_stories
@@ -32,7 +35,37 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or lykie_accounts.ensure
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# 避免每请求刷新 session cookie，减少手机浏览器「页面壳与 Cookie 不一致」
+app.config["SESSION_REFRESH_EACH_REQUEST"] = False
 app.jinja_env.auto_reload = True
+
+
+class _ForceNoStoreMiddleware:
+    """在 session 写完响应头之后仍强制禁缓存（after_request 会被后续逻辑盖掉）。"""
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO") or ""
+        if path.startswith("/static/"):
+            return self.wsgi_app(environ, start_response)
+
+        def _start_response(status, headers, exc_info=None):
+            out = []
+            for k, v in headers:
+                if k.lower() in ("cache-control", "pragma", "expires"):
+                    continue
+                out.append((k, v))
+            out.append(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"))
+            out.append(("Pragma", "no-cache"))
+            out.append(("Expires", "0"))
+            return start_response(status, out, exc_info)
+
+        return self.wsgi_app(environ, _start_response)
+
+
+app.wsgi_app = _ForceNoStoreMiddleware(app.wsgi_app)
 
 LETTERS = "ABCDEFGH"
 
@@ -62,7 +95,7 @@ def split_answer_analysis(full):
 
 
 def normalize_choice_content(ans, options):
-    """把选择题答案统一成选项内容文本，例如 'A' / 'A. 数据总线' -> '数据总线'。"""
+    """把单选答案统一成选项内容文本，例如 'A' / 'A. 数据总线' -> '数据总线'。"""
     a = ans.strip()
     m = re.match(r"^([A-H])$", a.upper())
     if m:
@@ -70,10 +103,57 @@ def normalize_choice_content(ans, options):
         if 0 <= idx < len(options):
             return options[idx]
         return a
-    m2 = re.match(r"^[A-H][.、．\s]+(.*)$", a)
+    m2 = re.match(r"^[A-H][.、．\s]+(.*)$", a, re.I)
     if m2:
         return m2.group(1).strip()
     return a
+
+
+def normalize_choice_answer(ans, options):
+    """
+    选择题答案规范化：
+    - 多选（答案为 AB / A,C,E 等）→ 按选项序排序的字母串，如 'ACE'
+    - 单选 → 选项内容文本（兼容旧数据）
+    """
+    raw = (ans or "").strip()
+    if not raw or not options:
+        return raw
+    compact = re.sub(r"[\s,，、/;；+＋]+", "", raw.upper())
+    compact = re.sub(r"^(?:参考答案|标准答案|正确答案|答案)", "", compact)
+    if re.fullmatch(r"[A-H]{2,8}", compact):
+        letters = []
+        for c in compact:
+            idx = ord(c) - ord("A")
+            if 0 <= idx < len(options) and c not in letters:
+                letters.append(c)
+        letters.sort()
+        if len(letters) >= 2:
+            return "".join(letters)
+        if len(letters) == 1:
+            return options[ord(letters[0]) - ord("A")]
+    return normalize_choice_content(raw, options)
+
+
+def choice_correct_contents(q):
+    """返回本题正确选项内容列表（单选 1 个，多选多个）。"""
+    opts = q.get("options") or []
+    ans = str(q.get("answer") or "").strip()
+    if not opts or not ans:
+        return []
+    compact = re.sub(r"[\s,，、/;；+＋]+", "", ans.upper())
+    if re.fullmatch(r"[A-H]{2,8}", compact):
+        out = []
+        for c in sorted(set(compact)):
+            idx = ord(c) - ord("A")
+            if 0 <= idx < len(opts):
+                out.append(opts[idx])
+        return out
+    one = normalize_choice_content(ans, opts)
+    return [one] if one else []
+
+
+def is_multi_choice(q):
+    return len(choice_correct_contents(q)) > 1
 
 
 def parse_lines(raw):
@@ -121,7 +201,7 @@ def parse_lines(raw):
             qtype = "fill"
 
         if qtype == "choice":
-            q["answer"] = normalize_choice_content(q["answer"], q["options"])
+            q["answer"] = normalize_choice_answer(q["answer"], q["options"])
         elif qtype == "judge":
             q["answer"] = "对" if q["answer"].strip().lower() in JUDGE_TRUE else "错"
 
@@ -181,6 +261,12 @@ class UserData:
         self.lykie_path = lykie_accounts.lykie_path(username)
         self.banks = []
         self.current_bank_id = None
+        self.collections = []
+        self.wrong_sets = []
+        self.folders = []
+        self.active_mock = None
+        self.active_wrong = None
+        self.last_mock_settle = None
         self._load_banks()
 
     def _load_banks(self):
@@ -206,10 +292,26 @@ class UserData:
         else:
             self.banks = data.get("banks") or []
             self.current_bank_id = data.get("current_bank_id")
+        self.collections = data.get("collections") or []
+        self.wrong_sets = data.get("wrong_sets") or []
+        self.folders = data.get("folders") or []
+        self.active_mock = data.get("active_mock")
+        self.active_wrong = data.get("active_wrong")
+        self.last_mock_settle = data.get("last_mock_settle")
+        lykie_mock.ensure_extras(self)
+        lykie_folders.ensure_folders(self)
+        runs_touched = False
         for b in self.banks:
             for q in b.get("questions", []):
                 ensure_question_defaults(q)
+            if not lykie_sa.is_sa_bank(b):
+                before = b.get("runs")
+                lykie_settle.ensure_bank_runs(b)
+                if before is None or before == []:
+                    runs_touched = True
         if lykie_sa.ensure_bank_modes(self.banks):
+            runs_touched = True
+        if runs_touched:
             try:
                 self.save()
             except OSError:
@@ -221,7 +323,16 @@ class UserData:
         os.makedirs(os.path.dirname(self.bank_path), exist_ok=True)
         with open(self.bank_path, "w", encoding="utf-8") as f:
             json.dump(
-                {"banks": self.banks, "current_bank_id": self.current_bank_id},
+                {
+                    "banks": self.banks,
+                    "current_bank_id": self.current_bank_id,
+                    "collections": getattr(self, "collections", []) or [],
+                    "wrong_sets": getattr(self, "wrong_sets", []) or [],
+                    "folders": getattr(self, "folders", []) or [],
+                    "active_mock": getattr(self, "active_mock", None),
+                    "active_wrong": getattr(self, "active_wrong", None),
+                    "last_mock_settle": getattr(self, "last_mock_settle", None),
+                },
                 f,
                 ensure_ascii=False,
                 indent=2,
@@ -233,6 +344,13 @@ class UserData:
 
 def current_user():
     return session.get("username") or ""
+
+
+def jsonify_user(payload):
+    """JSON 响应附带当前用户名，供前端发现页面壳与会话不一致。"""
+    data = dict(payload or {})
+    data["username"] = g.store.username if getattr(g, "store", None) else current_user()
+    return jsonify(data)
 
 
 # ==================== 登录 ====================
@@ -253,7 +371,7 @@ def require_login():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user() and lykie_accounts.user_exists(current_user()):
-        return redirect(url_for("index"))
+        return redirect(url_for("index") + f"?_={int(time.time())}")
     error = ""
     if request.method == "POST":
         username = request.form.get("username") or ""
@@ -262,7 +380,8 @@ def login():
             session.clear()
             session.permanent = True
             session["username"] = lykie_accounts.normalize_username(username)
-            return redirect(url_for("index"))
+            # 带时间戳，逼手机浏览器丢掉上一账号缓存的 HTML 壳
+            return redirect(url_for("index") + f"?_={int(time.time())}")
         if not lykie_accounts.has_users():
             error = "还没有账号。先在电脑运行：python add_user.py 用户名"
         else:
@@ -273,14 +392,16 @@ def login():
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    resp = redirect(url_for("login") + f"?_={int(time.time())}")
+    resp.headers["Clear-Site-Data"] = '"cache"'
+    return resp
 
 
 def find_question(bank, qid):
     return next((q for q in bank["questions"] if q["id"] == qid), None)
 
 
-def render_question(q):
+def render_question(q, bank=None):
     """返回给前端的题目，选择题按 phase 决定是否打乱选项。"""
     out = {
         "id": q["id"], "type": q["type"], "stem": q["stem"],
@@ -294,23 +415,40 @@ def render_question(q):
             out["options"] = []
             out["answer"] = ""
             out["answer_text"] = q.get("answer", "")
-            return out
-        if q["phase"] == "right":
-            order = random.sample(contents, len(contents))  # 答对队列：打乱
+            out["multi"] = False
         else:
-            order = contents[:]                              # 新题 / 答错队列：原顺序
-        out["options"] = [f"{LETTERS[i]}.{order[i]}" for i in range(len(order))]
-        idx = order.index(q["answer"]) if q["answer"] in order else 0
-        out["answer"] = LETTERS[idx]
-        out["answer_text"] = f"{LETTERS[idx]}.{order[idx]}"
+            correct_set = set(choice_correct_contents(q))
+            multi = len(correct_set) > 1
+            if q.get("phase") == "right":
+                order = random.sample(contents, len(contents))  # 答对队列：打乱
+            else:
+                order = contents[:]                              # 新题 / 答错队列：原顺序
+            out["options"] = [f"{LETTERS[i]}.{order[i]}" for i in range(len(order))]
+            ans_letters = "".join(
+                LETTERS[i] for i, c in enumerate(order) if c in correct_set
+            )
+            # 单选且旧数据用内容匹配失败时，兜底第一项
+            if not ans_letters and not multi:
+                idx = order.index(q["answer"]) if q["answer"] in order else 0
+                ans_letters = LETTERS[idx]
+                correct_set = {order[idx]}
+            out["answer"] = ans_letters
+            out["answer_text"] = "、".join(
+                f"{LETTERS[i]}.{order[i]}" for i, c in enumerate(order) if c in correct_set
+            ) or out["answer"]
+            out["multi"] = multi
     elif q["type"] == "judge":
         out["options"] = ["对", "错"]
         out["answer"] = q["answer"]
         out["answer_text"] = q["answer"]
+        out["multi"] = False
     else:  # fill
         out["options"] = []
         out["answer"] = q["answer"]
         out["answer_text"] = q["answer"]
+        out["multi"] = False
+    if bank is not None and q.get("type") != "short_answer":
+        lykie_settle.attach_question_kill_info(bank, q, out)
     return out
 
 
@@ -318,6 +456,11 @@ def render_question(q):
 @app.route("/")
 def index():
     return render_template("index.html", username=g.store.username)
+
+
+@app.route("/import")
+def import_page():
+    return render_template("import.html", username=g.store.username)
 
 
 @app.route("/sa")
@@ -455,7 +598,7 @@ def api_sa_status():
     counts = lykie_sa.count_progress(progress, qs)
     lykie_sa.save_progress(g.store.username, progress)
     pair = progress.get("active_pair") or []
-    return jsonify({
+    return jsonify_user({
         "ok": True,
         "bank_name": bank.get("name"),
         "total": len(qs),
@@ -490,7 +633,7 @@ def api_sa_next():
             if waiting
             else "短题都练完了，且暂无等待复习的题。可重置进度再来一轮。"
         )
-        return jsonify({
+        return jsonify_user({
             "ok": True,
             "all_done": True,
             "total": len(qs),
@@ -506,7 +649,7 @@ def api_sa_next():
     else:
         card["pair_label"] = "当前组：" + " / ".join(pair) if pair else ""
     lykie_sa.save_progress(g.store.username, progress)
-    return jsonify(card)
+    return jsonify_user(card)
 
 
 @app.route("/api/sa/warmup_answer", methods=["POST"])
@@ -894,6 +1037,7 @@ def api_sa_reset():
 
 @app.route("/api/banks")
 def api_banks():
+    lykie_folders.ensure_folders(g.store)
     result = []
     for b in g.store.banks:
         qs = b["questions"]
@@ -906,26 +1050,409 @@ def api_banks():
             "killed": sum(1 for q in qs if q.get("status") == "killed"),
             "is_sa": is_sa,
             "mode": b.get("mode") or ("short_answer" if is_sa else "objective"),
+            "folder_id": b.get("folder_id") or None,
         })
-    return jsonify({"banks": result, "current_bank_id": g.store.current_bank_id})
+    return jsonify_user({
+        "banks": result,
+        "current_bank_id": g.store.current_bank_id,
+        "folders": lykie_folders.list_folders(g.store),
+        "collections": lykie_mock.list_collections(g.store),
+        "wrong_sets": lykie_mock.list_wrong_sets(g.store),
+    })
+
+
+@app.route("/api/folders/create", methods=["POST"])
+def api_folders_create():
+    data = request.get_json(force=True) or {}
+    folder, err = lykie_folders.create_folder(g.store, data.get("name") or "")
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "folder": {
+            "id": folder["id"],
+            "name": folder["name"],
+            "created_at": folder.get("created_at") or "",
+            "count": 0,
+        },
+        "folders": lykie_folders.list_folders(g.store),
+    })
+
+
+@app.route("/api/folders/rename", methods=["POST"])
+def api_folders_rename():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_folders.rename_folder(
+        g.store, str(data.get("id") or ""), data.get("name") or ""
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "folders": lykie_folders.list_folders(g.store)})
+
+
+@app.route("/api/folders/delete", methods=["POST"])
+def api_folders_delete():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_folders.delete_folder(g.store, str(data.get("id") or ""))
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "folders": lykie_folders.list_folders(g.store),
+        "banks": [
+            {
+                "id": b["id"],
+                "folder_id": b.get("folder_id") or None,
+            }
+            for b in g.store.banks
+        ],
+    })
+
+
+@app.route("/api/folders/reorder", methods=["POST"])
+def api_folders_reorder():
+    data = request.get_json(force=True) or {}
+    ids = data.get("ids")
+    ok, err = lykie_folders.reorder_folders(g.store, ids if isinstance(ids, list) else [])
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "folders": lykie_folders.list_folders(g.store)})
+
+
+@app.route("/api/banks/move", methods=["POST"])
+def api_banks_move():
+    data = request.get_json(force=True) or {}
+    fid = data.get("folder_id")
+    if fid is not None and fid != "":
+        fid = str(fid)
+    else:
+        fid = None
+    ok, err = lykie_folders.move_bank(g.store, str(data.get("id") or ""), fid)
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "folders": lykie_folders.list_folders(g.store),
+    })
+
+
+def _render_mock_q(q):
+    """模考/错题练习用：不附斩题信息，选项按原序。"""
+    snap = dict(q)
+    snap["phase"] = "new"
+    return render_question(snap, bank=None)
+
+
+@app.route("/api/collections", methods=["GET"])
+def api_collections():
+    return jsonify_user({"collections": lykie_mock.list_collections(g.store)})
+
+
+@app.route("/api/collections/create", methods=["POST"])
+def api_collections_create():
+    data = request.get_json(force=True) or {}
+    col, err, warnings = lykie_mock.create_collection(
+        g.store, data.get("source_bank_ids") or [], data.get("name")
+    )
+    if err:
+        return jsonify({"ok": False, "error": err, "warnings": warnings}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "collection": {
+            "id": col["id"],
+            "name": col.get("name"),
+            "total": len(col.get("question_refs") or []),
+            "source_bank_ids": col.get("source_bank_ids") or [],
+        },
+        "warnings": warnings,
+        "collections": lykie_mock.list_collections(g.store),
+        "wrong_sets": lykie_mock.list_wrong_sets(g.store),
+    })
+
+
+@app.route("/api/collections/rename", methods=["POST"])
+def api_collections_rename():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_mock.rename_collection(g.store, str(data.get("id") or ""), data.get("name") or "")
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "collections": lykie_mock.list_collections(g.store)})
+
+
+@app.route("/api/collections/delete", methods=["POST"])
+def api_collections_delete():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_mock.delete_collection(g.store, str(data.get("id") or ""))
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "collections": lykie_mock.list_collections(g.store)})
+
+
+@app.route("/api/mock/start", methods=["POST"])
+def api_mock_start():
+    data = request.get_json(force=True) or {}
+    sess, err = lykie_mock.start_mock(
+        g.store,
+        str(data.get("collection_id") or ""),
+        force_new=bool(data.get("force_new")),
+    )
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return api_mock_current()
+
+
+@app.route("/api/mock/status")
+def api_mock_status():
+    lykie_mock.ensure_extras(g.store)
+    sess = g.store.active_mock
+    last = g.store.last_mock_settle
+    return jsonify_user({
+        "ok": True,
+        "active": bool(sess and not sess.get("finished")),
+        "paused": bool(sess and sess.get("paused")),
+        "collection_id": (sess or {}).get("collection_id") if sess else None,
+        "elapsed_sec": lykie_mock.mock_elapsed_sec(sess) if sess else 0,
+        "last_settle": last,
+    })
+
+
+@app.route("/api/mock/pause", methods=["POST"])
+def api_mock_pause():
+    sess, err = lykie_mock.pause_mock(g.store)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "paused": True,
+        "elapsed_sec": lykie_mock.mock_elapsed_sec(sess),
+        "collection_id": sess.get("collection_id"),
+    })
+
+
+@app.route("/api/mock/resume", methods=["POST"])
+def api_mock_resume():
+    sess, err = lykie_mock.resume_mock(g.store)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return api_mock_current()
+
+
+@app.route("/api/mock/abort", methods=["POST"])
+def api_mock_abort():
+    settle, err = lykie_mock.abort_mock(g.store)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "settle": settle})
+
+
+@app.route("/api/mock/current")
+def api_mock_current():
+    sess, item, err = lykie_mock._mock_current_item(g.store)
+    if err and err != "done":
+        # 无进行中：若有结算缓存可返回
+        last = getattr(g.store, "last_mock_settle", None)
+        return jsonify_user({
+            "ok": True,
+            "active": False,
+            "done": bool(last),
+            "settle": last,
+            "error": err if err != "没有进行中的模考" else None,
+        })
+    if err == "done" or (sess and int(sess.get("cursor") or 0) >= len(sess.get("order") or [])):
+        settle, _ = lykie_mock.finish_mock(g.store)
+        g.store.save()
+        return jsonify_user({"ok": True, "done": True, "settle": settle, "active": False})
+    if not sess or not item:
+        return jsonify_user({"ok": True, "active": False})
+    # 暂停中不自动 resume，避免切题库后后台把计时跑起来
+    q = _render_mock_q(item["q"])
+    q["source_bank_id"] = item["source_bank_id"]
+    q["source_qid"] = item["source_qid"]
+    q["bank_name"] = item.get("bank_name") or ""
+    return jsonify_user({
+        "ok": True,
+        "active": True,
+        "done": False,
+        "paused": bool(sess.get("paused")),
+        "question": q,
+        "index": int(sess.get("cursor") or 0) + 1,
+        "total": int(sess.get("total") or 0),
+        "streak": int(sess.get("streak") or 0),
+        "max_streak": int(sess.get("max_streak") or 0),
+        "correct_count": int(sess.get("correct_count") or 0),
+        "wrong_count": int(sess.get("wrong_count") or 0),
+        "elapsed_sec": lykie_mock.mock_elapsed_sec(sess),
+        "collection_id": sess.get("collection_id"),
+        "run_index": int(sess.get("run_index") or 1),
+    })
+
+
+@app.route("/api/mock/answer", methods=["POST"])
+def api_mock_answer():
+    data = request.get_json(force=True) or {}
+    # 答题时若处于暂停，先恢复计时
+    if g.store.active_mock and g.store.active_mock.get("paused"):
+        lykie_mock.resume_mock(g.store)
+    payload, err = lykie_mock.answer_mock(g.store, bool(data.get("correct")))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    out = dict(payload or {})
+    if not out.get("done"):
+        cur = api_mock_current()
+        body = cur.get_json()
+        out["next"] = body
+    return jsonify_user(out)
+
+
+@app.route("/api/mock/finish", methods=["POST"])
+def api_mock_finish():
+    settle, err = lykie_mock.finish_mock(g.store)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "settle": settle})
+
+
+@app.route("/api/wrong_sets")
+def api_wrong_sets():
+    return jsonify_user({"wrong_sets": lykie_mock.list_wrong_sets(g.store)})
+
+
+@app.route("/api/wrong_sets/merge", methods=["POST"])
+def api_wrong_sets_merge():
+    data = request.get_json(force=True) or {}
+    ws, err = lykie_mock.merge_wrong_sets(g.store, data.get("ids") or [], data.get("name"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "wrong_set": {"id": ws["id"], "name": ws["name"], "count": len(ws.get("items") or [])}, "wrong_sets": lykie_mock.list_wrong_sets(g.store)})
+
+
+@app.route("/api/wrong_sets/rename", methods=["POST"])
+def api_wrong_sets_rename():
+    data = request.get_json(force=True) or {}
+    ws = lykie_mock.find_wrong_set(g.store, str(data.get("id") or ""))
+    if not ws:
+        return jsonify({"ok": False, "error": "错题集不存在"}), 404
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "名称不能为空"}), 400
+    ws["name"] = name
+    g.store.save()
+    return jsonify_user({"ok": True, "wrong_sets": lykie_mock.list_wrong_sets(g.store)})
+
+
+@app.route("/api/wrong_sets/delete", methods=["POST"])
+def api_wrong_sets_delete():
+    data = request.get_json(force=True) or {}
+    wid = str(data.get("id") or "")
+    ensure = lykie_mock.find_wrong_set(g.store, wid)
+    if not ensure:
+        return jsonify({"ok": False, "error": "错题集不存在"}), 404
+    g.store.wrong_sets = [w for w in g.store.wrong_sets if str(w.get("id")) != wid]
+    if g.store.active_wrong and str(g.store.active_wrong.get("wrong_set_id")) == wid:
+        g.store.active_wrong = None
+    g.store.save()
+    return jsonify_user({"ok": True, "wrong_sets": lykie_mock.list_wrong_sets(g.store)})
+
+
+@app.route("/api/wrong/remove", methods=["POST"])
+def api_wrong_remove():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_mock.remove_wrong_item(
+        g.store,
+        str(data.get("wrong_set_id") or ""),
+        str(data.get("source_bank_id") or ""),
+        str(data.get("source_qid") or ""),
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True, "wrong_sets": lykie_mock.list_wrong_sets(g.store)})
+
+
+@app.route("/api/wrong/start", methods=["POST"])
+def api_wrong_start():
+    data = request.get_json(force=True) or {}
+    sess, err = lykie_mock.start_wrong_practice(g.store, str(data.get("wrong_set_id") or ""))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return api_wrong_current()
+
+
+@app.route("/api/wrong/current")
+def api_wrong_current():
+    sess, item, err = lykie_mock._wrong_current(g.store)
+    if err == "done":
+        g.store.active_wrong = None
+        g.store.save()
+        return jsonify_user({"ok": True, "done": True, "active": False})
+    if err or not sess or not item:
+        return jsonify_user({"ok": True, "active": False, "error": err or None})
+    q = _render_mock_q(item["q"])
+    q["source_bank_id"] = item["source_bank_id"]
+    q["source_qid"] = item["source_qid"]
+    remaining = len(sess.get("order") or []) - int(sess.get("cursor") or 0)
+    return jsonify_user({
+        "ok": True,
+        "active": True,
+        "done": False,
+        "question": q,
+        "index": int(sess.get("cursor") or 0) + 1,
+        "total": len(sess.get("order") or []),
+        "remaining": remaining,
+        "wrong_set_id": sess.get("wrong_set_id"),
+    })
+
+
+@app.route("/api/wrong/answer", methods=["POST"])
+def api_wrong_answer():
+    data = request.get_json(force=True) or {}
+    payload, err = lykie_mock.answer_wrong_practice(g.store, bool(data.get("correct")))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    out = dict(payload or {})
+    if not out.get("done"):
+        cur = api_wrong_current()
+        out["next"] = cur.get_json()
+    else:
+        out["wrong_sets"] = lykie_mock.list_wrong_sets(g.store)
+    return jsonify_user(out)
 
 
 @app.route("/api/status")
 def api_status():
     b = g.store.current_bank()
     if not b:
-        return jsonify({
+        return jsonify_user({
             "total": 0, "killed": 0, "active": 0, "types": {}, "name": None,
             "is_sa": False, "mode": None,
         })
     qs = b["questions"]
-    total = len(qs)
-    killed = sum(1 for q in qs if q.get("status") == "killed")
+    # 客观题进度（斩完结算只看客观）
+    obj = [q for q in qs if q.get("type") != "short_answer"]
+    total = len(obj) if obj else len(qs)
+    killed = sum(1 for q in (obj or qs) if q.get("status") == "killed")
     types = {}
     for q in qs:
         types[q["type"]] = types.get(q["type"], 0) + 1
     is_sa = lykie_sa.is_sa_bank(b)
-    return jsonify({
+    payload = {
         "total": total,
         "killed": killed,
         "active": total - killed,
@@ -933,7 +1460,28 @@ def api_status():
         "name": b.get("name"),
         "is_sa": is_sa,
         "mode": b.get("mode") or ("short_answer" if is_sa else "objective"),
-    })
+    }
+    if not is_sa:
+        run = lykie_settle.ensure_bank_runs(b)
+        payload["run_index"] = int((run or {}).get("index") or 1)
+        payload["run_streak"] = int((run or {}).get("streak") or 0)
+        payload["run_max_streak"] = int((run or {}).get("max_streak") or 0)
+        payload["all_cleared"] = bool(obj) and killed == total and total > 0
+    return jsonify_user(payload)
+
+
+@app.route("/api/settle")
+def api_settle():
+    """斩完 / 周目结算墙数据。?run=N 查看指定周目。"""
+    b = g.store.current_bank()
+    if not b:
+        return jsonify({"ok": False, "error": "无当前题库"}), 404
+    if lykie_sa.is_sa_bank(b):
+        return jsonify({"ok": False, "error": "简答库无斩题结算"}), 400
+    run_arg = request.args.get("run")
+    run_index = int(run_arg) if run_arg and str(run_arg).isdigit() else None
+    data = lykie_settle.build_settle(b, run_index)
+    return jsonify({"ok": True, **data})
 
 
 @app.route("/api/select_bank", methods=["POST"])
@@ -959,6 +1507,11 @@ def api_import():
             "error": "只支持 .docx 格式。若是 .doc 文件，请用 Word 另存为 .docx 后再导入。",
         }), 400
 
+    preview = str(request.form.get("preview") or "").lower() in ("1", "true", "yes")
+    name = str(request.form.get("name") or "").strip()
+    if not name:
+        name = os.path.splitext(filename)[0] or filename
+
     fd, tmp = tempfile.mkstemp(suffix=".docx")
     os.close(fd)
     f.save(tmp)
@@ -973,14 +1526,34 @@ def api_import():
     if not questions:
         return jsonify({"ok": False, "error": "没有解析出题目，请检查文档格式"}), 400
 
+    if preview:
+        preview_data = []
+        for q in questions:
+            preview_data.append({
+                "type": q["type"],
+                "stem": q["stem"],
+                "options": q.get("options", []),
+                "answer": q["answer"],
+                "analysis": q.get("analysis", ""),
+            })
+        return jsonify({
+            "ok": True,
+            "preview": True,
+            "total": len(questions),
+            "questions": preview_data,
+            "suggested_name": name,
+        })
+
     b = {
         "id": new_bank_id(),
-        "name": os.path.splitext(filename)[0] or filename,
+        "name": name,
         "imported_at": now_str(),
         "questions": questions,
+        "folder_id": None,
     }
     g.store.banks.append(b)
     g.store.current_bank_id = b["id"]
+    lykie_settle.ensure_bank_runs(b)
     g.store.save()
     return jsonify({"ok": True, "total": len(questions), "bank_id": b["id"]})
 
@@ -1015,9 +1588,16 @@ def api_import_text():
             })
         return jsonify({"ok": True, "preview": True, "total": len(questions), "questions": preview_data})
 
-    b = {"id": new_bank_id(), "name": name, "imported_at": now_str(), "questions": questions}
+    b = {
+        "id": new_bank_id(),
+        "name": name,
+        "imported_at": now_str(),
+        "questions": questions,
+        "folder_id": None,
+    }
     g.store.banks.append(b)
     g.store.current_bank_id = b["id"]
+    lykie_settle.ensure_bank_runs(b)
     g.store.save()
     return jsonify({"ok": True, "total": len(questions), "bank_id": b["id"]})
 
@@ -1027,12 +1607,21 @@ def api_next():
     b = g.store.current_bank()
     if not b:
         return jsonify({"question": None, "reason": "empty"})
+    lykie_settle.ensure_bank_runs(b)
     active = [
         q for q in b["questions"]
         if q.get("status") != "killed" and q.get("type") != "short_answer"
     ]
     if not active:
-        return jsonify({"question": None, "reason": "done"})
+        run = lykie_settle.current_run(b)
+        if not run.get("cleared_at"):
+            lykie_settle.mark_run_cleared(b, run)
+            g.store.save()
+        return jsonify({
+            "question": None,
+            "reason": "done",
+            "run_index": int(run.get("index") or 1),
+        })
 
     due = [q for q in active if q["countdown"] == 0]
     chosen = random.choice(due) if due else min(active, key=lambda x: x["countdown"])
@@ -1043,7 +1632,7 @@ def api_next():
             q["countdown"] = max(0, q["countdown"] - 1)
 
     g.store.save()
-    return jsonify({"question": render_question(chosen), "reason": "ok"})
+    return jsonify({"question": render_question(chosen, b), "reason": "ok"})
 
 
 @app.route("/api/answer", methods=["POST"])
@@ -1057,22 +1646,20 @@ def api_answer():
         return jsonify({"ok": False, "error": "题目不存在"}), 404
 
     correct = bool(data.get("correct", False))
-    q["answer_count"] = q.get("answer_count", 0) + 1
-    if correct:
-        q["correct_count"] = q.get("correct_count", 0) + 1
-
-    if correct:
-        q["streak"] = q.get("streak", 0) + 1
-        q["interval"] = 8 * (2 ** (q["streak"] - 1))  # 8, 16, 32, ...
-        q["countdown"] = q["interval"]
-        q["phase"] = "right"
-    else:
-        q["streak"] = 0
-        q["interval"] = 5
-        q["countdown"] = 5
-        q["phase"] = "wrong"
+    run = lykie_settle.record_answer(b, q, correct)
+    st = lykie_settle.run_qstat(run, str(q["id"]))
+    can, reason = lykie_settle.kill_gate(q, run)
     g.store.save()
-    return jsonify({"ok": True})
+    return jsonify({
+        "ok": True,
+        "run_streak": int(run.get("streak") or 0),
+        "run_max_streak": int(run.get("max_streak") or 0),
+        "run_answer_count": int(st.get("answer_count") or 0),
+        "run_correct_count": int(st.get("correct_count") or 0),
+        "can_kill": can,
+        "kill_block_reason": reason,
+        "phase": q.get("phase"),
+    })
 
 
 @app.route("/api/update_question", methods=["POST"])
@@ -1094,6 +1681,8 @@ def api_update_question():
         q["options"] = [str(x).strip() for x in data["options"] if str(x).strip()]
     if "answer" in data:
         q["answer"] = data["answer"]
+    if q.get("type") == "choice" and q.get("options"):
+        q["answer"] = normalize_choice_answer(str(q.get("answer") or ""), q["options"])
     if "analysis" in data:
         q["analysis"] = str(data.get("analysis") or "").strip()
     if "keywords" in data:
@@ -1112,13 +1701,21 @@ def api_kill():
     b = g.store.current_bank()
     if not b:
         return jsonify({"ok": False, "error": "无当前题库"}), 404
-    data = request.get_json(force=True)
+    data = request.get_json(force=True) or {}
     q = find_question(b, str(data.get("id", "")))
     if not q:
         return jsonify({"ok": False, "error": "题目不存在"}), 404
-    q["status"] = "killed"
+    as_correct = bool(data.get("as_correct"))
+    ok, reason, run = lykie_settle.apply_kill(b, q, as_correct=as_correct)
+    if not ok:
+        return jsonify({"ok": False, "error": reason}), 400
     g.store.save()
-    return jsonify({"ok": True})
+    return jsonify({
+        "ok": True,
+        "run_streak": int((run or {}).get("streak") or 0),
+        "run_max_streak": int((run or {}).get("max_streak") or 0),
+        "cleared": bool((run or {}).get("cleared_at")),
+    })
 
 
 @app.route("/api/reset", methods=["POST"])
@@ -1126,12 +1723,15 @@ def api_reset():
     b = g.store.current_bank()
     if not b:
         return jsonify({"ok": False, "error": "无当前题库"}), 404
-    for q in b["questions"]:
-        q["status"] = "active"
-        q["phase"] = "new"
-        q["interval"] = 0
-        q["countdown"] = 0
-        q["streak"] = 0
+    if not lykie_sa.is_sa_bank(b):
+        lykie_settle.start_new_run_on_reset(b)
+    else:
+        for q in b["questions"]:
+            q["status"] = "active"
+            q["phase"] = "new"
+            q["interval"] = 0
+            q["countdown"] = 0
+            q["streak"] = 0
     g.store.save()
     return jsonify({"ok": True})
 
@@ -1233,6 +1833,8 @@ def api_add_question():
         "answer_count": 0,
         "correct_count": 0,
     }
+    if q["type"] == "choice" and q["options"]:
+        q["answer"] = normalize_choice_answer(str(q.get("answer") or ""), q["options"])
     if "keywords" in data:
         raw = data["keywords"]
         if isinstance(raw, str):

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>导入题库 · Lykie</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m63">
+  <link rel="stylesheet" href="/static/import.css?v=1">
+</head>
+<body class="import-page">
+  <div class="import-shell">
+    <header class="import-top">
+      <h1 class="brand-title">Lykie <span class="brand-sub">导入</span></h1>
+      <div class="actions">
+        <a class="btn ghost" href="/">返回背题</a>
+        <span class="account-name" title="当前账号">{{ username }}</span>
+        <a class="btn ghost" href="/logout">退出</a>
+      </div>
+    </header>
+
+    <nav class="import-steps" aria-label="导入步骤">
+      <button type="button" class="import-step is-active" data-step="1" id="stepTab1">1 输入</button>
+      <button type="button" class="import-step" data-step="2" id="stepTab2" disabled>2 预览</button>
+      <button type="button" class="import-step" data-step="3" id="stepTab3" disabled>3 入库</button>
+    </nav>
+
+    <main class="import-main">
+      <section class="import-panel" id="panelInput">
+        <h2 class="import-heading">粘贴或上传题库</h2>
+        <p class="import-lead">支持粘贴文本，或上传 Word（.docx）。格式：题号 + 题干 → A/B/C/D 选项 →「参考答案：」。</p>
+
+        <div class="import-source-row">
+          <label class="import-file-btn btn ghost">
+            选择 .docx
+            <input type="file" id="importFile" accept=".docx" hidden>
+          </label>
+          <span class="import-file-name" id="importFileName">未选择文件</span>
+          <button type="button" class="btn ghost" id="clearFileBtn" hidden>清除文件</button>
+        </div>
+
+        <div class="form-field">
+          <label for="importText">题库文本</label>
+          <textarea id="importText" rows="16" placeholder="1. 题干……&#10;A. 选项&#10;B. 选项&#10;参考答案：A&#10;&#10;2. ……"></textarea>
+        </div>
+        <p class="hint" id="inputHint">已选 Word 时，将以文件内容为准；也可清空文件后只粘贴文本。</p>
+
+        <div class="import-actions">
+          <a class="btn ghost" href="/">取消</a>
+          <button type="button" class="btn primary" id="toPreviewBtn">预览解析</button>
+        </div>
+      </section>
+
+      <section class="import-panel" id="panelPreview" hidden>
+        <h2 class="import-heading">校对解析结果</h2>
+        <p class="import-lead" id="previewSummary">共 0 题</p>
+        <div class="import-preview-list" id="previewList"></div>
+        <div class="import-actions">
+          <button type="button" class="btn ghost" id="backToInputBtn">返回修改</button>
+          <button type="button" class="btn primary" id="toSaveBtn">下一步：命名入库</button>
+        </div>
+      </section>
+
+      <section class="import-panel" id="panelSave" hidden>
+        <h2 class="import-heading">命名并入库</h2>
+        <p class="import-lead" id="saveSummary">将导入 0 题</p>
+        <div class="form-field">
+          <label for="importName">题库名称</label>
+          <input id="importName" type="text" placeholder="例如：操作系统第3章" autocomplete="off">
+        </div>
+        <div class="import-actions">
+          <button type="button" class="btn ghost" id="backToPreviewBtn">返回预览</button>
+          <button type="button" class="btn primary" id="confirmImportBtn">确认导入</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/dialog.js?v=1"></script>
+  <script src="/static/import.js?v=1"></script>
+</body>
+</html>

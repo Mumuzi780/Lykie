@@ -20,7 +20,7 @@ TOKEN = (DIST / "_csrf.txt").read_text(encoding="utf-8").strip()
 REMOTE_ROOT = "C:/wwwroot/Lykie"
 PY = r"C:\Program Files\python\python.exe"
 
-# 只同步代码与配置；不覆盖远端用户题库/进度
+# 只同步代码与配置；默认不覆盖远端用户题库/进度（可用 --user 指定账号）
 SYNC_FILES = [
     "app.py",
     "requirements.txt",
@@ -31,21 +31,36 @@ SYNC_FILES = [
     "lykie/__init__.py",
     "lykie/accounts.py",
     "lykie/extract.py",
+    "lykie/folders.py",
     "lykie/llm.py",
     "lykie/memory.py",
+    "lykie/mock.py",
     "lykie/profile.py",
+    "lykie/settle.py",
     "lykie/short_answer.py",
     "lykie/typo.py",
     "lykie/prompt_core.txt",
     "lykie/self.txt",
+    "story/__init__.py",
+    "static/dialog.js",
     "static/sa.js",
     "static/sa.css",
     "static/script.js",
+    "static/sfx.js",
+    "static/fx.js",
+    "static/mock.js",
     "static/style.css",
+    "static/story.js",
+    "static/import.js",
+    "static/import.css",
     "templates/sa.html",
     "templates/index.html",
+    "templates/import.html",
     "templates/login.html",
     "docs/简答训练-测试笔记.md",
+    "docs/版本日志.md",
+    "docs/产品定位.md",
+    "data/stories/fragment_01.json",
 ]
 
 CJ = http.cookiejar.MozillaCookieJar(str(COOKIE))
