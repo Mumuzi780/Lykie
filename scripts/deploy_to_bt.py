@@ -32,6 +32,10 @@ SYNC_FILES = [
     "lykie/accounts.py",
     "lykie/extract.py",
     "lykie/folders.py",
+    "lykie/import_exemplar.py",
+    "lykie/import_noise.py",
+    "lykie/import_rules.py",
+    "lykie/import_scan.py",
     "lykie/llm.py",
     "lykie/memory.py",
     "lykie/mock.py",
@@ -60,6 +64,8 @@ SYNC_FILES = [
     "docs/简答训练-测试笔记.md",
     "docs/版本日志.md",
     "docs/产品定位.md",
+    "docs/进题导入-设计草案.md",
+    "docs/进题导入-脏文本样本.md",
     "data/stories/fragment_01.json",
 ]
 

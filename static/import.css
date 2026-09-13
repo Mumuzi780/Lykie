@@ -1,4 +1,4 @@
-/* 独立导入页 */
+/* 独立导入页（主题色跟随 style.css 的 data-theme） */
 .import-page {
   min-height: 100vh;
   min-height: 100dvh;
@@ -11,7 +11,7 @@
 }
 
 .import-shell {
-  max-width: 920px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 20px 22px 48px;
   min-height: 100vh;
@@ -108,10 +108,45 @@
   cursor: pointer;
 }
 
-.import-file-name {
-  font-size: 13px;
-  color: var(--muted);
+.import-source-row .hint {
+  margin: 0;
+}
+
+.import-file-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--active) 55%, var(--card));
+}
+
+.import-file-card-main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.import-file-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
   word-break: break-all;
+  margin-bottom: 6px;
+}
+
+.import-file-card-main .hint {
+  margin: 0;
+}
+
+.import-file-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .import-panel .form-field {
@@ -223,11 +258,374 @@
   color: var(--answer-text);
 }
 
+.import-q.is-need-confirm {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--active) 55%, var(--card));
+}
+
+.import-q-badge {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.import-q-confirm {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: var(--surface);
+}
+
+.import-q-confirm-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 6px;
+}
+
+.import-pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.import-pick-btn {
+  min-width: 36px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.import-pick-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--active);
+}
+
+.import-q-raw {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.import-repick {
+  margin-left: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.import-repick:hover {
+  color: var(--primary);
+}
+
+.import-type-banner {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.import-type-banner-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.import-type-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-type-list li {
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.import-type-list li.is-miss {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--active) 60%, var(--card));
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.import-type-list li.is-ok {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+.import-type-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.import-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  margin-top: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.import-ack input {
+  margin-top: 2px;
+}
+
+.import-exemplar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-exemplar-stack textarea {
+  min-height: 0;
+}
+
+.import-sa-preview {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.import-sa-title {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.import-scan-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 8px 0 14px;
+}
+
+.import-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 14px 16px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.import-type-card:hover {
+  border-color: var(--primary);
+}
+
+.import-type-card.is-ok {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+
+.import-type-card-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.import-type-card-count {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.import-type-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.import-type-card.is-ok .import-type-card-meta {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.import-exemplar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.import-fallback-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.import-fallback-copy {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.import-fallback-q {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.import-fallback-copy .hint {
+  margin: 0;
+}
+
+.import-fallback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.import-pool-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow: auto;
+  margin: 0 0 12px;
+}
+
+.import-pool-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--card);
+}
+
+.import-pool-item summary {
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.import-pool-sec {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-pool-text {
+  margin: 8px 0;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface);
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+
+.import-callout {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.import-callout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.import-callout-head strong {
+  font-size: 14px;
+}
+
+.import-callout .hint {
+  margin-bottom: 0;
+}
+
 .import-q-analysis {
   font-size: 12px;
   color: var(--muted);
   margin-top: 4px;
   line-height: 1.45;
+}
+
+.import-exemplar-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.import-exemplar-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.import-exemplar-col-head label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.import-exemplar-col textarea {
+  min-height: 360px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.import-exemplar-col .hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 860px) {
+  .import-exemplar-grid {
+    grid-template-columns: 1fr;
+  }
+  .import-exemplar-col textarea {
+    min-height: 220px;
+  }
 }
 
 @media (max-width: 640px) {

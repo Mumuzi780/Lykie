@@ -4,11 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>导入题库 · Lykie</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=m63">
-  <link rel="stylesheet" href="/static/import.css?v=1">
+  <link rel="stylesheet" href="/static/import.css?v=11">
 </head>
 <body class="import-page">
   <div class="import-shell">
@@ -23,42 +32,146 @@
 
     <nav class="import-steps" aria-label="导入步骤">
       <button type="button" class="import-step is-active" data-step="1" id="stepTab1">1 输入</button>
-      <button type="button" class="import-step" data-step="2" id="stepTab2" disabled>2 预览</button>
-      <button type="button" class="import-step" data-step="3" id="stepTab3" disabled>3 入库</button>
+      <button type="button" class="import-step" data-step="2" id="stepTab2" disabled>2 题型</button>
+      <button type="button" class="import-step" data-step="3" id="stepTab3" disabled>3 样板</button>
+      <button type="button" class="import-step" data-step="4" id="stepTab4" disabled>4 预览</button>
+      <button type="button" class="import-step" data-step="5" id="stepTab5" disabled>5 入库</button>
     </nav>
 
     <main class="import-main">
       <section class="import-panel" id="panelInput">
         <h2 class="import-heading">粘贴或上传题库</h2>
-        <p class="import-lead">支持粘贴文本，或上传 Word（.docx）。格式：题号 + 题干 → A/B/C/D 选项 →「参考答案：」。</p>
+        <p class="import-lead">先放入文字或 Word。下一步只看检出了哪些题型；点进题型再挑样板。</p>
+
+        <div class="import-callout">
+          <div class="import-callout-head">
+            <strong>截图 / 排版很乱？</strong>
+            <button type="button" class="btn ghost" id="copyWashPromptBtn">复制洗稿提示词</button>
+          </div>
+          <p class="hint">把截图或原文丢给豆包等免费 AI，粘贴下面提示词，再把整理结果贴回本页。</p>
+        </div>
 
         <div class="import-source-row">
           <label class="import-file-btn btn ghost">
             选择 .docx
             <input type="file" id="importFile" accept=".docx" hidden>
           </label>
-          <span class="import-file-name" id="importFileName">未选择文件</span>
-          <button type="button" class="btn ghost" id="clearFileBtn" hidden>清除文件</button>
+          <span class="hint" id="importSourceModeHint">也可直接在下方粘贴文本</span>
         </div>
 
-        <div class="form-field">
-          <label for="importText">题库文本</label>
-          <textarea id="importText" rows="16" placeholder="1. 题干……&#10;A. 选项&#10;B. 选项&#10;参考答案：A&#10;&#10;2. ……"></textarea>
+        <!-- 粘贴主路径 -->
+        <div id="pasteSourceWrap">
+          <div class="form-field">
+            <label for="importText">题库文本</label>
+            <textarea id="importText" rows="16" placeholder="粘贴整章文本，可含多节「一、单选题」「二、填空题」…"></textarea>
+          </div>
+          <p class="hint" id="inputHint">选 Word 或直接粘贴。保留「一、填空题」等大题标题，系统才能归并分散的同型题。</p>
         </div>
-        <p class="hint" id="inputHint">已选 Word 时，将以文件内容为准；也可清空文件后只粘贴文本。</p>
+
+        <!-- Word：收起大框，只保留文件状态 -->
+        <div id="fileSourceCard" class="import-file-card" hidden>
+          <div class="import-file-card-main">
+            <div class="import-file-card-title" id="importFileCardName">document.docx</div>
+            <p class="hint" id="importFileCardMeta">已选定 Word。下一步将抽出文本并扫描题型；正文不在此页展开（避免大段刷屏）。</p>
+          </div>
+          <div class="import-file-card-actions">
+            <button type="button" class="btn ghost" id="clearFileBtn">清除文件</button>
+            <button type="button" class="btn ghost" id="switchToPasteBtn">改用粘贴</button>
+          </div>
+        </div>
 
         <div class="import-actions">
           <a class="btn ghost" href="/">取消</a>
-          <button type="button" class="btn primary" id="toPreviewBtn">预览解析</button>
+          <button type="button" class="btn primary" id="toScanBtn">下一步：扫描题型</button>
+        </div>
+      </section>
+
+      <section class="import-panel" id="panelScan" hidden>
+        <h2 class="import-heading">题型检测</h2>
+        <p class="import-lead" id="scanSummary">正在扫描…</p>
+        <p class="hint">点一种题型进入样板选择；选完会回到本页。可只为选择题选样板再继续。</p>
+        <div id="scanOverview" class="import-scan-overview"></div>
+        <label class="import-ack" id="importSaWrap" hidden>
+          <input type="checkbox" id="importSaCheck">
+          同时另建简答题库（需已选简答样板；不与客观题混库）
+        </label>
+        <div class="import-actions">
+          <button type="button" class="btn ghost" id="backToInputBtn">返回输入</button>
+          <button type="button" class="btn primary" id="toPreviewFromScanBtn">继续：预览</button>
+        </div>
+      </section>
+
+      <section class="import-panel" id="panelExemplar" hidden>
+        <h2 class="import-heading" id="exemplarHeading">选择题样板</h2>
+        <p class="import-lead" id="exemplarLead">从归并池里挑一道作样板。</p>
+
+        <!-- 主路径：池子点选 -->
+        <div id="exemplarPoolMode">
+          <div class="import-fallback-callout" id="exemplarFallbackCallout">
+            <div class="import-fallback-copy">
+              <p class="import-fallback-q" id="exemplarFallbackQ">系统没切准？</p>
+              <p class="hint" id="exemplarFallbackHint">可微调当前样板，或对照原文手选一道。</p>
+            </div>
+            <div class="import-fallback-actions">
+              <button type="button" class="btn ghost" id="toTweakExemplarBtn">微调样板</button>
+              <button type="button" class="btn ghost" id="toSourceExemplarBtn">对照原文选样板</button>
+            </div>
+          </div>
+
+          <div class="import-exemplar-toolbar">
+            <button type="button" class="btn primary" id="useFirstExemplarBtn">用第 1 题作样板</button>
+          </div>
+          <div id="exemplarPool" class="import-pool-items"></div>
+
+          <div class="form-field" id="exemplarTweakWrap" hidden>
+            <label for="exemplarActive" id="exemplarActiveLabel">微调样板</label>
+            <textarea id="exemplarActive" rows="8" spellcheck="false" placeholder="在此修改样板文本"></textarea>
+            <p class="hint" id="exemplarHint">标准答案行如「答案：C」；解析另起一行。</p>
+            <div class="import-exemplar-toolbar">
+              <button type="button" class="btn ghost" id="clearKindExemplarBtn">清空</button>
+              <button type="button" class="btn ghost" id="hideTweakExemplarBtn">收起微调</button>
+              <button type="button" class="btn primary" id="confirmKindExemplarBtn">确认并回题型页</button>
+            </div>
+          </div>
+
+          <div class="import-actions" id="exemplarPoolActions">
+            <button type="button" class="btn ghost" id="backToScanBtn">返回题型（不保存本次编辑）</button>
+          </div>
+        </div>
+
+        <!-- 兜底：对照原文（进入后清掉池子，腾地方） -->
+        <div id="exemplarSourceMode" hidden>
+          <p class="import-lead">从左侧原文里复制一道完整题，贴到右侧作样板。本页不再展示系统切块。</p>
+          <div class="import-exemplar-grid">
+            <div class="import-exemplar-col">
+              <div class="import-exemplar-col-head">
+                <label for="sourcePick">原文（可编辑）</label>
+              </div>
+              <textarea id="sourcePick" rows="18" spellcheck="false"></textarea>
+              <p class="hint">预览与入库以左侧当前文本为准。</p>
+            </div>
+            <div class="import-exemplar-col">
+              <div class="import-exemplar-col-head">
+                <label for="exemplarFromSource" id="exemplarFromSourceLabel">样板文本</label>
+              </div>
+              <textarea id="exemplarFromSource" rows="18" spellcheck="false" placeholder="从左侧复制一道完整题粘贴到这里"></textarea>
+              <p class="hint" id="exemplarSourceHint">选完整一道：题干 + 选项（如有）+ 答案行。</p>
+            </div>
+          </div>
+          <div class="import-actions">
+            <button type="button" class="btn ghost" id="backToPoolExemplarBtn">返回池子挑选</button>
+            <button type="button" class="btn primary" id="confirmSourceExemplarBtn">确认并回题型页</button>
+          </div>
         </div>
       </section>
 
       <section class="import-panel" id="panelPreview" hidden>
         <h2 class="import-heading">校对解析结果</h2>
         <p class="import-lead" id="previewSummary">共 0 题</p>
+        <p class="hint" id="previewHint">待确认答案已置顶。大致对即可入库。</p>
         <div class="import-preview-list" id="previewList"></div>
         <div class="import-actions">
-          <button type="button" class="btn ghost" id="backToInputBtn">返回修改</button>
+          <button type="button" class="btn ghost" id="backToScanFromPreviewBtn">返回题型</button>
           <button type="button" class="btn primary" id="toSaveBtn">下一步：命名入库</button>
         </div>
       </section>
@@ -68,7 +181,7 @@
         <p class="import-lead" id="saveSummary">将导入 0 题</p>
         <div class="form-field">
           <label for="importName">题库名称</label>
-          <input id="importName" type="text" placeholder="例如：操作系统第3章" autocomplete="off">
+          <input id="importName" type="text" placeholder="例如：第七章 总线" autocomplete="off">
         </div>
         <div class="import-actions">
           <button type="button" class="btn ghost" id="backToPreviewBtn">返回预览</button>
@@ -78,7 +191,7 @@
     </main>
   </div>
 
-  <script src="/static/dialog.js?v=1"></script>
-  <script src="/static/import.js?v=1"></script>
+  <script src="/static/dialog.js?v=2"></script>
+  <script src="/static/import.js?v=13"></script>
 </body>
 </html>

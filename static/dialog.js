@@ -163,6 +163,28 @@
     });
   }
 
+  /** 多按钮选择；Escape / 点遮罩 → opts.cancelValue（默认 null） */
+  function choose(message, opts) {
+    opts = opts || {};
+    const buttons = (opts.buttons || []).map((b, i) => ({
+      label: b.label,
+      value: b.value,
+      primary: !!b.primary || (opts.primaryIndex === i),
+      danger: !!b.danger,
+    }));
+    return open({
+      mode: 'choose',
+      title: opts.title || '请选择',
+      message,
+      buttons: buttons.length
+        ? buttons
+        : [{ label: '知道了', value: null, primary: true }],
+    }).then((v) => {
+      if (v === null && opts.cancelValue !== undefined) return opts.cancelValue;
+      return v;
+    });
+  }
+
   function prompt(message, defaultValue, opts) {
     opts = opts || {};
     return open({
@@ -185,6 +207,7 @@
   global.LykieDialog = {
     alert,
     confirm,
+    choose,
     prompt,
     close: cancel,
   };

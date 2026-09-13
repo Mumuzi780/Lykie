@@ -16,6 +16,10 @@ from docx import Document
 from lykie import accounts as lykie_accounts
 from lykie import extract as lykie_extract
 from lykie import folders as lykie_folders
+from lykie import import_exemplar as lykie_import_ex
+from lykie import import_noise as lykie_import_noise
+from lykie import import_rules as lykie_import_rules
+from lykie import import_scan as lykie_import_scan
 from lykie import llm as lykie_llm
 from lykie import memory as lykie_memory
 from lykie import mock as lykie_mock
@@ -71,67 +75,30 @@ LETTERS = "ABCDEFGH"
 
 
 # ==================== 解析器 ====================
-OPTION_RE = re.compile(r"^[^A-Ha-h0-9\u4e00-\u9fff]*([A-H])[.、．:：\s]+(.*)$")
-ANSWER_RE = re.compile(r"^(?:参考答案|标准答案|答案)[:：\s]*(.*)$")
-NUM_RE = re.compile(r"^(\d+)[.、．\s:：]*\s*(.*)$")
+# 成题规则在 lykie.import_rules；此处保留刷题侧规范化与 legacy 题号切刀入口。
+OPTION_RE = lykie_import_rules.OPTION_INLINE_RE
+ANSWER_RE = re.compile(r"^(?:参考答案|标准答案|正确答案|答案)[:：]\s*(.*)$")
+NUM_RE = lykie_import_rules.NUM_RE
 BULLET_RE = re.compile(r"[\u2022\u2023\u2043\u25cf\u25cb\u25e6\u25aa\u00b7\u2219\u2027]")
 
-JUDGE_TRUE = {"对", "正确", "√", "t", "true", "是", "right", "yes"}
-JUDGE_FALSE = {"错", "错误", "×", "f", "false", "否", "wrong", "no"}
+JUDGE_TRUE = lykie_import_rules.JUDGE_TRUE
+JUDGE_FALSE = lykie_import_rules.JUDGE_FALSE
 
 
 def is_judge_answer(ans):
-    a = ans.strip().lower()
-    return a in JUDGE_TRUE or a in JUDGE_FALSE
+    return lykie_import_rules.is_judge_answer(ans)
 
 
-def split_answer_analysis(full):
-    """把 'C (解析内容)' 拆分成 (答案, 解析)。无括号解析时解析为空字符串。"""
-    full = full.strip()
-    m = re.match(r"^(.*?)\s*[（(](.*)[)）]\s*$", full)
-    if m and m.group(1).strip():
-        return m.group(1).strip(), m.group(2).strip()
-    return full, ""
+def parse_answer_rest(rest):
+    return lykie_import_rules.parse_answer_rest(rest)
 
 
 def normalize_choice_content(ans, options):
-    """把单选答案统一成选项内容文本，例如 'A' / 'A. 数据总线' -> '数据总线'。"""
-    a = ans.strip()
-    m = re.match(r"^([A-H])$", a.upper())
-    if m:
-        idx = ord(m.group(1)) - ord("A")
-        if 0 <= idx < len(options):
-            return options[idx]
-        return a
-    m2 = re.match(r"^[A-H][.、．\s]+(.*)$", a, re.I)
-    if m2:
-        return m2.group(1).strip()
-    return a
+    return lykie_import_rules.normalize_choice_content(ans, options)
 
 
 def normalize_choice_answer(ans, options):
-    """
-    选择题答案规范化：
-    - 多选（答案为 AB / A,C,E 等）→ 按选项序排序的字母串，如 'ACE'
-    - 单选 → 选项内容文本（兼容旧数据）
-    """
-    raw = (ans or "").strip()
-    if not raw or not options:
-        return raw
-    compact = re.sub(r"[\s,，、/;；+＋]+", "", raw.upper())
-    compact = re.sub(r"^(?:参考答案|标准答案|正确答案|答案)", "", compact)
-    if re.fullmatch(r"[A-H]{2,8}", compact):
-        letters = []
-        for c in compact:
-            idx = ord(c) - ord("A")
-            if 0 <= idx < len(options) and c not in letters:
-                letters.append(c)
-        letters.sort()
-        if len(letters) >= 2:
-            return "".join(letters)
-        if len(letters) == 1:
-            return options[ord(letters[0]) - ord("A")]
-    return normalize_choice_content(raw, options)
+    return lykie_import_rules.normalize_choice_answer(ans, options)
 
 
 def choice_correct_contents(q):
@@ -157,79 +124,143 @@ def is_multi_choice(q):
 
 
 def parse_lines(raw):
-    """解析行列表（每行已是 strip 后的非空文本），返回题目列表。"""
-    questions = []
-    cur = None
-
-    def push():
-        nonlocal cur
-        if cur and cur["stem"]:
-            questions.append(cur)
-        cur = None
-
-    for line in raw:
-        am = ANSWER_RE.match(line)
-        if am:
-            if cur:
-                ans, ana = split_answer_analysis(am.group(1))
-                cur["answer"] = ans
-                cur["analysis"] = ana
-            continue
-        if cur:
-            om = OPTION_RE.match(line)
-            if om:
-                cur["options"].append(om.group(2).strip())  # 存选项内容（不含字母）
-                continue
-        nm = NUM_RE.match(line)
-        if nm:
-            push()
-            cur = {"num": nm.group(1), "stem": nm.group(2), "options": [], "answer": "", "analysis": ""}
-            continue
-        if cur:
-            cur["stem"] = (cur["stem"] + line).strip()
-    push()
-
-    result = []
-    for q in questions:
-        if not q.get("answer", "").strip():
-            continue  # 无答案的题（章节标题、格式错误行等），不添加
-        if q["options"]:
-            qtype = "choice"
-        elif is_judge_answer(q["answer"]):
-            qtype = "judge"
-        else:
-            qtype = "fill"
-
-        if qtype == "choice":
-            q["answer"] = normalize_choice_answer(q["answer"], q["options"])
-        elif qtype == "judge":
-            q["answer"] = "对" if q["answer"].strip().lower() in JUDGE_TRUE else "错"
-
-        q["id"] = str(len(result) + 1)
-        q["type"] = qtype
-        q["status"] = "active"      # active / killed
-        q["phase"] = "new"          # new / right / wrong
-        q["interval"] = 0
-        q["countdown"] = 0
-        q["streak"] = 0
-        q["answer_count"] = 0       # 作答次数
-        q["correct_count"] = 0      # 答对次数
-        result.append(q)
-
-    return result
+    """legacy：题号切块 → 规则成题（与样板路径共用 import_rules）。"""
+    blocks = lykie_import_rules.split_numbered_blocks(raw)
+    questions, _skipped = lykie_import_rules.shape_blocks(blocks, choice_only=False)
+    return questions
 
 
 def parse_docx(path):
     doc = Document(path)
     raw = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    return parse_lines(raw)
+    return parse_lines(lykie_import_noise.filter_noise_lines(raw))
+
+
+def docx_to_text(path) -> str:
+    doc = Document(path)
+    return "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
 
 
 def parse_text(text):
     # 从 Word 复制项目符号列表会带上 bullet 符号，还原成换行再切分
     text = BULLET_RE.sub("\n", text)
     raw = [line.strip() for line in text.splitlines() if line.strip()]
-    return parse_lines(raw)
+    return parse_lines(lykie_import_noise.filter_noise_lines(raw))
+
+
+def _preview_questions_payload(questions, **extra):
+    preview_data = []
+    for q in questions:
+        item = {
+            "type": q["type"],
+            "stem": q["stem"],
+            "options": q.get("options", []),
+            "answer": q["answer"],
+            "analysis": q.get("analysis", ""),
+        }
+        if q.get("needs_answer_confirm"):
+            item["needs_answer_confirm"] = True
+            if q.get("answer_line_raw"):
+                item["answer_line_raw"] = q.get("answer_line_raw")
+        preview_data.append(item)
+    out = {
+        "ok": True,
+        "preview": True,
+        "total": len(questions),
+        "questions": preview_data,
+    }
+    out.update(extra)
+    return out
+
+
+def _apply_answer_picks(questions, answer_picks):
+    """按预览下标写入用户点选的答案。返回仍待确认的题号（1-based）列表。"""
+    picks = answer_picks if isinstance(answer_picks, dict) else {}
+    pending = []
+    for i, q in enumerate(questions):
+        pick = picks.get(str(i))
+        if pick is None:
+            pick = picks.get(i)
+        if pick is not None and str(pick).strip():
+            raw = str(pick).strip()
+            if q.get("type") == "choice" and q.get("options"):
+                q["answer"] = normalize_choice_answer(raw, q.get("options") or [])
+            else:
+                q["answer"] = raw
+            q.pop("needs_answer_confirm", None)
+            q.pop("answer_line_raw", None)
+        needs = bool(q.get("needs_answer_confirm")) or not str(q.get("answer") or "").strip()
+        if needs:
+            pending.append(i + 1)
+        else:
+            q.pop("needs_answer_confirm", None)
+            q.pop("answer_line_raw", None)
+    return pending
+
+
+def _resolve_import_questions(text: str, exemplar: str = "", exemplars: dict | None = None):
+    """有样板则按样板切；无样板走旧规则。返回 (questions|None, error, meta)。"""
+    ex_map = {}
+    if isinstance(exemplars, dict):
+        for k in ("choice", "judge", "fill", "short_answer"):
+            v = str(exemplars.get(k) or "").strip()
+            if v:
+                ex_map[k] = v
+    single = (exemplar or "").strip()
+    if single and "choice" not in ex_map:
+        ex_map["choice"] = single
+
+    if ex_map:
+        return lykie_import_ex.parse_by_exemplars(text, ex_map)
+
+    try:
+        qs = parse_text(text)
+    except Exception as e:
+        return None, f"解析失败：{e}", {}
+    if not qs:
+        return None, "没有解析出题目，请检查文本格式", {}
+    needs = sum(1 for q in qs if q.get("needs_answer_confirm"))
+    detected = lykie_import_scan.scan_text(text)
+    return qs, "", {
+        "mode": "legacy",
+        "needs_answer_confirm": needs,
+        "detected_types": detected,
+        "covered_types": [],
+        "uncovered_types": lykie_import_scan.uncovered_kinds(detected, set()),
+    }
+
+
+def _gate_uncovered_types(meta: dict, ack_skipped, import_sa: bool) -> str:
+    """未覆盖题型未确认时返回错误文案，否则空串。"""
+    uncovered = list(meta.get("uncovered_types") or [])
+    if not uncovered:
+        return ""
+    ack = set()
+    if isinstance(ack_skipped, (list, tuple, set)):
+        ack = {str(x) for x in ack_skipped}
+    elif isinstance(ack_skipped, str) and ack_skipped.strip():
+        ack = {x.strip() for x in ack_skipped.split(",") if x.strip()}
+
+    # 简答：勾选同时导入且已切出或已提供样板覆盖，则不算未确认
+    if "short_answer" in uncovered and import_sa:
+        if int(meta.get("sa_total") or 0) > 0 or "short_answer" in (meta.get("covered_types") or []):
+            uncovered = [k for k in uncovered if k != "short_answer"]
+
+    still = [k for k in uncovered if k not in ack]
+    if not still:
+        return ""
+    labels = {
+        "judge": "判断题",
+        "fill": "填空题",
+        "short_answer": "简答题",
+    }
+    names = "、".join(labels.get(k, k) for k in still)
+    return (
+        f"原文检测到{names}，但未提供对应样板且未确认跳过。"
+        f"请补样板，或勾选「已知晓，本次不导入这些题」，"
+        f"简答可勾选「同时另建简答库」。"
+    )
+
 
 
 # ==================== 持久化 ====================
@@ -1511,12 +1542,20 @@ def api_import():
     name = str(request.form.get("name") or "").strip()
     if not name:
         name = os.path.splitext(filename)[0] or filename
+    exemplar = str(request.form.get("exemplar") or "")
 
     fd, tmp = tempfile.mkstemp(suffix=".docx")
     os.close(fd)
     f.save(tmp)
     try:
-        questions = parse_docx(tmp)
+        if exemplar.strip():
+            text = docx_to_text(tmp)
+            questions, err, meta = _resolve_import_questions(text, exemplar)
+            if err:
+                return jsonify({"ok": False, "error": err, "meta": meta}), 400
+        else:
+            questions = parse_docx(tmp)
+            meta = {"mode": "legacy"}
     except Exception as e:
         return jsonify({"ok": False, "error": f"解析失败：{e}"}), 400
     finally:
@@ -1526,23 +1565,30 @@ def api_import():
     if not questions:
         return jsonify({"ok": False, "error": "没有解析出题目，请检查文档格式"}), 400
 
+    answer_picks = request.form.get("answer_picks")
+    if answer_picks:
+        try:
+            answer_picks = json.loads(answer_picks)
+        except Exception:
+            answer_picks = {}
+    else:
+        answer_picks = {}
+
     if preview:
-        preview_data = []
-        for q in questions:
-            preview_data.append({
-                "type": q["type"],
-                "stem": q["stem"],
-                "options": q.get("options", []),
-                "answer": q["answer"],
-                "analysis": q.get("analysis", ""),
-            })
+        return jsonify(_preview_questions_payload(
+            questions,
+            suggested_name=name,
+            meta=meta,
+        ))
+
+    pending = _apply_answer_picks(questions, answer_picks)
+    if pending:
         return jsonify({
-            "ok": True,
-            "preview": True,
-            "total": len(questions),
-            "questions": preview_data,
-            "suggested_name": name,
-        })
+            "ok": False,
+            "error": f"还有 {len(pending)} 题答案待确认（第 {', '.join(map(str, pending[:8]))}"
+                     + ("…" if len(pending) > 8 else "")
+                     + " 题），请在预览里点选正确答案后再入库",
+        }), 400
 
     b = {
         "id": new_bank_id(),
@@ -1556,6 +1602,53 @@ def api_import():
     lykie_settle.ensure_bank_runs(b)
     g.store.save()
     return jsonify({"ok": True, "total": len(questions), "bank_id": b["id"]})
+
+
+@app.route("/api/import/extract", methods=["POST"])
+def api_import_extract():
+    """仅抽出 docx 纯文本，供导入页进入样板步骤。"""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "未收到文件"}), 400
+    filename = f.filename or ""
+    if not filename.lower().endswith(".docx"):
+        return jsonify({"ok": False, "error": "只支持 .docx 格式"}), 400
+    fd, tmp = tempfile.mkstemp(suffix=".docx")
+    os.close(fd)
+    f.save(tmp)
+    try:
+        text = docx_to_text(tmp)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"读取失败：{e}"}), 400
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    if not text.strip():
+        return jsonify({"ok": False, "error": "文档里没有可用文本"}), 400
+    suggested = os.path.splitext(filename)[0] or filename
+    result = lykie_import_scan.scan_pools(text)
+    return jsonify({
+        "ok": True,
+        "text": text,
+        "suggested_name": suggested,
+        "detected_types": result.get("detected_types") or [],
+        "pools": result.get("pools") or {},
+    })
+
+
+@app.route("/api/import/scan", methods=["POST"])
+def api_import_scan():
+    """扫描原文题型，并按题型归并题块池（供独立扫描步挑样板）。"""
+    data = request.get_json(force=True) or {}
+    text = str(data.get("text") or "")
+    if not text.strip():
+        return jsonify({"ok": False, "error": "文本为空"}), 400
+    result = lykie_import_scan.scan_pools(text)
+    return jsonify({
+        "ok": True,
+        "detected_types": result.get("detected_types") or [],
+        "pools": result.get("pools") or {},
+    })
 
 
 @app.route("/api/import_text", methods=["POST"])
@@ -1564,42 +1657,110 @@ def api_import_text():
     text = str(data.get("text", ""))
     name = str(data.get("name", "")).strip() or "粘贴导入"
     preview = bool(data.get("preview", False))
+    exemplar = str(data.get("exemplar") or "")
+    exemplars = data.get("exemplars") if isinstance(data.get("exemplars"), dict) else {}
+    answer_picks = data.get("answer_picks") or {}
+    ack_skipped = data.get("ack_skipped_types") or []
+    import_sa = bool(data.get("import_sa", False))
 
     if not text.strip():
         return jsonify({"ok": False, "error": "文本为空"}), 400
 
-    try:
-        questions = parse_text(text)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"解析失败：{e}"}), 400
+    questions, err, meta = _resolve_import_questions(text, exemplar, exemplars)
+    if err:
+        return jsonify({"ok": False, "error": err, "meta": meta}), 400
 
-    if not questions:
-        return jsonify({"ok": False, "error": "没有解析出题目，请检查文本格式"}), 400
+    # 勾选另建简答但未提供样板且扫到简答
+    detected_kinds = {d.get("kind") for d in (meta.get("detected_types") or [])}
+    if import_sa and "short_answer" in detected_kinds:
+        if "short_answer" not in (meta.get("covered_types") or []) and not (meta.get("sa_total") or 0):
+            return jsonify({
+                "ok": False,
+                "error": "已勾选同时导入简答，请粘贴一道简答样板（题干 + 答案：…）。",
+                "meta": meta,
+            }), 400
 
     if preview:
-        preview_data = []
-        for q in questions:
-            preview_data.append({
-                "type": q["type"],
-                "stem": q["stem"],
-                "options": q.get("options", []),
-                "answer": q["answer"],
-                "analysis": q.get("analysis", ""),
-            })
-        return jsonify({"ok": True, "preview": True, "total": len(questions), "questions": preview_data})
+        payload = _preview_questions_payload(questions, meta=meta)
+        payload["sa_total"] = int(meta.get("sa_total") or 0)
+        payload["sa_preview"] = [
+            {
+                "type": q.get("type"),
+                "stem": q.get("stem"),
+                "answer": q.get("answer"),
+                "points": q.get("points") or [],
+            }
+            for q in (meta.get("sa_questions") or [])[:20]
+        ]
+        return jsonify(payload)
 
-    b = {
-        "id": new_bank_id(),
-        "name": name,
-        "imported_at": now_str(),
-        "questions": questions,
-        "folder_id": None,
-    }
-    g.store.banks.append(b)
-    g.store.current_bank_id = b["id"]
-    lykie_settle.ensure_bank_runs(b)
+    gate_err = _gate_uncovered_types(meta, ack_skipped, import_sa)
+    if gate_err:
+        return jsonify({"ok": False, "error": gate_err, "meta": meta}), 400
+
+    pending = _apply_answer_picks(questions, answer_picks)
+    if pending:
+        return jsonify({
+            "ok": False,
+            "error": f"还有 {len(pending)} 题答案待确认（第 {', '.join(map(str, pending[:8]))}"
+                     + ("…" if len(pending) > 8 else "")
+                     + " 题），请在预览里点选正确答案后再入库",
+        }), 400
+
+    sa_bank_id = None
+    sa_questions = list(meta.get("sa_questions") or [])
+    if import_sa and sa_questions:
+        for q in sa_questions:
+            ensure_question_defaults(q)
+            q["type"] = "short_answer"
+        obj_id = new_bank_id()
+        sa_id = str(int(obj_id) + 1)
+        sa_bank = {
+            "id": sa_id,
+            "name": f"{name}·简答",
+            "imported_at": now_str(),
+            "questions": sa_questions,
+            "folder_id": None,
+            "mode": "short_answer",
+        }
+        g.store.banks.append(sa_bank)
+        sa_bank_id = sa_bank["id"]
+    else:
+        obj_id = new_bank_id()
+
+    if not questions and not sa_bank_id:
+        return jsonify({"ok": False, "error": "没有可入库的题目"}), 400
+
+    bank_id = None
+    if questions:
+        for q in questions:
+            ensure_question_defaults(q)
+        b = {
+            "id": obj_id,
+            "name": name,
+            "imported_at": now_str(),
+            "questions": questions,
+            "folder_id": None,
+            "mode": "objective",
+        }
+        g.store.banks.append(b)
+        g.store.current_bank_id = b["id"]
+        lykie_settle.ensure_bank_runs(b)
+        bank_id = b["id"]
+    elif sa_bank_id:
+        g.store.current_bank_id = sa_bank_id
+
     g.store.save()
-    return jsonify({"ok": True, "total": len(questions), "bank_id": b["id"]})
+    out = {
+        "ok": True,
+        "total": len(questions),
+        "bank_id": bank_id,
+        "sa_total": len(sa_questions) if sa_bank_id else 0,
+        "sa_bank_id": sa_bank_id,
+    }
+    if meta.get("uncovered_types") and ack_skipped:
+        out["skipped_types"] = list(meta.get("uncovered_types") or [])
+    return jsonify(out)
 
 
 @app.route("/api/next")
