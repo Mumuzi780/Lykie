@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """背题助手后端：多题库管理，间隔重复抽背，支持编辑题目、斩题、正确率统计。"""
+from __future__ import annotations
+
 import os
 import re
 import json

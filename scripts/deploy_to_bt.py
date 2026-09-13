@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import os
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -63,11 +64,18 @@ SYNC_FILES = [
     "templates/login.html",
     "docs/简答训练-测试笔记.md",
     "docs/版本日志.md",
+    "docs/版本更新-v3.md",
     "docs/产品定位.md",
     "docs/进题导入-设计草案.md",
     "docs/进题导入-脏文本样本.md",
     "data/stories/fragment_01.json",
 ]
+
+USER_DATA_FILES = (
+    "bank.json",
+    "lykie_state.json",
+    "sa_progress.json",
+)
 
 CJ = http.cookiejar.MozillaCookieJar(str(COOKIE))
 CJ.load(ignore_discard=True, ignore_expires=True)
@@ -213,6 +221,45 @@ def restart_service() -> None:
         print("inject", path, brief(post(path, {"path": inject}), 200))
 
 
+def upload_ok(r: dict) -> bool:
+    if r.get("skip"):
+        return True
+    status = r.get("result") if isinstance(r, dict) else r
+    return isinstance(status, dict) and (
+        status.get("status") is True
+        or status.get("msg") in ("保存成功!", "File saved successfully!", True)
+        or "成功" in str(status.get("msg") or "")
+    )
+
+
+def sync_user_data(username: str) -> tuple[int, int]:
+    """用本地 data/users/<username>/ 覆盖远端同名账号数据（题库/进度/角色状态）。"""
+    name = (username or "").strip()
+    if not name or "/" in name or "\\" in name or ".." in name:
+        print("invalid --user", username)
+        return 0, 1
+    local_dir = ROOT / "data" / "users" / name
+    if not local_dir.is_dir():
+        print("missing local user dir", local_dir)
+        return 0, 1
+    ensure_remote_dir(f"data/users/{name}")
+    ok = fail = 0
+    for fname in USER_DATA_FILES:
+        rel = f"data/users/{name}/{fname}"
+        local = ROOT / rel
+        if not local.exists():
+            print("skip user file (missing)", rel)
+            continue
+        r = upload_text(rel)
+        if upload_ok(r):
+            ok += 1
+            print("ok user", rel, f"({local.stat().st_size} bytes)")
+        else:
+            fail += 1
+            print("FAIL user", rel, brief(r.get("result"), 200))
+    return ok, fail
+
+
 def verify_public() -> None:
     for i in range(10):
         try:
@@ -223,16 +270,40 @@ def verify_public() -> None:
         except Exception as e:
             print("wait public", i, type(e).__name__, e)
             time.sleep(3)
-    # 抽查 sa.js 是否含本批复习字段
+    # 抽查 import.js 是否含 v3 题型总览
     try:
-        resp = urllib.request.urlopen(PUBLIC + "/static/sa.js?v=sa16", timeout=15)
+        resp = urllib.request.urlopen(PUBLIC + "/static/import.js?v=13", timeout=15)
         js = resp.read().decode("utf-8", "replace")
-        print("sa.js review_quota", "review_quota" in js, "len", len(js))
+        print(
+            "import.js v3 markers",
+            "scanOverview" in js and "askPickExemplar" in js,
+            "len",
+            len(js),
+        )
     except Exception as e:
-        print("sa.js check fail", e)
+        print("import.js check fail", e)
+
+
+def parse_args(argv: list[str]) -> list[str]:
+    users: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--user" and i + 1 < len(argv):
+            users.append(argv[i + 1])
+            i += 2
+            continue
+        if a.startswith("--user="):
+            users.append(a.split("=", 1)[1])
+            i += 1
+            continue
+        print("unknown arg", a)
+        i += 1
+    return users
 
 
 def main() -> int:
+    users = parse_args(sys.argv[1:])
     probe = post("/files/get_dir_list", {"path": REMOTE_ROOT, "limit": "5"})
     if not isinstance(probe, dict) or "dirs" not in probe and "raw" in probe:
         print("宝塔登录可能失效，请先重新登录面板并更新 dist/_bt_cookies.txt / _csrf.txt")
@@ -245,16 +316,10 @@ def main() -> int:
     for rel in SYNC_FILES:
         r = upload_text(rel)
         status = r.get("result") if isinstance(r, dict) else r
-        good = isinstance(status, dict) and (
-            status.get("status") is True
-            or status.get("msg") in ("保存成功!", "File saved successfully!", True)
-            or "成功" in str(status.get("msg") or "")
-            or r.get("skip")
-        )
         if r.get("skip"):
             print("skip", rel)
             continue
-        if good:
+        if upload_ok(r):
             ok += 1
             print("ok", rel)
         else:
@@ -262,6 +327,13 @@ def main() -> int:
             print("FAIL", rel, brief(status, 200))
 
     print(f"uploaded ok={ok} fail={fail}")
+
+    for u in users:
+        uok, ufail = sync_user_data(u)
+        print(f"user {u}: ok={uok} fail={ufail}")
+        ok += uok
+        fail += ufail
+
     restart_service()
     time.sleep(4)
     print("deploy_done?", brief(post("/files/get_file_body", {"filename": f"{REMOTE_ROOT}/deploy_done.txt"})))
