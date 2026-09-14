@@ -603,7 +603,7 @@ a.btn {
 .empty { text-align: center; color: var(--muted); font-size: 18px; }
 .empty .hint { font-size: 14px; margin-top: 8px; color: var(--muted); }
 
-/* 结算页：顶对齐可滚动，收起天体/连击占位，避免顶进顶栏 */
+/* 结算页：顶对齐可滚动，收起天体/连击占位；顶栏不要实心底色盖住页面 wash */
 body.settle-view .study-stage {
   display: none !important;
 }
@@ -625,7 +625,7 @@ body.settle-view footer {
   flex-shrink: 0;
   position: relative;
   z-index: 4;
-  background: var(--bg);
+  background: transparent;
 }
 
 /* 弹层打开时锁底层，防点击/滑动穿透 */
@@ -1427,7 +1427,304 @@ footer { padding: 12px 0 24px; }
 }
 .kill-label { position: relative; z-index: 1; }
 
+.kill-slot {
+  position: relative;
+  width: 100%;
+}
+.kill-slot[hidden] {
+  display: none !important;
+}
+.btn.kill.is-cheering .kill-label {
+  opacity: 0.22;
+  transition: opacity 0.25s ease;
+}
+
+.kill-cheer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  text-align: center;
+  pointer-events: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--red);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  opacity: 0;
+  transform: translateY(4px) scale(0.96);
+}
+.kill-cheer[hidden] {
+  display: none !important;
+}
+.kill-cheer.is-in {
+  display: flex !important;
+  animation: kill-cheer-in 0.35s var(--motion-ease) both;
+}
+.kill-cheer.is-out {
+  display: flex !important;
+  animation: kill-cheer-out 0.4s var(--motion-ease) both;
+}
+.kill-cheer.tier-25 { font-size: clamp(0.95rem, 2.6vw, 1.15rem); }
+.kill-cheer.tier-50 { font-size: clamp(1rem, 2.8vw, 1.2rem); }
+.kill-cheer.tier-75 { font-size: clamp(0.92rem, 2.5vw, 1.12rem); }
+.kill-cheer.tier-100 { font-size: clamp(0.9rem, 2.4vw, 1.1rem); }
+@keyframes kill-cheer-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes kill-cheer-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-4px) scale(1.02); }
+}
+
+.kill-bolts {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+}
+.kill-bolts-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.kill-bolt {
+  fill: var(--red);
+  opacity: 0;
+  transform-origin: center;
+}
+.kill-spark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28%;
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(214, 69, 69, 0.0) 20%,
+    rgba(214, 69, 69, 0.35) 50%,
+    rgba(214, 69, 69, 0.0) 80%,
+    transparent 100%
+  );
+  opacity: 0;
+}
+
+.btn.kill.kill-zap-25 .kill-fill,
+.btn.kill.kill-zap-50 .kill-fill,
+.btn.kill.kill-zap-75 .kill-fill,
+.btn.kill.kill-zap-100 .kill-fill {
+  animation: fx-kill-bar 0.55s var(--motion-ease) both;
+}
+.kill-bolts.zap-25 {
+  animation: kill-bolt-wrap 0.55s var(--motion-ease) both;
+}
+.kill-bolts.zap-25 .kill-bolt-a {
+  animation: kill-bolt-flash 0.55s var(--motion-ease) both;
+}
+.kill-bolts.zap-25 .kill-spark {
+  animation: kill-spark-run 0.55s var(--motion-ease) both;
+}
+.kill-bolts.zap-50 {
+  animation: kill-bolt-wrap 0.7s var(--motion-ease) both;
+}
+.kill-bolts.zap-50 .kill-bolt-a,
+.kill-bolts.zap-50 .kill-bolt-b {
+  animation: kill-bolt-flash 0.7s var(--motion-ease) both;
+}
+.kill-bolts.zap-50 .kill-bolt-b {
+  animation-delay: 0.08s;
+}
+.kill-bolts.zap-50 .kill-spark {
+  animation: kill-spark-run 0.7s var(--motion-ease) both;
+}
+.kill-bolts.zap-75 {
+  animation: kill-bolt-wrap 0.85s var(--motion-ease) both;
+}
+.kill-bolts.zap-75 .kill-bolt {
+  animation: kill-bolt-flash 0.85s var(--motion-ease) both;
+}
+.kill-bolts.zap-75 .kill-bolt-b { animation-delay: 0.06s; }
+.kill-bolts.zap-75 .kill-bolt-c { animation-delay: 0.12s; }
+.kill-bolts.zap-75 .kill-spark {
+  animation: kill-spark-run 0.85s var(--motion-ease) both;
+}
+.kill-bolts.zap-100 {
+  animation: kill-bolt-wrap 1s var(--motion-ease) both;
+}
+.kill-bolts.zap-100 .kill-bolt {
+  animation: kill-bolt-flash-strong 1s var(--motion-ease) both;
+}
+.kill-bolts.zap-100 .kill-bolt-b { animation-delay: 0.05s; }
+.kill-bolts.zap-100 .kill-bolt-c { animation-delay: 0.1s; }
+.kill-bolts.zap-100 .kill-spark {
+  animation: kill-spark-run-strong 1s var(--motion-ease) both;
+}
+.btn.kill.kill-zap-100 {
+  box-shadow: 0 0 0 1px rgba(214, 69, 69, 0.35), 0 0 18px rgba(214, 69, 69, 0.22);
+}
+
+@keyframes kill-bolt-wrap {
+  0%, 100% { opacity: 1; }
+}
+@keyframes kill-bolt-flash {
+  0% { opacity: 0; transform: scale(0.85) translateY(-2px); }
+  18% { opacity: 0.9; transform: scale(1.05) translateY(0); }
+  40% { opacity: 0.35; }
+  55% { opacity: 0.75; }
+  100% { opacity: 0; transform: scale(1) translateY(1px); }
+}
+@keyframes kill-bolt-flash-strong {
+  0% { opacity: 0; transform: scale(0.8); filter: brightness(1); }
+  12% { opacity: 1; transform: scale(1.08); filter: brightness(1.25); }
+  28% { opacity: 0.4; }
+  42% { opacity: 0.95; }
+  70% { opacity: 0.55; }
+  100% { opacity: 0; transform: scale(1); filter: brightness(1); }
+}
+@keyframes kill-spark-run {
+  0% { opacity: 0; transform: translateX(-30%); }
+  25% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateX(220%); }
+}
+@keyframes kill-spark-run-strong {
+  0% { opacity: 0; transform: translateX(-40%); }
+  20% { opacity: 1; }
+  55% { opacity: 0.7; }
+  100% { opacity: 0; transform: translateX(260%); }
+}
+
 .progress { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+
+/* —— 斩满 100%：条上移到视口竖直中心 → 透视远去（不变暗） —— */
+.kill-clear-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+  background: none;
+  pointer-events: none;
+}
+.kill-clear-fx[hidden] {
+  display: none !important;
+}
+.kill-clear-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 280px;
+  margin: 0;
+  transform-style: preserve-3d;
+  will-change: top;
+}
+.kill-clear-bar {
+  position: relative;
+  width: 100%;
+  transform-style: preserve-3d;
+  will-change: transform, opacity, filter;
+}
+.kill-clear-btn {
+  width: 100%;
+  pointer-events: none;
+  cursor: default;
+}
+.kill-clear-btn.is-disabled,
+.kill-clear-btn:disabled {
+  opacity: 1;
+}
+.kill-clear-cheer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  text-align: center;
+  pointer-events: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(0.92rem, 2.5vw, 1.12rem);
+  letter-spacing: 0.04em;
+  color: var(--red);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  opacity: 1;
+  transform: none;
+}
+.kill-clear-btn .kill-label {
+  opacity: 0.2;
+}
+
+/* 只收起题卡；侧栏 / 顶栏保留 */
+body.kill-clearing .study-host {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.25s var(--motion-ease);
+}
+body.kill-clearing #progress,
+body.kill-clearing #killControls {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+#killSlot.is-clearing-hide {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.kill-clear-bar.is-hold {
+  transform: translate3d(0, 0, 0) scale(1);
+  opacity: 1;
+}
+.kill-clear-bar.is-recede {
+  animation: kill-clear-recede 1.12s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes kill-clear-recede {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 0, -420px) scale(0.42);
+  }
+}
+
+/* 结算：条快消失时才开播；从偏大贴近缩到正常（不用 blur，减卡顿） */
+body.settle-arriving .card-area {
+  perspective: 1000px;
+  perspective-origin: 50% 42%;
+  overflow: hidden;
+}
+.settle.settle-arrive {
+  transform-style: preserve-3d;
+  transform-origin: 50% 40%;
+  animation: settle-arrive 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+@keyframes settle-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 3vh, 280px) scale(1.55);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kill-clear-bar.is-recede,
+  .settle.settle-arrive {
+    animation: none !important;
+  }
+}
 
 /* ==================== 编辑弹窗 ==================== */
 .modal {
@@ -2382,7 +2679,19 @@ button.lykie-send:active { transform: scale(.94); }
   .kill-fill.fx-kill-pulse,
   .progress.fx-kill-pulse,
   .lykie-peeker-head.fx-peeker-nod,
-  .lykie-peeker-head.fx-peeker-cheer {
+  .lykie-peeker-head.fx-peeker-cheer,
+  .kill-cheer.is-in,
+  .kill-cheer.is-out,
+  .kill-bolts.zap-25,
+  .kill-bolts.zap-50,
+  .kill-bolts.zap-75,
+  .kill-bolts.zap-100,
+  .kill-bolts .kill-bolt,
+  .kill-bolts .kill-spark,
+  .btn.kill.kill-zap-25 .kill-fill,
+  .btn.kill.kill-zap-50 .kill-fill,
+  .btn.kill.kill-zap-75 .kill-fill,
+  .btn.kill.kill-zap-100 .kill-fill {
     animation: none !important;
   }
   .lykie-peeker {

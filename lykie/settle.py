@@ -77,7 +77,7 @@ def _accuracy(correct: int, answered: int) -> float:
 
 
 def can_kill_by_counts(answer_count: int, correct_count: int) -> tuple[bool, str]:
-    """本轮次数/正确率是否达到可斩（不含答错相位）。"""
+    """一周目：本轮次数/正确率是否达到可斩（不含答错相位）。"""
     ac = int(answer_count or 0)
     cc = int(correct_count or 0)
     rate = _accuracy(cc, ac)
@@ -92,6 +92,20 @@ def can_kill_by_counts(answer_count: int, correct_count: int) -> tuple[bool, str
     return False, f"本轮正确率需≥50%（当前 {int(round(rate * 100))}%）"
 
 
+def can_kill_by_counts_replay(answer_count: int, correct_count: int) -> tuple[bool, str]:
+    """二周目起：本轮答对过一次即可斩（答错相位仍由 kill_gate 拦截）。"""
+    if int(correct_count or 0) >= 1:
+        return True, ""
+    return False, "答对一次即可斩"
+
+
+def can_kill_for_run(run: dict, answer_count: int, correct_count: int) -> tuple[bool, str]:
+    idx = int((run or {}).get("index") or 1)
+    if idx >= 2:
+        return can_kill_by_counts_replay(answer_count, correct_count)
+    return can_kill_by_counts(answer_count, correct_count)
+
+
 def kill_gate(q: dict, run: dict) -> tuple[bool, str]:
     """本轮作答次数 / 正确率 / 答错相位。"""
     st = run_qstat(run, str(q["id"]))
@@ -99,7 +113,7 @@ def kill_gate(q: dict, run: dict) -> tuple[bool, str]:
     cc = int(st.get("correct_count") or 0)
     if q.get("phase") == "wrong":
         return False, "答错后需先答对才能斩"
-    return can_kill_by_counts(ac, cc)
+    return can_kill_for_run(run, ac, cc)
 
 
 def record_answer(bank: dict, q: dict, correct: bool) -> dict:
@@ -170,10 +184,10 @@ def apply_kill(bank: dict, q: dict, *, as_correct: bool) -> tuple[bool, str, dic
         st = run_qstat(run, qid)
         preview_ac = int(st.get("answer_count") or 0) + 1
         preview_cc = int(st.get("correct_count") or 0) + 1
-        ok, reason = can_kill_by_counts(preview_ac, preview_cc)
+        ok, reason = can_kill_for_run(run, preview_ac, preview_cc)
         if not ok:
-            # 提示里带上「直接斩会计入 1 次」
-            if preview_ac < MIN_ANSWERS_FAST_KILL:
+            run_index = int(run.get("index") or 1)
+            if run_index < 2 and preview_ac < MIN_ANSWERS_FAST_KILL:
                 reason = (
                     f"本轮至少作答 {MIN_ANSWERS_FAST_KILL} 次才能斩"
                     f"（直接斩会计入 1 次，完成后为 {preview_ac}）"

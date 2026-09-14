@@ -21,19 +21,14 @@ if errorlevel 1 (
 )
 
 REM 启动前先清掉同端口 / 本目录残留，避免多开导致旧代码仍在响应
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$port = [int]$env:LYKIE_PORT; $root = (Resolve-Path -LiteralPath '%~dp0').Path.TrimEnd('\');" ^
-  "Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object {" ^
-  "  Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue" ^
-  "};" ^
-  "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |" ^
-  "  Where-Object {" ^
-  "    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and" ^
-  "    $_.CommandLine -and" ^
-  "    ($_.CommandLine -like ('*' + $root + '*')) -and" ^
-  "    ($_.CommandLine -match 'app\.py')" ^
-  "  } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue };" ^
-  "Start-Sleep -Seconds 1" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop_lykie_local.ps1" -Port %LYKIE_PORT% -Root "%~dp0" >nul
+
+python -m py_compile app.py
+if errorlevel 1 (
+  echo [错误] app.py 有语法错误，已中止启动。
+  pause
+  exit /b 1
+)
 
 python app.py
 if errorlevel 1 (

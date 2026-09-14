@@ -89,6 +89,210 @@
     bumpClass(prog, 'fx-kill-pulse', 500);
   }
 
+  const KILL_TIER_MSGS = {
+    25: '还不错',
+    50: '一半入袋了',
+    75: '最后一公里，别绊倒',
+    100: '全部拿下，休息一下再出发',
+  };
+  const KILL_TIER_MS = { 25: 1800, 50: 2000, 75: 2200, 100: 2600 };
+
+  let killCheerTimer = null;
+  let killCheerResolve = null;
+
+  function killTierCheer(tier) {
+    const t = tier | 0;
+    const msg = KILL_TIER_MSGS[t];
+    const hold = KILL_TIER_MS[t] || 2000;
+    const cheer = $('killCheer');
+    const btn = $('killBtn');
+    const bolts = $('killBolts');
+
+    if (killCheerTimer) {
+      clearTimeout(killCheerTimer);
+      killCheerTimer = null;
+    }
+    if (killCheerResolve) {
+      killCheerResolve();
+      killCheerResolve = null;
+    }
+
+    const done = new Promise((resolve) => {
+      killCheerResolve = resolve;
+    });
+
+    if (!msg || !cheer) {
+      if (killCheerResolve) {
+        killCheerResolve();
+        killCheerResolve = null;
+      }
+      return Promise.resolve();
+    }
+
+    cheer.textContent = msg;
+    cheer.hidden = false;
+    cheer.classList.remove('is-in', 'is-out', 'tier-25', 'tier-50', 'tier-75', 'tier-100');
+    void cheer.offsetWidth;
+    cheer.classList.add('is-in', 'tier-' + t);
+
+    if (btn) {
+      btn.classList.remove('kill-zap-25', 'kill-zap-50', 'kill-zap-75', 'kill-zap-100', 'is-cheering');
+      void btn.offsetWidth;
+      btn.classList.add('is-cheering', 'kill-zap-' + t);
+    }
+    if (bolts && !reduced()) {
+      bolts.classList.remove('zap-25', 'zap-50', 'zap-75', 'zap-100');
+      void bolts.offsetWidth;
+      bolts.classList.add('zap-' + t);
+    }
+    pulseKillBar();
+
+    const fadeAt = Math.max(400, hold - 420);
+    killCheerTimer = window.setTimeout(() => {
+      cheer.classList.add('is-out');
+      cheer.classList.remove('is-in');
+      killCheerTimer = window.setTimeout(() => {
+        cheer.hidden = true;
+        cheer.classList.remove('is-out', 'tier-25', 'tier-50', 'tier-75', 'tier-100');
+        if (btn) {
+          btn.classList.remove(
+            'is-cheering',
+            'kill-zap-25',
+            'kill-zap-50',
+            'kill-zap-75',
+            'kill-zap-100'
+          );
+        }
+        if (bolts) bolts.classList.remove('zap-25', 'zap-50', 'zap-75', 'zap-100');
+        if (killCheerResolve) {
+          killCheerResolve();
+          killCheerResolve = null;
+        }
+        killCheerTimer = null;
+      }, 420);
+    }, reduced() ? 600 : fadeAt);
+
+    return done;
+  }
+
+  function waitMs(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  /**
+   * 100% 过场：条上移竖直中心 → 持文案 → 独自透视远去；
+   * 快消失时才回调 onSettleStart（错开注意力，减轻双动画卡顿）。
+   * opts.prepare(): hold 阶段预加载
+   * opts.onSettleStart(prepared): 条将近消失时触发
+   */
+  function playKillHundredTransition(opts) {
+    opts = opts || {};
+    const fx = $('killClearFx');
+    const stage = $('killClearStage');
+    const bar = $('killClearBar');
+    const cheer = $('killClearCheer');
+    const bolts = bar ? bar.querySelector('.kill-bolts') : null;
+    const realSlot = $('killSlot');
+    const realBtn = $('killBtn');
+    const msg = KILL_TIER_MSGS[100];
+    const moveMs = 520;
+    const holdMs = 1000;
+    const recedeMs = 980;
+    // 结算只在条尾声启动，与远去少量交接即可
+    const settleLeadMs = 240;
+
+    if (!fx || !stage || !bar) return Promise.resolve();
+
+    const anchor = (realBtn && !realBtn.hidden ? realBtn : realSlot) || realBtn;
+    const rect = anchor && anchor.getBoundingClientRect
+      ? anchor.getBoundingClientRect()
+      : { left: 24, top: window.innerHeight - 80, width: Math.min(420, window.innerWidth - 48), height: 48 };
+
+    if (realSlot) realSlot.classList.add('is-clearing-hide');
+    document.body.classList.add('kill-clearing');
+
+    cheer.textContent = msg || '';
+    cheer.hidden = false;
+    cheer.classList.add('is-in', 'tier-100');
+
+    stage.style.transition = 'none';
+    stage.style.left = Math.round(rect.left) + 'px';
+    stage.style.width = Math.round(rect.width) + 'px';
+    stage.style.top = Math.round(rect.top) + 'px';
+
+    fx.hidden = false;
+    fx.setAttribute('aria-hidden', 'false');
+    bar.classList.remove('is-hold', 'is-recede');
+    void bar.offsetWidth;
+
+    if (bolts && !reduced()) {
+      bolts.classList.remove('zap-25', 'zap-50', 'zap-75', 'zap-100');
+      void bolts.offsetWidth;
+      bolts.classList.add('zap-100');
+    }
+
+    function cleanup() {
+      fx.hidden = true;
+      fx.setAttribute('aria-hidden', 'true');
+      bar.classList.remove('is-hold', 'is-recede');
+      if (bolts) bolts.classList.remove('zap-25', 'zap-50', 'zap-75', 'zap-100');
+      stage.style.transition = 'none';
+      stage.style.left = '';
+      stage.style.width = '';
+      stage.style.top = '';
+      document.body.classList.remove('kill-clearing');
+      if (realSlot) realSlot.classList.remove('is-clearing-hide');
+    }
+
+    function fireSettle(prepared) {
+      if (typeof opts.onSettleStart === 'function') {
+        try { opts.onSettleStart(prepared); } catch (e) { console.error(e); }
+      } else if (typeof opts.onCrossStart === 'function') {
+        try { opts.onCrossStart(prepared); } catch (e) { console.error(e); }
+      }
+    }
+
+    if (reduced()) {
+      return Promise.resolve()
+        .then(() => (typeof opts.prepare === 'function' ? opts.prepare() : null))
+        .then((prepared) => {
+          fireSettle(prepared);
+          return waitMs(120);
+        })
+        .then(cleanup);
+    }
+
+    const targetTop = Math.max(
+      12,
+      Math.round((window.innerHeight - (rect.height || stage.offsetHeight || 52)) / 2)
+    );
+
+    return waitMs(20)
+      .then(() => {
+        stage.style.transition = 'top ' + moveMs + 'ms var(--motion-ease, cubic-bezier(0.22, 1, 0.36, 1))';
+        stage.style.top = targetTop + 'px';
+        return waitMs(moveMs);
+      })
+      .then(() => {
+        bar.classList.add('is-hold');
+        const prep = typeof opts.prepare === 'function' ? opts.prepare() : null;
+        return Promise.all([waitMs(holdMs), Promise.resolve(prep)]);
+      })
+      .then((pair) => {
+        const prepared = pair[1];
+        bar.classList.remove('is-hold');
+        void bar.offsetWidth;
+        bar.classList.add('is-recede');
+        // 条先独自远去，快没影时再播结算
+        const soloMs = Math.max(0, recedeMs - settleLeadMs);
+        return waitMs(soloMs).then(() => {
+          fireSettle(prepared);
+          return waitMs(settleLeadMs);
+        });
+      })
+      .then(cleanup);
+  }
+
   function onCorrect(streak) {
     const card = cardEl();
     const n = streak | 0;
@@ -142,6 +346,8 @@
     onCorrect,
     onWrong,
     onKill,
+    killTierCheer,
+    playKillHundredTransition,
     revealDelay,
     afterReveal,
     setComboBadge,

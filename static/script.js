@@ -16,6 +16,13 @@ let currentBankId = null;
 /** 当前会话连对（与服务端 run_streak 同步；切库/答错清零） */
 let sessionStreak = 0;
 
+/** 斩题进度条分档：跨档才播文案/闪电 */
+const KILL_BAR_TIERS = [25, 50, 75, 100];
+let killBarSyncKey = null;
+let killBarPrevPct = 0;
+let killBarFiredTiers = new Set();
+let pendingKillCheer = null; // { tier, promise }
+
 
 function uiAlert(message, opts) {
   if (window.LykieDialog) return LykieDialog.alert(message, opts);
@@ -169,7 +176,7 @@ function appendBankItem(listEl, b, opts) {
     window.LykieMock && typeof LykieMock.getActiveCollectionId === 'function'
       ? LykieMock.getActiveCollectionId()
       : null;
-  const li = document.createElement('li');
+    const li = document.createElement('li');
   li.className = 'bank-item'
     + (!mockCol && b.id === currentBankId ? ' active' : '')
     + (b.is_sa ? ' bank-sa' : '')
@@ -179,23 +186,23 @@ function appendBankItem(listEl, b, opts) {
   const progress = b.is_sa
     ? `简答 · ${b.total} 题`
     : `已斩 ${b.killed}/${b.total}`;
-  li.innerHTML =
-    `<div class="bank-name">${escapeHtml(b.name)}</div>` +
-    `<div class="bank-meta">${escapeHtml(b.imported_at)}</div>` +
+    li.innerHTML =
+      `<div class="bank-name">${escapeHtml(b.name)}</div>` +
+      `<div class="bank-meta">${escapeHtml(b.imported_at)}</div>` +
     `<div class="bank-progress">${progress}</div>` +
-    `<div class="bank-actions">` +
-      `<button class="mini-btn" data-act="view">查看</button>` +
+      `<div class="bank-actions">` +
+        `<button class="mini-btn" data-act="view">查看</button>` +
       `<button class="mini-btn" data-act="share">分享</button>` +
       `<button class="mini-btn" data-act="move">移入</button>` +
-      `<button class="mini-btn" data-act="rename">重命名</button>` +
-      `<button class="mini-btn danger" data-act="delete">删除</button>` +
-    `</div>`;
-  li.onclick = () => selectBank(b.id);
-  li.querySelector('[data-act="view"]').onclick = e => { e.stopPropagation(); openBankView(b.id); };
+        `<button class="mini-btn" data-act="rename">重命名</button>` +
+        `<button class="mini-btn danger" data-act="delete">删除</button>` +
+      `</div>`;
+    li.onclick = () => selectBank(b.id);
+    li.querySelector('[data-act="view"]').onclick = e => { e.stopPropagation(); openBankView(b.id); };
   li.querySelector('[data-act="share"]').onclick = e => { e.stopPropagation(); openShareBankModal(b); };
   li.querySelector('[data-act="move"]').onclick = e => { e.stopPropagation(); openMoveBankModal(b); };
-  li.querySelector('[data-act="rename"]').onclick = e => { e.stopPropagation(); renameBank(b); };
-  li.querySelector('[data-act="delete"]').onclick = e => { e.stopPropagation(); deleteBank(b); };
+    li.querySelector('[data-act="rename"]').onclick = e => { e.stopPropagation(); renameBank(b); };
+    li.querySelector('[data-act="delete"]').onclick = e => { e.stopPropagation(); deleteBank(b); };
   listEl.appendChild(li);
 }
 
@@ -611,12 +618,21 @@ function setModeChrome(mode) {
   document.body.classList.toggle('mode-kill', mode === 'kill');
   document.body.classList.remove('mode-mock', 'mode-wrong');
   const sub = $('brandSub');
-  if (sub) sub.textContent = mode === 'sa' ? '简答' : '背题';
+  if (sub) {
+    if (mode === 'sa') {
+      sub.textContent = '简答';
+      sub.hidden = false;
+    } else {
+      sub.textContent = '';
+      sub.hidden = true;
+    }
+  }
 
   if ($('stats')) $('stats').hidden = mode !== 'kill';
   if ($('saStats')) $('saStats').hidden = mode !== 'sa';
   if ($('saControls')) $('saControls').hidden = mode !== 'sa';
   if ($('killControls')) $('killControls').hidden = mode !== 'kill';
+  if ($('killSlot')) $('killSlot').hidden = mode !== 'kill';
   if ($('progress')) $('progress').hidden = mode !== 'kill';
   if ($('resetBtn')) $('resetBtn').hidden = mode !== 'kill';
   if ($('saResetBtn')) $('saResetBtn').hidden = mode !== 'sa';
@@ -755,7 +771,52 @@ async function refreshStatus() {
 
 function updateKillBar(s) {
   const fill = $('killFill');
-  fill.style.width = s.total > 0 ? (s.killed / s.total * 100).toFixed(1) + '%' : '0%';
+  if (!fill) return;
+  const total = s && s.total > 0 ? s.total : 0;
+  const killed = s && s.killed > 0 ? s.killed : 0;
+  const pct = total > 0 ? (killed / total) * 100 : 0;
+  fill.style.width = total > 0 ? pct.toFixed(1) + '%' : '0%';
+
+  const key = `${currentBankId || ''}:${(s && s.run_index) || 1}`;
+  if (killBarSyncKey !== key) {
+    killBarSyncKey = key;
+    killBarFiredTiers = new Set();
+    KILL_BAR_TIERS.forEach((t) => {
+      if (pct + 1e-6 >= t) killBarFiredTiers.add(t);
+    });
+    killBarPrevPct = pct;
+    return;
+  }
+
+  // 重置进度等：进度回退，重新对齐已达档（不播彩蛋）
+  if (pct + 1e-6 < killBarPrevPct - 0.05) {
+    killBarFiredTiers = new Set();
+    KILL_BAR_TIERS.forEach((t) => {
+      if (pct + 1e-6 >= t) killBarFiredTiers.add(t);
+    });
+    killBarPrevPct = pct;
+    return;
+  }
+
+  const crossed = [];
+  for (const t of KILL_BAR_TIERS) {
+    if (killBarPrevPct + 1e-6 < t && pct + 1e-6 >= t && !killBarFiredTiers.has(t)) {
+      crossed.push(t);
+    }
+  }
+  killBarPrevPct = pct;
+  if (!crossed.length) return;
+
+  const tier = crossed[crossed.length - 1];
+  crossed.forEach((t) => killBarFiredTiers.add(t));
+  if (tier === 100) {
+    // 100% 走独立过场，不在条上播普通短句彩蛋
+    pendingKillCheer = { tier: 100, promise: null };
+    return;
+  }
+  if (window.LykieFx && typeof LykieFx.killTierCheer === 'function') {
+    pendingKillCheer = { tier, promise: LykieFx.killTierCheer(tier) };
+  }
 }
 
 // ==================== 抽题与渲染 ====================
@@ -776,8 +837,13 @@ function setStudyCardVisible(show) {
 
 function setSettleView(on) {
   document.body.classList.toggle('settle-view', !!on);
+  if (!on) document.body.classList.remove('settle-arriving');
   const stage = $('studyStage');
   if (stage) stage.hidden = !!on;
+  if (!on && studyMode === 'kill') {
+    if ($('killSlot')) $('killSlot').hidden = false;
+    if ($('progress')) $('progress').hidden = false;
+  }
 }
 
 function setModalScrollLock(on) {
@@ -798,29 +864,81 @@ function showState(title, hint) {
   empty.innerHTML = `<p>${title}</p><p class="hint">${hint}</p>`;
 }
 
-async function showSettle(runIndex) {
+async function showSettle(runIndex, opts) {
+  const arrive = !!(opts && opts.arrive);
   current = null;
   submitted = false;
   setSettleView(true);
   setStudyCardVisible(false);
   if ($('studyHost') && studyMode === 'kill') $('studyHost').hidden = true;
   if ($('killBtn')) $('killBtn').hidden = true;
+  if ($('killSlot')) $('killSlot').hidden = true;
   hideAllBtns();
   const empty = $('emptyState');
   empty.hidden = false;
-  empty.innerHTML = '<p class="settle-loading">结算生成中…</p>';
+  document.body.classList.toggle('settle-arriving', arrive);
+  const hasData = !!(opts && opts.data);
+  if (!hasData) empty.innerHTML = '<p class="settle-loading">结算生成中…</p>';
   try {
     const q = runIndex != null ? `?run=${runIndex}` : '';
-    const data = await api('/api/settle' + q);
+    const data = hasData ? opts.data : await api('/api/settle' + q);
     settleCache = data;
     settleRunIndex = data.run_index;
     empty.innerHTML = renderSettleHtml(data);
+    const root = empty.querySelector('.settle');
+    if (root && arrive) {
+      root.classList.add('settle-arrive');
+      const clearArrive = () => {
+        document.body.classList.remove('settle-arriving');
+        root.classList.remove('settle-arrive');
+        root.removeEventListener('animationend', clearArrive);
+      };
+      root.addEventListener('animationend', clearArrive);
+      window.setTimeout(clearArrive, 1300);
+    } else {
+      document.body.classList.remove('settle-arriving');
+    }
     bindSettleUi(empty, data);
   } catch (e) {
     console.error(e);
+    document.body.classList.remove('settle-arriving');
     empty.innerHTML =
       '<p>全部斩完</p><p class="hint">结算加载失败，仍可点「重置进度」再来一轮</p>';
   }
+}
+
+/** 斩满 100%：清题卡 → 条上移 → 远去将近结束时再播结算 */
+async function runKillHundredOutro() {
+  current = null;
+  submitted = false;
+  hideAllBtns();
+  setStudyCardVisible(false);
+  if ($('studyHost')) $('studyHost').hidden = true;
+  if ($('progress')) $('progress').hidden = true;
+  if ($('killControls')) $('killControls').hidden = true;
+
+  const settlePromise = api('/api/settle')
+    .then((data) => ({ ok: true, data }))
+    .catch((e) => ({ ok: false, error: e }));
+
+  if (window.LykieFx && typeof LykieFx.playKillHundredTransition === 'function') {
+    await LykieFx.playKillHundredTransition({
+      prepare: () => settlePromise,
+      onSettleStart: (packed) => {
+        if (packed && packed.ok) {
+          showSettle(packed.data.run_index, { arrive: true, data: packed.data });
+        } else {
+          if (packed && packed.error) console.error(packed.error);
+          showSettle(null, { arrive: true });
+        }
+      },
+    });
+    return;
+  }
+
+  const packed = await settlePromise;
+  if (packed.ok) await showSettle(packed.data.run_index, { arrive: true, data: packed.data });
+  else await showSettle(null, { arrive: true });
 }
 
 function renderSettleHtml(data) {
@@ -1224,6 +1342,7 @@ function renderQuestion() {
   bumpCardMotion(card);
   $('answerBox').hidden = true;
   hideAllBtns();
+  if ($('killSlot') && studyMode === 'kill') $('killSlot').hidden = false;
   $('killBtn').hidden = false;
 
   $('cardType').textContent = current.type === 'choice'
@@ -1277,9 +1396,13 @@ function renderMeta() {
   const meta = $('cardMeta');
   const runAc = current.run_answer_count != null ? current.run_answer_count : current.answer_count;
   const runCc = current.run_correct_count != null ? current.run_correct_count : current.correct_count;
+  const runIndex = current.run_index != null ? current.run_index : 1;
   if (runAc > 0) {
     const rate = Math.round((runCc / runAc) * 100);
     meta.textContent = `本轮已答 ${runAc} 次 · 正确率 ${rate}%`;
+    meta.hidden = false;
+  } else if (runIndex >= 2) {
+    meta.textContent = '本轮尚未作答 · 答对一次即可斩（答错需再对才能斩）';
     meta.hidden = false;
   } else {
     meta.textContent = '本轮尚未作答 · 两次全对可斩，或满 3 次且正确率≥50%';
@@ -1484,8 +1607,8 @@ async function kill() {
   const fxWait = window.LykieFx ? LykieFx.onKill(sessionStreak) : Promise.resolve();
   try {
     const res = await api('/api/kill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: current.id, as_correct: asCorrect }),
     });
     if (res && res.ok === false) {
@@ -1508,6 +1631,15 @@ async function kill() {
   await refreshBanks();
   await refreshStatus();
   await fxWait;
+  if (pendingKillCheer && pendingKillCheer.tier === 100) {
+    pendingKillCheer = null;
+    await runKillHundredOutro();
+    return;
+  }
+  if (pendingKillCheer && pendingKillCheer.promise) {
+    // 非 100% 不挡下一题；彩蛋自行淡出
+  }
+  pendingKillCheer = null;
   loadNext();
 }
 
@@ -1713,7 +1845,7 @@ function buildChoiceRender(options, answer) {
   if (/^[A-H]{2,}$/.test(compact)) {
     ansLetters = compact.split('').filter((ch, i, a) => a.indexOf(ch) === i).sort().join('');
   } else {
-    const idx = options.indexOf(answer);
+  const idx = options.indexOf(answer);
     ansLetters = idx >= 0 ? letters[idx] : letters[0];
   }
   const answer_text = ansLetters
@@ -2654,7 +2786,7 @@ async function sendLykie(mode, messageOrBatch) {
       if (spoken && !data.silent) {
         await appendLykieReplyBurst(spoken);
       } else if (!filling && (data.silent || !spoken)) {
-        appendLykieSilenceBubble();
+      appendLykieSilenceBubble();
       }
       appendProfileNotes(data.profile_notes);
       if ((data.facts_added && data.facts_added.length) ||
@@ -2834,11 +2966,11 @@ function refreshCelestial() {
   // 桌面题库侧栏：记住收起/展开（默认展开）
   if (!isMobilePortrait()) {
     let sidebarOpen = true;
-    try {
+  try {
       const v = localStorage.getItem(BANK_SIDEBAR_KEY);
       if (v === '0') sidebarOpen = false;
       if (v === '1') sidebarOpen = true;
-    } catch (e) { /* ignore */ }
+  } catch (e) { /* ignore */ }
     setBankSidebarOpen(sidebarOpen);
   }
 

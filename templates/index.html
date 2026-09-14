@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
-  <title>Lykie · 背题</title>
+  <title>Lykie</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m68">
+  <link rel="stylesheet" href="/static/style.css?v=m74">
   <link rel="stylesheet" href="/static/sa.css?v=m5">
 </head>
 <body class="mode-kill" data-username="{{ username }}">
@@ -30,7 +30,7 @@
 
     <div class="main">
       <header>
-        <h1 class="brand-title">Lykie <span class="brand-sub" id="brandSub">背题</span></h1>
+        <h1 class="brand-title">Lykie <span class="brand-sub" id="brandSub" hidden></span></h1>
         <div class="stats" id="stats">加载中…</div>
         <div class="stats" id="saStats" hidden>加载中…</div>
         <div class="stats mock-timer-wrap" id="mockTimerWrap" hidden>用时 <span id="mockTimer">0:00</span></div>
@@ -123,10 +123,21 @@
             </div>
           </div>
           <div class="main-btns mode-sa-only" id="saControls" hidden></div>
-          <button id="killBtn" class="btn kill mode-kill-only" hidden>
-            <span class="kill-fill" id="killFill"></span>
-            <span class="kill-label">斩</span>
-          </button>
+          <div class="kill-slot mode-kill-only" id="killSlot">
+            <button id="killBtn" class="btn kill" hidden>
+              <span class="kill-fill" id="killFill"></span>
+              <span class="kill-bolts" id="killBolts" aria-hidden="true">
+                <svg class="kill-bolts-svg" viewBox="0 0 200 48" preserveAspectRatio="none">
+                  <path class="kill-bolt kill-bolt-a" d="M38 4 L48 22 L40 22 L58 44 L46 26 L54 26 Z"/>
+                  <path class="kill-bolt kill-bolt-b" d="M96 2 L108 20 L98 20 L118 46 L104 28 L114 28 Z"/>
+                  <path class="kill-bolt kill-bolt-c" d="M152 6 L164 24 L154 24 L176 44 L160 28 L170 28 Z"/>
+                </svg>
+                <span class="kill-spark"></span>
+              </span>
+              <span class="kill-label">斩</span>
+            </button>
+            <div class="kill-cheer" id="killCheer" hidden></div>
+          </div>
         </div>
         <div class="progress mode-kill-only" id="progress"></div>
       </footer>
@@ -353,11 +364,32 @@
     </div>
   </div>
 
+  <!-- 斩题 100%：进度条居中 → 透视远去 → 结算入场 -->
+  <div class="kill-clear-fx" id="killClearFx" hidden aria-hidden="true">
+    <div class="kill-clear-stage" id="killClearStage">
+      <div class="kill-clear-bar" id="killClearBar">
+        <div class="btn kill kill-clear-btn" aria-hidden="true">
+          <span class="kill-fill" style="width:100%"></span>
+          <span class="kill-bolts" aria-hidden="true">
+            <svg class="kill-bolts-svg" viewBox="0 0 200 48" preserveAspectRatio="none">
+              <path class="kill-bolt kill-bolt-a" d="M38 4 L48 22 L40 22 L58 44 L46 26 L54 26 Z"/>
+              <path class="kill-bolt kill-bolt-b" d="M96 2 L108 20 L98 20 L118 46 L104 28 L114 28 Z"/>
+              <path class="kill-bolt kill-bolt-c" d="M152 6 L164 24 L154 24 L176 44 L160 28 L170 28 Z"/>
+            </svg>
+            <span class="kill-spark"></span>
+          </span>
+          <span class="kill-label">斩</span>
+        </div>
+        <div class="kill-cheer kill-clear-cheer is-in tier-100" id="killClearCheer"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/dialog.js?v=1"></script>
   <script src="/static/sa.js?v=sa25"></script>
   <script src="/static/sfx.js?v=11"></script>
-  <script src="/static/fx.js?v=5"></script>
-  <script src="/static/script.js?v=m53"></script>
+  <script src="/static/fx.js?v=10"></script>
+  <script src="/static/script.js?v=m58"></script>
   <script src="/static/mock.js?v=8"></script>
   <script src="/static/story.js?v=m3"></script>
 </body>
