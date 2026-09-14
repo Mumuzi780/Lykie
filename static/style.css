@@ -109,7 +109,9 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  height: 100dvh;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .sidebar-header {
@@ -117,8 +119,13 @@ body {
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  padding-bottom: 4px;
 }
-.sidebar-header h2 { font-size: 16px; letter-spacing: 0.02em; }
 
 .bank-list {
   list-style: none;
@@ -126,7 +133,108 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
 }
+.sidebar-header h2 {
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notif-bell {
+  position: relative;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  color: inherit;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.share-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 8px 0 4px;
+}
+
+.share-user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: pointer;
+}
+
+.share-user-row:hover {
+  border-color: var(--primary);
+}
+
+.notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.notif-item {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 10px 12px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.notif-item.is-unread {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--active) 55%, var(--card));
+}
+
+.notif-msg {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.notif-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .bank-item {
   padding: 12px 14px;
   border-radius: 10px;
@@ -136,7 +244,6 @@ body {
   transition:
     background var(--motion-fast) var(--motion-ease),
     border-color var(--motion-fast) var(--motion-ease),
-    transform var(--motion-fast) var(--motion-ease),
     box-shadow var(--motion-fast) var(--motion-ease);
 }
 .bank-item:hover { background: var(--surface-hover); }
@@ -1838,13 +1945,37 @@ button.lykie-send:active { transform: scale(.94); }
   }
 }
 
-/* ==================== 手机竖屏 ≤720px ==================== */
-.bank-drawer-btn,
+/* ==================== 题库侧栏：桌面可收起 / 手机抽屉 ==================== */
+.bank-drawer-btn {
+  display: inline-flex;
+}
 .bank-drawer-close {
-  display: none;
+  display: inline-flex;
 }
 .bank-drawer-backdrop {
   display: none;
+}
+
+/* 桌面：收起后主区铺满；题卡/斩收窄居中；天体与连击保持原视口大致位置 */
+@media (min-width: 721px) {
+  body.bank-sidebar-collapsed .sidebar {
+    display: none;
+  }
+  body.bank-sidebar-collapsed .study-host,
+  body.bank-sidebar-collapsed .empty,
+  body.bank-sidebar-collapsed .controls {
+    max-width: min(640px, 100%);
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  /* 侧栏宽 300px：收起后补偿，避免月亮/连击跟着主区左缘外飘 */
+  body.bank-sidebar-collapsed .celestial-btn {
+    left: calc(300px + (100% - 300px) * 0.06);
+  }
+  body.bank-sidebar-collapsed .combo-badge {
+    right: calc(300px + (100% - 300px) * 0.06);
+  }
 }
 
 @media (max-width: 720px) {
@@ -1854,12 +1985,6 @@ button.lykie-send:active { transform: scale(.94); }
     min-height: 100dvh;
   }
 
-  .bank-drawer-btn {
-    display: inline-flex;
-  }
-  .bank-drawer-close {
-    display: inline-flex;
-  }
   .bank-drawer-backdrop {
     display: none;
     position: fixed;
@@ -1890,11 +2015,23 @@ button.lykie-send:active { transform: scale(.94); }
     border-bottom: 1px solid var(--border);
     box-shadow: 0 14px 36px rgba(26, 42, 46, .16);
     padding: 14px 14px 18px;
-    overflow-y: auto;
+    overflow: hidden;
     -webkit-overflow-scrolling: touch;
   }
   body.bank-drawer-open .sidebar {
     transform: translateY(0);
+    display: flex;
+    flex-direction: column;
+  }
+  body.bank-drawer-open .sidebar .bank-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* 手机不用 desktop collapsed 类 */
+  body.bank-sidebar-collapsed .sidebar {
+    display: flex;
   }
 
   .main {
@@ -2214,7 +2351,7 @@ button.lykie-send:active { transform: scale(.94); }
     box-shadow: var(--lift-1);
   }
   .bank-item:hover {
-    transform: translateX(3px);
+    /* 不用 translate：相邻项间隙里会来回抢 hover 导致抽搐 */
     border-left-color: color-mix(in srgb, var(--primary) 55%, transparent);
     box-shadow: var(--lift-1);
   }

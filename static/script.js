@@ -185,12 +185,14 @@ function appendBankItem(listEl, b, opts) {
     `<div class="bank-progress">${progress}</div>` +
     `<div class="bank-actions">` +
       `<button class="mini-btn" data-act="view">查看</button>` +
+      `<button class="mini-btn" data-act="share">分享</button>` +
       `<button class="mini-btn" data-act="move">移入</button>` +
       `<button class="mini-btn" data-act="rename">重命名</button>` +
       `<button class="mini-btn danger" data-act="delete">删除</button>` +
     `</div>`;
   li.onclick = () => selectBank(b.id);
   li.querySelector('[data-act="view"]').onclick = e => { e.stopPropagation(); openBankView(b.id); };
+  li.querySelector('[data-act="share"]').onclick = e => { e.stopPropagation(); openShareBankModal(b); };
   li.querySelector('[data-act="move"]').onclick = e => { e.stopPropagation(); openMoveBankModal(b); };
   li.querySelector('[data-act="rename"]').onclick = e => { e.stopPropagation(); renameBank(b); };
   li.querySelector('[data-act="delete"]').onclick = e => { e.stopPropagation(); deleteBank(b); };
@@ -333,7 +335,142 @@ async function refreshBanks() {
   });
 
   if (window.LykieMock) LykieMock.appendCollections(list, data.collections || []);
+  updateNotifBadge(data.notifications_unread || 0);
   return data;
+}
+
+let shareBankTarget = null;
+
+function updateNotifBadge(n) {
+  const bell = $('notifBellBtn');
+  const badge = $('notifBadge');
+  if (!bell || !badge) return;
+  const count = Number(n) || 0;
+  bell.hidden = false;
+  if (count > 0) {
+    badge.hidden = false;
+    badge.textContent = count > 99 ? '99+' : String(count);
+  } else {
+    badge.hidden = true;
+  }
+}
+
+async function openShareBankModal(bank) {
+  shareBankTarget = bank;
+  const title = $('bankShareTitle');
+  if (title) title.textContent = `分享「${bank.name}」`;
+  const list = $('bankShareUserList');
+  list.innerHTML = '<p class="hint">加载账号…</p>';
+  $('bankShareModal').hidden = false;
+  if (typeof setModalScrollLock === 'function') setModalScrollLock(true);
+  const res = await api('/api/share/targets');
+  if (res.ok === false) {
+    list.innerHTML = `<p class="hint">${escapeHtml(res.error || '加载失败')}</p>`;
+    return;
+  }
+  const users = res.users || [];
+  if (!users.length) {
+    list.innerHTML = '<p class="hint">暂无其他账号可分享。可用 add_user.py 开号后再试。</p>';
+    return;
+  }
+  list.innerHTML = users.map((u) => (
+    `<label class="share-user-row">` +
+    `<input type="checkbox" name="shareUser" value="${escapeHtml(u)}">` +
+    `<span>${escapeHtml(u)}</span>` +
+    `</label>`
+  )).join('');
+}
+
+function closeShareBankModal() {
+  $('bankShareModal').hidden = true;
+  shareBankTarget = null;
+  if (typeof setModalScrollLock === 'function') setModalScrollLock(false);
+}
+
+async function submitShareBank() {
+  if (!shareBankTarget) return;
+  const checked = [...document.querySelectorAll('#bankShareUserList input[name="shareUser"]:checked')]
+    .map((el) => el.value);
+  if (!checked.length) {
+    await uiAlert('请至少选择一个账号');
+    return;
+  }
+  const res = await api('/api/banks/share', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bank_id: shareBankTarget.id, to_users: checked }),
+  });
+  if (res.ok === false) {
+    await uiAlert(res.error || '分享失败');
+    return;
+  }
+  const okN = (res.shared || []).length;
+  const failN = (res.failed || []).length;
+  let msg = `已分享给 ${okN} 人`;
+  if (failN) {
+    msg += `；${failN} 人失败：` + (res.failed || []).map((f) => `${f.user}（${f.error}）`).join('、');
+  }
+  closeShareBankModal();
+  await uiAlert(msg);
+}
+
+async function openNotifModal() {
+  const list = $('notifList');
+  list.innerHTML = '<p class="hint">加载中…</p>';
+  $('notifModal').hidden = false;
+  if (typeof setModalScrollLock === 'function') setModalScrollLock(true);
+  const res = await api('/api/notifications');
+  if (res.ok === false) {
+    list.innerHTML = `<p class="hint">${escapeHtml(res.error || '加载失败')}</p>`;
+    return;
+  }
+  updateNotifBadge(res.unread || 0);
+  const notes = res.notifications || [];
+  if (!notes.length) {
+    list.innerHTML = '<p class="hint">暂无通知</p>';
+    return;
+  }
+  list.innerHTML = notes.map((n) => (
+    `<button type="button" class="notif-item${n.read ? '' : ' is-unread'}" data-nid="${escapeHtml(n.id)}" data-bank="${escapeHtml(n.bank_id || '')}">` +
+    `<div class="notif-msg">${escapeHtml(n.message || '')}</div>` +
+    `<div class="notif-meta">${escapeHtml(n.created_at || '')}</div>` +
+    `</button>`
+  )).join('');
+}
+
+function closeNotifModal() {
+  $('notifModal').hidden = true;
+  if (typeof setModalScrollLock === 'function') setModalScrollLock(false);
+}
+
+async function onNotifItemClick(btn) {
+  const nid = btn.getAttribute('data-nid');
+  if (!nid) return;
+  if (!btn.classList.contains('is-unread')) return;
+  const res = await api('/api/notifications/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [nid] }),
+  });
+  if (res.ok === false) return;
+  btn.classList.remove('is-unread');
+  updateNotifBadge(res.unread || 0);
+}
+
+async function markAllNotificationsRead() {
+  const res = await api('/api/notifications/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ all: true }),
+  });
+  if (res.ok === false) {
+    await uiAlert(res.error || '操作失败');
+    return;
+  }
+  updateNotifBadge(res.unread || 0);
+  document.querySelectorAll('#notifList .notif-item.is-unread').forEach((el) => {
+    el.classList.remove('is-unread');
+  });
 }
 
 async function createFolder() {
@@ -461,7 +598,8 @@ async function selectBank(id) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
   });
-  setBankDrawerOpen(false);
+  // 仅手机抽屉：切库后收起；桌面/平板侧栏由用户手动开关
+  if (isMobilePortrait()) setBankSidebarOpen(false);
   await refreshBanks();
   const s = await refreshStatus();
   await syncStudyMode(s);
@@ -1701,6 +1839,28 @@ if ($('bankMoveModal')) {
     if (e.target === $('bankMoveModal')) closeMoveBankModal();
   });
 }
+if ($('bankShareModalClose')) $('bankShareModalClose').onclick = () => closeShareBankModal();
+if ($('bankShareCancel')) $('bankShareCancel').onclick = () => closeShareBankModal();
+if ($('bankShareSubmit')) $('bankShareSubmit').onclick = () => submitShareBank();
+if ($('bankShareModal')) {
+  $('bankShareModal').addEventListener('click', (e) => {
+    if (e.target === $('bankShareModal')) closeShareBankModal();
+  });
+}
+if ($('notifBellBtn')) $('notifBellBtn').onclick = () => openNotifModal();
+if ($('notifModalClose')) $('notifModalClose').onclick = () => closeNotifModal();
+if ($('notifMarkAllBtn')) $('notifMarkAllBtn').onclick = () => markAllNotificationsRead();
+if ($('notifModal')) {
+  $('notifModal').addEventListener('click', (e) => {
+    if (e.target === $('notifModal')) closeNotifModal();
+  });
+}
+if ($('notifList')) {
+  $('notifList').addEventListener('click', (e) => {
+    const btn = e.target.closest('.notif-item[data-nid]');
+    if (btn) onNotifItemClick(btn);
+  });
+}
 $('editBtn').onclick = openEditFromCard;
 $('editCancelBtn').onclick = closeEdit;
 $('editSaveBtn').onclick = saveEdit;
@@ -2153,22 +2313,47 @@ function isMobilePortrait() {
   return window.matchMedia('(max-width: 720px)').matches;
 }
 
+const BANK_SIDEBAR_KEY = 'lykieBankSidebarOpen';
+
+function isBankSidebarOpen() {
+  if (isMobilePortrait()) {
+    return document.body.classList.contains('bank-drawer-open');
+  }
+  return !document.body.classList.contains('bank-sidebar-collapsed');
+}
+
+/** 桌面：收起/展开侧栏；手机：抽屉开合。桌面偏好写入 localStorage。 */
+function setBankSidebarOpen(open) {
+  const next = !!open;
+  if (isMobilePortrait()) {
+    const was = document.body.classList.contains('bank-drawer-open');
+    document.body.classList.toggle('bank-drawer-open', next);
+    document.body.classList.remove('bank-sidebar-collapsed');
+    if (next && !was && window.LykieSfx) LykieSfx.onUiOpen();
+    return;
+  }
+  const wasOpen = !document.body.classList.contains('bank-sidebar-collapsed');
+  document.body.classList.toggle('bank-sidebar-collapsed', !next);
+  document.body.classList.remove('bank-drawer-open');
+  try {
+    localStorage.setItem(BANK_SIDEBAR_KEY, next ? '1' : '0');
+  } catch (e) { /* ignore */ }
+  if (next && !wasOpen && window.LykieSfx) LykieSfx.onUiOpen();
+}
+
+/** @deprecated 兼容旧调用名 */
+function setBankDrawerOpen(open) {
+  setBankSidebarOpen(open);
+}
+
 /** 开场剧情等用户主动打开 Lykie 再播，避免一进站就盖住刷题。 */
 let pendingOpeningStory = false;
-
-function setBankDrawerOpen(open) {
-  const next = !!open;
-  const was = document.body.classList.contains('bank-drawer-open');
-  document.body.classList.toggle('bank-drawer-open', next);
-  if (next && !was && window.LykieSfx) LykieSfx.onUiOpen();
-}
 
 function setLykiePanelOpen(open) {
   const panel = $('lykiePanel');
   if (!panel) return;
   const next = !!open;
   const wasOpen = !panel.classList.contains('collapsed');
-  if (next) setBankDrawerOpen(false);
   panel.classList.toggle('collapsed', !next);
   try {
     localStorage.setItem('lykiePanelOpen', next ? '1' : '0');
@@ -2600,16 +2785,14 @@ if ($('sfxToggleBtn')) {
 }
 if ($('bankDrawerBtn')) {
   $('bankDrawerBtn').onclick = () => {
-    const next = !document.body.classList.contains('bank-drawer-open');
-    if (next) setLykiePanelOpen(false);
-    setBankDrawerOpen(next);
+    setBankSidebarOpen(!isBankSidebarOpen());
   };
 }
 if ($('bankDrawerCloseBtn')) {
-  $('bankDrawerCloseBtn').onclick = () => setBankDrawerOpen(false);
+  $('bankDrawerCloseBtn').onclick = () => setBankSidebarOpen(false);
 }
 if ($('bankDrawerBackdrop')) {
-  $('bankDrawerBackdrop').onclick = () => setBankDrawerOpen(false);
+  $('bankDrawerBackdrop').onclick = () => setBankSidebarOpen(false);
 }
 if ($('lykieInput')) {
   $('lykieInput').addEventListener('keydown', e => {
@@ -2647,6 +2830,17 @@ function refreshCelestial() {
   } catch (e) { /* 忽略 */ }
   applyTheme(savedTheme);
   refreshCelestial();
+
+  // 桌面题库侧栏：记住收起/展开（默认展开）
+  if (!isMobilePortrait()) {
+    let sidebarOpen = true;
+    try {
+      const v = localStorage.getItem(BANK_SIDEBAR_KEY);
+      if (v === '0') sidebarOpen = false;
+      if (v === '1') sidebarOpen = true;
+    } catch (e) { /* ignore */ }
+    setBankSidebarOpen(sidebarOpen);
+  }
 
   // 默认收起；只有用户主动打开过才记住展开（刷题测试优先，不抢主界面）
   let panelOpen = false;

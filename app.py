@@ -27,6 +27,7 @@ from lykie import memory as lykie_memory
 from lykie import mock as lykie_mock
 from lykie import profile as lykie_profile
 from lykie import settle as lykie_settle
+from lykie import share as lykie_share
 from lykie import short_answer as lykie_sa
 from lykie import typo as lykie_typo
 from story import load_story, list_stories
@@ -1084,6 +1085,7 @@ def api_banks():
             "is_sa": is_sa,
             "mode": b.get("mode") or ("short_answer" if is_sa else "objective"),
             "folder_id": b.get("folder_id") or None,
+            "shared_from": b.get("shared_from") or None,
         })
     return jsonify_user({
         "banks": result,
@@ -1091,6 +1093,64 @@ def api_banks():
         "folders": lykie_folders.list_folders(g.store),
         "collections": lykie_mock.list_collections(g.store),
         "wrong_sets": lykie_mock.list_wrong_sets(g.store),
+        "notifications_unread": lykie_share.unread_count(g.store.username),
+    })
+
+
+@app.route("/api/share/targets")
+def api_share_targets():
+    return jsonify_user({
+        "ok": True,
+        "users": lykie_share.list_share_targets(g.store.username),
+    })
+
+
+@app.route("/api/banks/share", methods=["POST"])
+def api_banks_share():
+    data = request.get_json(force=True) or {}
+    bank_id = str(data.get("bank_id") or "")
+    to_users = data.get("to_users") or data.get("users") or []
+    if isinstance(to_users, str):
+        to_users = [to_users]
+    bank = next((b for b in g.store.banks if str(b.get("id")) == bank_id), None)
+    if not bank:
+        return jsonify({"ok": False, "error": "题库不存在"}), 404
+    result, err = lykie_share.share_bank_to_users(g.store.username, bank, list(to_users))
+    if err and not (result and result.get("ok")):
+        return jsonify({"ok": False, "error": err, "result": result}), 400
+    return jsonify_user({
+        "ok": True,
+        "shared": (result or {}).get("ok") or [],
+        "failed": (result or {}).get("failed") or [],
+    })
+
+
+@app.route("/api/notifications")
+def api_notifications():
+    notes = lykie_share.list_notifications(g.store.username)
+    return jsonify_user({
+        "ok": True,
+        "notifications": notes,
+        "unread": sum(1 for n in notes if not n.get("read")),
+    })
+
+
+@app.route("/api/notifications/read", methods=["POST"])
+def api_notifications_read():
+    data = request.get_json(force=True) or {}
+    all_read = bool(data.get("all"))
+    ids = data.get("ids") or []
+    if isinstance(ids, str):
+        ids = [ids]
+    n = lykie_share.mark_notifications_read(
+        g.store.username,
+        ids=list(ids),
+        all_read=all_read,
+    )
+    return jsonify_user({
+        "ok": True,
+        "marked": n,
+        "unread": lykie_share.unread_count(g.store.username),
     })
 
 

@@ -42,6 +42,7 @@ SYNC_FILES = [
     "lykie/mock.py",
     "lykie/profile.py",
     "lykie/settle.py",
+    "lykie/share.py",
     "lykie/short_answer.py",
     "lykie/typo.py",
     "lykie/prompt_core.txt",
