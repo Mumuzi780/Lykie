@@ -347,6 +347,7 @@ async function refreshBanks() {
 }
 
 let shareBankTarget = null;
+let notifCache = [];
 
 function updateNotifBadge(n) {
   const bell = $('notifBellBtn');
@@ -433,16 +434,24 @@ async function openNotifModal() {
   }
   updateNotifBadge(res.unread || 0);
   const notes = res.notifications || [];
+  notifCache = notes;
   if (!notes.length) {
     list.innerHTML = '<p class="hint">暂无通知</p>';
     return;
   }
-  list.innerHTML = notes.map((n) => (
-    `<button type="button" class="notif-item${n.read ? '' : ' is-unread'}" data-nid="${escapeHtml(n.id)}" data-bank="${escapeHtml(n.bank_id || '')}">` +
-    `<div class="notif-msg">${escapeHtml(n.message || '')}</div>` +
-    `<div class="notif-meta">${escapeHtml(n.created_at || '')}</div>` +
-    `</button>`
-  )).join('');
+  list.innerHTML = notes.map((n) => {
+    const kind = n.type === 'release' ? 'release' : 'share';
+    const tag = kind === 'release' ? '更新' : '分享';
+    return (
+      `<button type="button" class="notif-item${n.read ? '' : ' is-unread'}" ` +
+      `data-nid="${escapeHtml(n.id)}" data-kind="${kind}" ` +
+      `data-bank="${escapeHtml(n.bank_id || '')}" data-version="${escapeHtml(n.version || '')}">` +
+      `<div class="notif-top"><span class="notif-tag notif-tag-${kind}">${tag}</span>` +
+      `<span class="notif-meta">${escapeHtml(n.created_at || '')}</span></div>` +
+      `<div class="notif-msg">${escapeHtml(n.message || '')}</div>` +
+      `</button>`
+    );
+  }).join('');
 }
 
 function closeNotifModal() {
@@ -450,18 +459,86 @@ function closeNotifModal() {
   if (typeof setModalScrollLock === 'function') setModalScrollLock(false);
 }
 
+function closeReleaseModal() {
+  const m = $('releaseModal');
+  if (m) m.hidden = true;
+  if (typeof setModalScrollLock === 'function' && $('notifModal') && !$('notifModal').hidden) {
+    /* keep lock while inbox still open */
+  } else if (typeof setModalScrollLock === 'function') {
+    setModalScrollLock(false);
+  }
+}
+
+async function openReleaseDetail(noteOrVersion) {
+  let release = null;
+  if (noteOrVersion && typeof noteOrVersion === 'object') {
+    release = {
+      version: noteOrVersion.version,
+      title: noteOrVersion.title,
+      summary: noteOrVersion.summary,
+      bullets: noteOrVersion.bullets || [],
+      date: noteOrVersion.created_at || noteOrVersion.date,
+    };
+    if (!(release.bullets && release.bullets.length) && release.version) {
+      const res = await api('/api/releases/' + encodeURIComponent(release.version));
+      if (res && res.ok !== false && res.release) release = res.release;
+    }
+  } else if (noteOrVersion) {
+    const res = await api('/api/releases/' + encodeURIComponent(noteOrVersion));
+    if (res.ok === false) {
+      await uiAlert(res.error || '加载失败');
+      return;
+    }
+    release = res.release;
+  }
+  if (!release) {
+    await uiAlert('没有该版本说明');
+    return;
+  }
+  const title = $('releaseModalTitle');
+  const summary = $('releaseModalSummary');
+  const bullets = $('releaseModalBullets');
+  const dateEl = $('releaseModalDate');
+  if (title) title.textContent = release.title || (`V${release.version}`);
+  if (summary) {
+    summary.textContent = release.summary || '';
+    summary.hidden = !release.summary;
+  }
+  if (bullets) {
+    const lines = release.bullets || [];
+    bullets.innerHTML = lines.map((b) => `<li>${escapeHtml(b)}</li>`).join('');
+  }
+  if (dateEl) {
+    const d = release.date || release.created_at || '';
+    dateEl.textContent = d ? `发布：${d}` : '';
+    dateEl.hidden = !d;
+  }
+  $('releaseModal').hidden = false;
+  if (typeof setModalScrollLock === 'function') setModalScrollLock(true);
+}
+
 async function onNotifItemClick(btn) {
   const nid = btn.getAttribute('data-nid');
+  const kind = btn.getAttribute('data-kind') || 'share';
   if (!nid) return;
-  if (!btn.classList.contains('is-unread')) return;
-  const res = await api('/api/notifications/read', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: [nid] }),
-  });
-  if (res.ok === false) return;
-  btn.classList.remove('is-unread');
-  updateNotifBadge(res.unread || 0);
+
+  if (btn.classList.contains('is-unread')) {
+    const res = await api('/api/notifications/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [nid] }),
+    });
+    if (res && res.ok !== false) {
+      btn.classList.remove('is-unread');
+      updateNotifBadge(res.unread || 0);
+    }
+  }
+
+  if (kind === 'release') {
+    const version = btn.getAttribute('data-version') || '';
+    const note = notifCache.find((n) => String(n.id) === String(nid));
+    await openReleaseDetail(note || version);
+  }
 }
 
 async function markAllNotificationsRead() {
@@ -1985,6 +2062,12 @@ if ($('notifMarkAllBtn')) $('notifMarkAllBtn').onclick = () => markAllNotificati
 if ($('notifModal')) {
   $('notifModal').addEventListener('click', (e) => {
     if (e.target === $('notifModal')) closeNotifModal();
+  });
+}
+if ($('releaseModalClose')) $('releaseModalClose').onclick = () => closeReleaseModal();
+if ($('releaseModal')) {
+  $('releaseModal').addEventListener('click', (e) => {
+    if (e.target === $('releaseModal')) closeReleaseModal();
   });
 }
 if ($('notifList')) {

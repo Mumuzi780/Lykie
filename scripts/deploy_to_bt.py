@@ -43,6 +43,7 @@ SYNC_FILES = [
     "lykie/profile.py",
     "lykie/settle.py",
     "lykie/share.py",
+    "lykie/releases.py",
     "lykie/short_answer.py",
     "lykie/typo.py",
     "lykie/prompt_core.txt",
@@ -66,9 +67,13 @@ SYNC_FILES = [
     "docs/简答训练-测试笔记.md",
     "docs/版本日志.md",
     "docs/版本更新-v3.md",
+    "docs/版本更新-v3.1.md",
     "docs/产品定位.md",
     "docs/进题导入-设计草案.md",
     "docs/进题导入-脏文本样本.md",
+    "docs/宣传标语-学会的变成自己的.md",
+    "docs/Lykie形象与出场原则.md",
+    "docs/斩题进度条-分档充能.md",
     "data/stories/fragment_01.json",
 ]
 

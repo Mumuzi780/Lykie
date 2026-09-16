@@ -28,6 +28,7 @@ from lykie import mock as lykie_mock
 from lykie import profile as lykie_profile
 from lykie import settle as lykie_settle
 from lykie import share as lykie_share
+from lykie import releases as lykie_releases
 from lykie import short_answer as lykie_sa
 from lykie import typo as lykie_typo
 from story import load_story, list_stories
@@ -1093,8 +1094,13 @@ def api_banks():
         "folders": lykie_folders.list_folders(g.store),
         "collections": lykie_mock.list_collections(g.store),
         "wrong_sets": lykie_mock.list_wrong_sets(g.store),
-        "notifications_unread": lykie_share.unread_count(g.store.username),
+        "notifications_unread": _notifications_unread(g.store.username),
     })
+
+
+def _notifications_unread(username: str) -> int:
+    lykie_releases.ensure_release_notification(username)
+    return lykie_share.unread_count(username)
 
 
 @app.route("/api/share/targets")
@@ -1127,12 +1133,22 @@ def api_banks_share():
 
 @app.route("/api/notifications")
 def api_notifications():
+    lykie_releases.ensure_release_notification(g.store.username)
     notes = lykie_share.list_notifications(g.store.username)
     return jsonify_user({
         "ok": True,
         "notifications": notes,
         "unread": sum(1 for n in notes if not n.get("read")),
+        "site_version": lykie_releases.SITE_VERSION,
     })
+
+
+@app.route("/api/releases/<version>")
+def api_release_detail(version):
+    meta = lykie_releases.get_release(version)
+    if not meta:
+        return jsonify({"ok": False, "error": "没有该版本说明"}), 404
+    return jsonify_user({"ok": True, "release": meta})
 
 
 @app.route("/api/notifications/read", methods=["POST"])

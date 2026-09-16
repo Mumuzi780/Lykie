@@ -91,6 +91,10 @@ def _new_id(prefix: str = "") -> str:
     return f"{prefix}{base}" if prefix else base
 
 
+def new_notification_id(prefix: str = "n") -> str:
+    return _new_id(prefix)
+
+
 def clone_question(src: dict, new_qid: str) -> dict:
     """深拷贝题目内容，进度归零。"""
     q = copy.deepcopy(src) if isinstance(src, dict) else {}
