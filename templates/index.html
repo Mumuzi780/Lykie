@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m75">
+  <link rel="stylesheet" href="/static/style.css?v=m80">
   <link rel="stylesheet" href="/static/sa.css?v=m5">
 </head>
 <body class="mode-kill" data-username="{{ username }}">
@@ -36,6 +36,7 @@
         <div class="stats mock-timer-wrap" id="mockTimerWrap" hidden>用时 <span id="mockTimer">0:00</span></div>
         <div class="actions" id="headerActions">
           <button type="button" id="bankDrawerBtn" class="btn ghost bank-drawer-btn">题库</button>
+          <a class="btn ghost" href="/assets" title="把学会的变成自己的">资产</a>
           <button type="button" id="wrongBookBtn" class="btn ghost">错题本</button>
           <button id="saEditKwBtn" class="btn ghost mode-sa-only" type="button" hidden disabled>编辑关键词</button>
           <button id="resetBtn" class="btn ghost mode-kill-only">重置进度</button>
@@ -74,7 +75,7 @@
               <div class="card-top">
                 <span class="card-type" id="cardType"></span>
                 <div class="card-top-actions">
-                  <button id="askLykieBtn" class="btn ghost ask-lykie">问问 Lykie</button>
+                  <button id="askLykieBtn" class="btn ghost ask-lykie">放到对话里</button>
                   <button id="editBtn" class="btn edit">编辑</button>
                 </div>
               </div>
@@ -100,7 +101,7 @@
                   <span class="sa-stage" id="saStage"></span>
                 </div>
                 <div class="card-top-actions">
-                  <button id="saAskLykieBtn" class="btn ghost ask-lykie" type="button">问问 Lykie</button>
+                  <button id="saAskLykieBtn" class="btn ghost ask-lykie" type="button">放到对话里</button>
                 </div>
               </div>
               <div class="card-stem" id="saStem"></div>
@@ -157,13 +158,49 @@
         <button type="button" id="lykieSkipWaitBtn" class="btn ghost lykie-tool" hidden>跳过等待</button>
         <button type="button" id="lykieReplayStoryBtn" class="btn ghost lykie-tool" hidden>重温开场</button>
         <button type="button" id="lykieClearChatBtn" class="btn ghost lykie-tool" title="清空自由聊到开场刚结束">清到开场后</button>
-        <button type="button" id="lykieCorrectBtn" class="btn ghost lykie-tool">纠正上一句</button>
+        <label class="lykie-stage-wrap" title="作者钉层，玩家无进度条">
+          <span class="lykie-stage-label">层</span>
+          <select id="lykieStageSelect" class="lykie-stage-select" aria-label="感情层">
+            <option value="opening">开局</option>
+            <option value="acquainted" selected>认识但不熟悉</option>
+            <option value="casual">能说事</option>
+            <option value="heart">能谈心</option>
+            <option value="couple">情侣</option>
+          </select>
+        </label>
+        <button type="button" id="lykieAuthorLogToolBtn" class="btn ghost lykie-tool" title="记给作者：圈对话+点评，不进模型">记</button>
+        <button type="button" id="lykieWipeMemoryBtn" class="btn ghost lykie-tool" title="清空本账号事实、对话、印象（过节）和名字；口吻、监督、作者日志全站共用，不清">清空记忆</button>
       </div>
       <div class="lykie-composer">
-        <textarea id="lykieInput" rows="4" placeholder="跟她说点什么… 纠正可写：纠正：别分点，短句说" autocomplete="off"></textarea>
+        <div id="lykiePendingCard" class="lykie-pending-card" hidden>
+          <span class="lykie-pending-preview" id="lykiePendingPreview"></span>
+          <button type="button" id="lykiePendingCardClear" class="lykie-pending-clear" title="划掉，等于没发过">划掉</button>
+        </div>
+        <textarea id="lykieInput" rows="4" placeholder="跟她说点什么…" autocomplete="off"></textarea>
         <button type="button" id="lykieSendBtn" class="lykie-send" title="发送" aria-label="发送">↑</button>
       </div>
     </aside>
+  </div>
+
+  <!-- 作者现场日志（不进模型） -->
+  <div class="modal" id="lykieAuthorLogModal" hidden>
+    <div class="modal-box lykie-feedback-box lykie-log-box">
+      <h3>记给作者</h3>
+      <p class="hint">不进模型。默认圈住「清空后到现在」整段。可点两句改范围。点评（点踩/点赞）会自动带上。</p>
+      <div class="lykie-log-range-tools">
+        <button type="button" class="btn ghost" id="lykieAuthorLogAllBtn">本次全部</button>
+        <span class="hint" id="lykieAuthorLogRangeHint"></span>
+      </div>
+      <div class="lykie-log-range" id="lykieAuthorLogRange"></div>
+      <div class="form-field">
+        <label>备注（可空）</label>
+        <textarea id="lykieAuthorLogNote" rows="3" placeholder="这块哪里不好；或你已经改过的逻辑要我看…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="lykieAuthorLogCancel" class="btn ghost">取消</button>
+        <button type="button" id="lykieAuthorLogSubmit" class="btn primary">记下现场</button>
+      </div>
+    </div>
   </div>
 
   <!-- Lykie 点踩纠正弹窗 -->
@@ -401,8 +438,8 @@
   <script src="/static/sa.js?v=sa25"></script>
   <script src="/static/sfx.js?v=11"></script>
   <script src="/static/fx.js?v=10"></script>
-  <script src="/static/script.js?v=m59"></script>
+  <script src="/static/script.js?v=m70"></script>
   <script src="/static/mock.js?v=8"></script>
-  <script src="/static/story.js?v=m3"></script>
+  <script src="/static/story.js?v=m6"></script>
 </body>
 </html>

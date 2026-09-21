@@ -133,7 +133,7 @@ function uiPrompt(message, defaultValue, opts) {
       delete input.dataset.storyOptId;
       input.placeholder = storyMode
         ? '点上方提示填入，可修改后发送…'
-        : '跟她说点什么… 纠正可写：纠正：别分点，短句说';
+        : '跟她说点什么…';
     }
   }
 
@@ -141,12 +141,14 @@ function uiPrompt(message, defaultValue, opts) {
     storyMode = active;
     const panel = $('lykiePanel');
     if (panel) panel.classList.toggle('story-mode', active);
-    const correct = $('lykieCorrectBtn');
     const ask = $('askLykieBtn');
+    const saAsk = $('saAskLykieBtn');
     const skip = $('lykieSkipWaitBtn');
     const replay = $('lykieReplayStoryBtn');
-    if (correct) correct.disabled = !!active;
+    const wipe = $('lykieWipeMemoryBtn');
     if (ask) ask.disabled = !!active;
+    if (saAsk) saAsk.disabled = !!active;
+    if (wipe) wipe.disabled = !!active;
     if (skip) skip.hidden = true;
     if (replay) replay.hidden = !!active;
     const status = $('lykieStatus');
@@ -326,7 +328,7 @@ function uiPrompt(message, defaultValue, opts) {
     } else {
       appendBubble(
         'system',
-        '你们打过招呼了。之后可以自由聊，或去刷题；卡住点「问问 Lykie」。',
+        '你们打过招呼了。之后可以自由聊，或去刷题；卡住了就把题放到对话里。',
       );
     }
     const replay = $('lykieReplayStoryBtn');
@@ -520,10 +522,9 @@ function uiPrompt(message, defaultValue, opts) {
   if (skip) skip.onclick = () => window.StoryRunner.skipWait();
   const replay = $('lykieReplayStoryBtn');
   if (replay) {
-    replay.onclick = () => {
-      if (await uiConfirm('重温开场剧情？当前面板消息会被清空。')) {
-        startFragment01(true);
-      }
+    replay.hidden = true;
+    replay.onclick = async () => {
+      await uiAlert('旧开场（期末错接）已下线，新开场待上。');
     };
   }
 })();

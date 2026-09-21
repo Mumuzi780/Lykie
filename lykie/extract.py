@@ -5,7 +5,7 @@ import re
 
 EXTRACT_FACTS_SYSTEM = """你从用户刚刚说的话里抽取 0～2 条关于「用户本人日常/习惯/偏好」的短事实。
 只输出 JSON 数组，例如 ["经常熬夜","周末打游戏"] 或 []。
-不要抽取情绪发泄、口吻纠正、关于 Lykie 改名/换身份的要求。不要解释。"""
+不要抽取情绪发泄、羞辱骂人、口吻纠正、关于 Lykie 改名/换身份的要求。不要解释。"""
 
 EXTRACT_STYLE_SYSTEM = """用户在纠正 Lykie 的说话方式（口吻/风格），不是改她是谁。
 根据「用户纠正」和可选的「上一句 Lykie 原话」，提炼 1～2 条可长期遵守的短规则。
@@ -19,6 +19,16 @@ EXTRACT_NAME_SYSTEM = """用户在自我介绍或回答「你叫什么」。请�
 - 例：「我叫李子峰」→ 李子峰；「我是小周」→ 小周；「李子峰」→ 李子峰
 - 若没有可识别的名字，只输出 EMPTY
 - 不要输出昵称说明或整句原文"""
+
+EXTRACT_PORTRAIT_SYSTEM = """你在看用户刚刚对 Lykie 说的话（可能多句）。判断两件事，只输出一个 JSON 对象，不要解释。
+- offense：是否构成对 Lykie 的羞辱、辱骂、恶意调侃身份，或态度很冲的查户口。礼貌提问、普通自我介绍、无恶意玩笑 → false。
+- apology：是否在道歉（对不起/抱歉/我不该那样）。
+格式只能是：
+{"offense":false,"apology":false}
+{"offense":true,"apology":false,"kind":"羞辱","summary":"叫她爹地"}
+{"offense":false,"apology":true}
+kind 只能是 羞辱、辱骂、查户口 之一。summary 不超过 16 字，不要复述脏字。
+「你生气了」「在吗」以及换话题的正常闲聊不是新的 offense。"""
 
 CORRECTION_PREFIX_RE = re.compile(
     r"^(纠正|口吻纠正|风格纠正)[:：\s]+",
@@ -171,3 +181,78 @@ def _parse_string_list(raw, max_items=2, max_len=80):
         if s and len(s) <= max_len:
             out.append(s)
     return out
+
+
+_PORTRAIT_OFFENSE_MARKS = (
+    "你有病",
+    "聊个屁",
+    "我是你爹",
+    "你爹地",
+    "傻逼",
+    "去死",
+    "你妈的",
+)
+_PORTRAIT_APOLOGY_MARKS = ("对不起", "抱歉", "我向你道歉", "我不该")
+
+
+def _portrait_fallback(text):
+    t = text or ""
+    apology = any(m in t for m in _PORTRAIT_APOLOGY_MARKS)
+    offense = any(m in t for m in _PORTRAIT_OFFENSE_MARKS)
+    out = {"offense": offense, "apology": apology}
+    if offense:
+        out["kind"] = "羞辱"
+        out["summary"] = "出言不逊"
+    return out
+
+
+def _parse_portrait_event(raw):
+    if not raw:
+        return None
+    raw = raw.strip()
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+    if m:
+        raw = m.group(1).strip()
+    data = None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        m2 = re.search(r"\{[\s\S]*\}", raw)
+        if not m2:
+            return None
+        try:
+            data = json.loads(m2.group(0))
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(data, dict):
+        return None
+    offense = bool(data.get("offense"))
+    apology = bool(data.get("apology"))
+    out = {"offense": offense, "apology": apology}
+    if offense:
+        kind = str(data.get("kind") or "羞辱").strip()
+        if kind not in ("羞辱", "辱骂", "查户口"):
+            kind = "羞辱"
+        out["kind"] = kind
+        out["summary"] = str(data.get("summary") or "").strip()[:16]
+    return out
+
+
+def extract_portrait_event(user_message, llm_chat_fn=None):
+    """本轮是否羞辱/道歉。失败则关键词兜底。"""
+    text = (user_message or "").strip()
+    if len(text) < 2:
+        return {"offense": False, "apology": False}
+    if llm_chat_fn:
+        messages = [
+            {"role": "system", "content": EXTRACT_PORTRAIT_SYSTEM},
+            {"role": "user", "content": text[:800]},
+        ]
+        try:
+            raw = llm_chat_fn(messages)
+            parsed = _parse_portrait_event(raw)
+            if parsed is not None:
+                return parsed
+        except Exception:
+            pass
+    return _portrait_fallback(text)

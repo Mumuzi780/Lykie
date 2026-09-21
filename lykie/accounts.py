@@ -47,6 +47,29 @@ def lykie_path(username):
     return os.path.join(user_dir(username), "lykie_state.json")
 
 
+def lykie_shared_path():
+    """口吻 / 监督：全站一份，塑造角色用。"""
+    return os.path.join(DATA_DIR, "lykie_shared.json")
+
+
+def lykie_author_log_path(username=None):
+    """作者日志全站共用。username 忽略。"""
+    return os.path.join(DATA_DIR, "lykie_author_log.json")
+
+
+def lykie_author_log_md_path(username=None):
+    return os.path.join(DATA_DIR, "lykie_author_log.md")
+
+
+def lykie_author_log_user_path(username):
+    """旧分账号日志，仅迁出时读。"""
+    return os.path.join(user_dir(username), "lykie_author_log.json")
+
+
+def lykie_author_log_user_md_path(username):
+    return os.path.join(user_dir(username), "lykie_author_log.md")
+
+
 def ensure_secret_key():
     os.makedirs(DATA_DIR, exist_ok=True)
     if os.path.exists(SECRET_FILE):
@@ -124,6 +147,10 @@ def ensure_user_files(username):
     if not os.path.exists(lp):
         with open(lp, "w", encoding="utf-8") as f:
             json.dump({}, f, ensure_ascii=False, indent=2)
+    ap = os.path.join(d, "assets.json")
+    if not os.path.exists(ap):
+        with open(ap, "w", encoding="utf-8") as f:
+            json.dump({"vocab": []}, f, ensure_ascii=False, indent=2)
 
 
 def _copy_if_exists(src, dest):

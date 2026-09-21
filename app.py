@@ -16,6 +16,7 @@ from flask import Flask, g, jsonify, redirect, render_template, request, session
 from docx import Document
 
 from lykie import accounts as lykie_accounts
+from lykie import author_log as lykie_author_log
 from lykie import extract as lykie_extract
 from lykie import folders as lykie_folders
 from lykie import import_exemplar as lykie_import_ex
@@ -23,12 +24,15 @@ from lykie import import_noise as lykie_import_noise
 from lykie import import_rules as lykie_import_rules
 from lykie import import_scan as lykie_import_scan
 from lykie import llm as lykie_llm
+from lykie import lookup as lykie_lookup
 from lykie import memory as lykie_memory
+from lykie import think as lykie_think
 from lykie import mock as lykie_mock
 from lykie import profile as lykie_profile
 from lykie import settle as lykie_settle
 from lykie import share as lykie_share
 from lykie import releases as lykie_releases
+from lykie import assets as lykie_assets
 from lykie import short_answer as lykie_sa
 from lykie import typo as lykie_typo
 from story import load_story, list_stories
@@ -430,6 +434,68 @@ def logout():
     resp = redirect(url_for("login") + f"?_={int(time.time())}")
     resp.headers["Clear-Site-Data"] = '"cache"'
     return resp
+
+
+@app.route("/assets")
+def assets_page():
+    return render_template("assets.html", username=g.store.username)
+
+
+@app.route("/api/assets/vocab", methods=["GET"])
+def api_assets_vocab_list():
+    q = request.args.get("q") or ""
+    limit = request.args.get("limit") or 50
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        lim = 50
+    items = lykie_assets.list_vocab(g.store.username, q=q, limit=lim)
+    return jsonify_user({
+        "ok": True,
+        "items": items,
+        "pos_options": list(lykie_assets.POS_OPTIONS),
+    })
+
+
+@app.route("/api/assets/vocab", methods=["POST"])
+def api_assets_vocab_save():
+    data = request.get_json(force=True) or {}
+    entry, err, created = lykie_assets.record_vocab(
+        g.store.username,
+        word=data.get("word") or "",
+        pos=data.get("pos") or "other",
+        meaning=data.get("meaning") or "",
+        examples=data.get("examples"),
+        related=data.get("related"),
+        senses=data.get("senses"),
+        link_from=data.get("link_from"),
+        link_example=data.get("link_example"),
+        source=data.get("source"),
+        phrases=data.get("phrases"),
+    )
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify_user({
+        "ok": True,
+        "entry": entry,
+        "created": created,
+    })
+
+
+@app.route("/api/assets/vocab/<entry_id>", methods=["GET"])
+def api_assets_vocab_get(entry_id):
+    entry = lykie_assets.get_vocab(g.store.username, entry_id)
+    if not entry:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True, "entry": entry})
+
+
+@app.route("/api/assets/vocab/<entry_id>/delete", methods=["POST"])
+def api_assets_vocab_delete(entry_id):
+    ok = lykie_assets.delete_vocab(g.store.username, entry_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True})
 
 
 def find_question(bank, qid):
@@ -2096,11 +2162,30 @@ def api_lykie_state():
     return jsonify({
         "configured": configured,
         "model": lykie_llm.get_config()["model"] if configured else None,
+        "shaping_shared": True,
         "fact_count": len(state.get("facts") or []),
         "style_note_count": len(state.get("style_notes") or []),
         "correction_count": len(state.get("corrections") or []),
+        "author_log_count": len(
+            (lykie_author_log.load_log(g.store.username).get("items") or [])
+        ),
+        "portrait_offense_count": int(
+            (state.get("portrait") or {}).get("offense_count") or 0
+        ),
+        "portrait_unapologized": bool(
+            (state.get("portrait") or {}).get("unapologized")
+        ),
+        "portrait_warned": bool((state.get("portrait") or {}).get("warned")),
         "flags": flags,
-        "story_pending": not bool(flags.get("fragment_01_done")),
+        "relationship_stage": lykie_memory.get_relationship_stage(state),
+        "relationship_label": lykie_memory.stage_label(
+            lykie_memory.get_relationship_stage(state)
+        ),
+        "relationship_stages": [
+            {"id": sid, "label": lykie_memory.STAGE_LABELS[sid]}
+            for sid in lykie_memory.RELATIONSHIP_STAGES
+        ],
+        "story_pending": False,
         "panel_log": state.get("panel_log") or [],
         "chat_tail_len": len(state.get("chat_tail") or []),
         "profile": prof,
@@ -2129,6 +2214,73 @@ def api_lykie_chat_reset_opening():
     panel = lykie_memory.reset_chat_to_opening_end(state)
     lykie_memory.save_state(g.store.lykie_path, state)
     return jsonify({"ok": True, "panel_log": panel})
+
+
+@app.route("/api/lykie/memory_clear", methods=["POST"])
+def api_lykie_memory_clear():
+    """清空本账号 facts / 对话 / 画像（过节）/ 名字。口吻、监督、作者日志全站共用，不清。保留感情层等 flags。"""
+    state = lykie_memory.load_state(g.store.lykie_path)
+    panel = lykie_memory.wipe_user_memory(state)
+    lykie_memory.save_state(g.store.lykie_path, state)
+    return jsonify({
+        "ok": True,
+        "panel_log": panel,
+        "flags": state.get("flags") or {},
+        "relationship_stage": lykie_memory.get_relationship_stage(state),
+        "relationship_label": lykie_memory.stage_label(
+            lykie_memory.get_relationship_stage(state)
+        ),
+    })
+
+
+@app.route("/api/lykie/author_log", methods=["POST"])
+def api_lykie_author_log():
+    """作者现场日志。不进模型、不清记忆。"""
+    data = request.get_json(force=True) or {}
+    note = str(data.get("note") or "").strip()
+    state = lykie_memory.load_state(g.store.lykie_path)
+    scene = data.get("scene")
+    user_said = str(data.get("user_said") or "")
+    focus_text = str(data.get("focus_text") or "")
+    reviews = lykie_author_log.corrections_in_scope(
+        state, scene, user_said, focus_text
+    )
+    item = lykie_author_log.add_entry(
+        g.store.username,
+        note=note,
+        stage=lykie_memory.get_relationship_stage(state),
+        stage_label=lykie_memory.stage_label(
+            lykie_memory.get_relationship_stage(state)
+        ),
+        user_said=user_said,
+        focus_text=focus_text,
+        scene=scene,
+        chat_tail=state.get("chat_tail") or [],
+        reviews=reviews,
+    )
+    return jsonify({
+        "ok": True,
+        "id": item["id"],
+        "count": len(lykie_author_log.load_log(g.store.username).get("items") or []),
+    })
+
+
+@app.route("/api/lykie/relationship", methods=["POST"])
+def api_lykie_relationship():
+    """作者钉感情层。不清 facts / 监督。"""
+    data = request.get_json(force=True) or {}
+    stage = str(data.get("stage") or "").strip()
+    if stage not in lykie_memory.RELATIONSHIP_STAGES:
+        return jsonify({"ok": False, "error": "未知感情层"}), 400
+    state = lykie_memory.load_state(g.store.lykie_path)
+    sid = lykie_memory.set_relationship_stage(state, stage)
+    lykie_memory.save_state(g.store.lykie_path, state)
+    return jsonify({
+        "ok": True,
+        "stage": sid,
+        "label": lykie_memory.stage_label(sid),
+        "flags": state.get("flags") or {},
+    })
 
 
 @app.route("/api/lykie/feedback", methods=["POST"])
@@ -2272,8 +2424,15 @@ def api_lykie_chat():
     mode = str(data.get("mode") or "chat").strip().lower()
     if mode not in ("chat", "explain", "correct"):
         mode = "chat"
+    # 旧客户端「问问 Lykie」：当闲聊，题面改走 question_card，永不带解析
     question = data.get("question")
     if question is not None and not isinstance(question, dict):
+        question = None
+    question_card = lykie_lookup.sanitize_question_card(data.get("question_card"))
+    if mode == "explain":
+        mode = "chat"
+        if not question_card and question:
+            question_card = lykie_lookup.sanitize_question_card(question)
         question = None
 
     # 闲聊支持连发：messages[]；兼容单条 message
@@ -2291,14 +2450,18 @@ def api_lykie_chat():
         mode = "correct"
         message = lykie_extract.strip_correction_prefix(message)
         batch = [message]
+        question_card = None
 
-    if mode == "explain":
-        if not question or not str(question.get("stem") or "").strip():
-            return jsonify({"ok": False, "error": "当前没有可讲解的题目"}), 400
-        if not message:
-            message = "这题给我讲讲？"
-            batch = [message]
-    elif not batch:
+    if mode == "correct":
+        question_card = None
+
+    if question_card:
+        stem_md = lykie_lookup.format_question_stem_md(question_card)
+        if stem_md and stem_md not in batch:
+            batch = [stem_md] + batch
+        message = batch[0] if batch else ""
+
+    if not batch:
         return jsonify({"ok": False, "error": "消息为空"}), 400
 
     state = lykie_memory.load_state(g.store.lykie_path)
@@ -2328,12 +2491,65 @@ def api_lykie_chat():
     else:
         prompt_user = message
 
-    messages = lykie_llm.build_messages(
-        state, prompt_user, mode=mode, question=question, last_reply=last_reply
-    )
+    think_decision = None
+    lookup_result = None
+    occupancy = "free"
+    active_card = None
+    if mode == "chat":
+        occupancy = lykie_lookup.occupancy_flag()
+        attacking = lykie_memory.is_direct_attack(batch)
+        if question_card:
+            lykie_memory.remember_question(state, question_card)
+        else:
+            for m in batch:
+                parsed = lykie_lookup.parse_question_stem_md(m)
+                if parsed:
+                    lykie_memory.remember_question(state, parsed)
+            lykie_memory.ensure_question_memory_from_tail(state)
+        remembered = lykie_memory.latest_question(state)
+        followup = bool(question_card) or lykie_memory.looks_like_question_followup(
+            batch, state
+        )
+        active_card = question_card or (remembered if followup else None)
+        has_question = active_card is not None
+        begging = lykie_memory.looks_like_sincere_beg(batch)
+        taught_today = lykie_memory.teach_count_today(state)
+        think_decision = lykie_think.run_think(
+            state,
+            prompt_user,
+            occupancy,
+            has_question,
+            attacking=attacking,
+            taught_today=taught_today,
+            begging=begging,
+            remembered=remembered,
+        )
+        lookup_result = lykie_lookup.run_lookup(
+            think_decision.get("need"),
+            think_decision.get("profile_topics"),
+            occupancy=occupancy,
+            question_card=active_card,
+            store=g.store,
+            action=think_decision.get("action") or "thin",
+        )
 
     try:
-        reply = lykie_llm.chat_completion(messages)
+        if mode == "chat" and (think_decision or {}).get("action") == "silence":
+            reply = "[不回复]"
+        elif mode == "chat":
+            messages = lykie_llm.build_speak_messages(
+                state,
+                prompt_user,
+                action=(think_decision or {}).get("action") or "thin",
+                material=(lookup_result or {}).get("speak_block") or "",
+                occupancy=occupancy,
+            )
+            reply = lykie_llm.chat_completion(messages, temperature=0.8)
+        else:
+            messages = lykie_llm.build_messages(
+                state, prompt_user, mode=mode, last_reply=last_reply
+            )
+            reply = lykie_llm.chat_completion(messages)
     except Exception as e:
         return jsonify({"ok": False, "error": f"模型调用失败：{e}"}), 502
 
@@ -2341,42 +2557,35 @@ def api_lykie_chat():
     profile_fill = False
     strict = lykie_profile.is_profile_strict()
     if mode == "chat":
-        meta = lykie_profile.parse_archive_meta(reply)
-        reply = meta["reply"]
-        profile_notes = lykie_profile.format_profile_notices(meta, strict)
-        profile_fill = bool(meta.get("fill")) or any(
-            n.get("kind") == "fill" for n in profile_notes
-        )
+        # 开口不再要求 %%档案；万一模型还写了就剥掉，不据此提示
+        reply = lykie_profile.parse_archive_meta(reply).get("reply") or reply
+        profile_notes = lykie_lookup.lookup_fill_notes(lookup_result, strict)
+        profile_fill = any(n.get("kind") == "fill" for n in profile_notes)
 
     silent = False
     if mode == "chat" and lykie_llm.is_silence_reply(reply):
         silent = True
         reply = "[不回复]"
     elif not reply:
-        if mode == "chat" and profile_fill:
-            silent = True
-            reply = "[不回复]"
-        else:
-            reply = "嗯.....那个...."
+        reply = "嗯.....那个...."
 
-    if mode == "explain":
-        for m in batch:
-            lykie_memory.append_chat(state, "user", f"[问问Lykie] {m}")
-        lykie_memory.append_chat(state, "assistant", reply)
-    elif mode == "correct":
+    if mode == "correct":
         for m in batch:
             lykie_memory.append_chat(state, "user", f"[纠正] {m}")
         lykie_memory.append_chat(state, "assistant", reply)
     else:
         for m in batch:
             lykie_memory.append_chat(state, "user", m)
-        # 沉默也写入尾迹；档案请补全且没说话时不写 assistant，避免学成「先不回」
-        if not (profile_fill and silent):
-            lykie_memory.append_chat(state, "assistant", reply)
+        lykie_memory.append_chat(state, "assistant", reply)
+
+    dropped_stage = None
+    if mode == "chat" and silent and lykie_memory.is_direct_attack(batch):
+        dropped_stage = lykie_memory.drop_relationship_stage(state)
 
     facts_added = []
     style_notes_added = []
     joined_user = "\n".join(batch)
+    portrait_hit = False
 
     if mode == "correct" or (mode == "chat" and lykie_extract.looks_like_correction(joined_user)):
         try:
@@ -2388,24 +2597,37 @@ def api_lykie_chat():
             style_notes_added = []
 
     if mode == "chat" and not any(lykie_extract.is_explicit_correction(m) for m in batch):
+        ev = {"offense": False, "apology": False}
         try:
-            raw_facts = lykie_extract.extract_facts_from_utterance(
+            ev = lykie_extract.extract_portrait_event(
                 joined_user, lykie_llm.chat_completion
-            )
-            facts_added = lykie_memory.add_facts(state, raw_facts)
+            ) or ev
+            portrait_hit = lykie_memory.apply_portrait_event(state, ev)
         except Exception:
-            facts_added = []
+            portrait_hit = False
+        if not ev.get("offense"):
+            try:
+                raw_facts = lykie_extract.extract_facts_from_utterance(
+                    joined_user, lykie_llm.chat_completion
+                )
+                facts_added = lykie_memory.add_facts(state, raw_facts)
+            except Exception:
+                facts_added = []
 
-    if mode == "explain" and question and question.get("id"):
-        unsure_marks = ("不会", "不确定", "那个", "星球", "一定是这样")
-        if any(m in reply for m in unsure_marks):
-            lykie_memory.mark_unknown_question(state, question.get("id"))
-
-    if mode == "explain":
-        state.setdefault("flags", {})["first_explain_done"] = True
+    if (
+        mode == "chat"
+        and (think_decision or {}).get("action") == "teach"
+        and not silent
+    ):
+        lykie_memory.record_teach(state, active_card)
+        qid = (active_card or {}).get("id")
+        if qid:
+            unsure_marks = ("不会", "不确定", "那个", "星球", "一定是这样")
+            if any(m in reply for m in unsure_marks):
+                lykie_memory.mark_unknown_question(state, qid)
 
     lykie_memory.save_state(g.store.lykie_path, state)
-    return jsonify({
+    payload = {
         "ok": True,
         "reply": "" if silent else reply,
         "silent": silent,
@@ -2414,7 +2636,16 @@ def api_lykie_chat():
         "profile_fill": profile_fill,
         "profile_notes": profile_notes,
         "profile_strict": strict if mode == "chat" else False,
-    })
+        "relationship_stage": lykie_memory.get_relationship_stage(state),
+        "relationship_label": lykie_memory.stage_label(
+            lykie_memory.get_relationship_stage(state)
+        ),
+        "relationship_dropped": dropped_stage,
+        "portrait_updated": portrait_hit,
+    }
+    if mode == "chat" and lykie_think.debug_enabled(g.store.username):
+        payload["think"] = lykie_think.public_think_payload(think_decision, lookup_result)
+    return jsonify(payload)
 
 
 @app.after_request

@@ -8,6 +8,16 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROMPT_PATH = Path(__file__).resolve().parent / "prompt_core.txt"
+SPEAK_PATH = Path(__file__).resolve().parent / "prompt_speak.txt"
+
+ACTION_LINES = {
+    "thin": "本轮动作：thin。薄回一两句，别展开，别当老师讲题。",
+    "schedule": "本轮动作：schedule。按下面给的课表/时段答在干嘛或有没有课。不要另编一天行程。",
+    "teach": "本轮动作：teach。可以讲这道题；像坐旁边一点点教。不会就支吾，不要硬念解析装会。",
+    "deflect": "本轮动作：deflect。少说或停这项分享。有题也不要交付解析或标准答案。拒讲用你自己的话。",
+    "push": "本轮动作：push。顶回去或扣住，不要先把答案/档案交出去。有题也不要讲。",
+    "silence": "本轮动作：silence。整段只输出 [不回复]。",
+}
 
 # 项目根目录 .env
 load_dotenv(BASE_DIR / ".env")
@@ -16,7 +26,7 @@ load_dotenv(BASE_DIR / ".env")
 def get_config():
     key = (os.getenv("LYKIE_API_KEY") or "").strip()
     base = (os.getenv("LYKIE_BASE_URL") or "https://api.deepseek.com").strip().rstrip("/")
-    model = (os.getenv("LYKIE_MODEL") or "deepseek-chat").strip()
+    model = (os.getenv("LYKIE_MODEL") or "deepseek-flash").strip()
     return {"api_key": key, "base_url": base, "model": model}
 
 
@@ -29,6 +39,13 @@ def load_core_prompt():
         return PROMPT_PATH.read_text(encoding="utf-8").strip()
     except OSError:
         return "你是 Lykie。用口语短句和用户聊天，讲题像朋友，不会就不嘴硬。"
+
+
+def load_speak_prompt():
+    try:
+        return SPEAK_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return load_core_prompt()
 
 
 _WEEKDAYS = "一二三四五六日"
@@ -109,33 +126,34 @@ def build_messages(state, user_message, mode="chat", question=None, last_reply=N
     from .memory import (
         corrections_summary,
         facts_summary,
+        portrait_summary,
         relationship_brief,
         style_notes_summary,
     )
 
-    from .profile import archive_protocol_text, format_self_profile_block, is_profile_strict
+    from .profile import format_self_profile_block
 
     system = load_core_prompt()
     system += "\n\n【当前时间（真实，硬约束）】\n" + format_now_block()
     system += "\n\n【你自己的档案（作者写定，禁止现编）】\n" + format_self_profile_block()
-    if mode == "chat":
-        system += archive_protocol_text(is_profile_strict())
     system += "\n\n【当前关系与剧情状态（硬约束，回忆不得与此冲突）】\n" + relationship_brief(state)
+    system += "\n\n【她对这个人的印象（本账号；清空对话仍在）】\n" + portrait_summary(state)
     system += "\n\n【已记住的关于用户的事实】\n" + facts_summary(state)
     system += "\n\n【用户长期纠正的口吻规则（必须遵守）】\n" + style_notes_summary(state)
     system += (
-        "\n\n【人工监督案例（点踩/点赞；必须理解「修改点评」，并优先贴近「好范例」）】\n"
+        "\n\n【人工监督案例（学点评里的分寸，不是背台词）】\n"
         + corrections_summary(state)
     )
     system += (
         "\n\n若事实与「关系与剧情状态」冲突，以关系与剧情状态为准。"
+        "「她对这个人的印象」比这一轮刚说的客套更优先：记着未道歉的羞辱，就不要当第一次见面。"
         "聊天记录可能跨了白天黑夜，吃饭和问候以【当前时间】为准，不要沿用上一轮的时段。"
-        "不要把人情方向说反；不要假装教过用户题，除非事实里明确写了你教过。"
-        "若当前用户话与某条监督案例情境相近：遵守该条点评，回复尽量像好范例那样短句、分条，不要回到反例的长篇抢戏。"
+        "不要编造欠人情；不要假装教过用户题，除非事实里明确写了你教过。"
+        "监督案例：先看这一轮对方问的是什么，再遵守点评原则。"
+        "问法变了就按这一轮答，不要因为用词相近就把好范例整段套上。"
         "\n【发送格式】闲聊时优先短句；若有多句，必须每句单独一行（用换行分隔），不要挤成一大段。"
         "系统会把每一行显示成一条独立消息。"
         "若应先不回，整段只输出 [不回复]。"
-        "%%档案 标注块给系统看，不要把「用了/缺/补全」念给用户听。"
     )
 
     messages = [{"role": "system", "content": system}]
@@ -146,15 +164,7 @@ def build_messages(state, user_message, mode="chat", question=None, last_reply=N
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
 
-    if mode == "explain" and question:
-        qblock = format_question_block(question)
-        user_content = (
-            "用户点了「问问 Lykie」，请针对下面这道当前题目讲解。"
-            "像朋友一点点教；真不会就支吾，别硬编。并遵守口吻规则。\n\n"
-            f"{qblock}\n\n"
-            f"用户补充：「{user_message}」"
-        )
-    elif mode == "correct":
+    if mode == "correct":
         clip = ""
         if last_reply:
             clip = last_reply if len(last_reply) <= 800 else last_reply[:800] + "…"
@@ -170,6 +180,45 @@ def build_messages(state, user_message, mode="chat", question=None, last_reply=N
         user_content = user_message
 
     messages.append({"role": "user", "content": user_content})
+    return messages
+
+
+def build_speak_messages(state, user_message, action="thin", material="", occupancy="free"):
+    """闲聊开口：短核 + 本轮 action + 查到的材料 + 最近对话。不注入整份档案/监督。"""
+    from .lookup import occupancy_label
+    from .memory import facts_summary, portrait_summary, relationship_brief
+
+    system = load_speak_prompt()
+    system += "\n\n【当前时间（真实，硬约束）】\n" + format_now_block()
+    system += f"\n程序忙闲：{occupancy}（{occupancy_label(occupancy)}）。不要另编今晚行程。"
+    system += "\n\n【当前关系】\n" + relationship_brief(state)
+    system += "\n\n【她对这个人的印象（本账号；清空对话仍在）】\n" + portrait_summary(state)
+    facts = facts_summary(state)
+    if facts and facts != "（尚无）":
+        system += "\n\n【已记住的关于用户的事实】\n" + facts
+    system += "\n\n" + (ACTION_LINES.get(action) or ACTION_LINES["thin"])
+    mat = (material or "").strip()
+    if mat:
+        system += "\n\n【本轮查到的材料（没写的私事不要现编）】\n" + mat
+    else:
+        system += "\n\n【本轮查到的材料】无档案正文。具体私事含糊或不答，不要现编。"
+    system += (
+        "\n\n若事实与「当前关系」冲突，以当前关系为准。"
+        "印象里未道歉的羞辱，不要当第一次见面。"
+        "吃饭和问候以【当前时间】为准。"
+        "不要编造欠人情。"
+        "\n【发送格式】闲聊优先短句；多句必须每句单独一行。"
+        "若应先不回，整段只输出 [不回复]。"
+        "不要输出 %%档案 或任何系统标注。"
+    )
+
+    messages = [{"role": "system", "content": system}]
+    for turn in state.get("chat_tail") or []:
+        role = turn.get("role")
+        content = (turn.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_message})
     return messages
 
 
@@ -216,7 +265,7 @@ def format_chat_user_batch(batch):
     )
 
 
-def chat_completion(messages):
+def chat_completion(messages, temperature=0.8, json_mode=False, disable_thinking=False):
     cfg = get_config()
     if not cfg["api_key"]:
         raise RuntimeError("未配置 LYKIE_API_KEY")
@@ -224,10 +273,24 @@ def chat_completion(messages):
     from openai import OpenAI
 
     client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
-    resp = client.chat.completions.create(
-        model=cfg["model"],
-        messages=messages,
-        temperature=0.8,
-    )
+    kwargs = {
+        "model": cfg["model"],
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    if disable_thinking:
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
+    try:
+        resp = client.chat.completions.create(**kwargs)
+    except Exception:
+        if json_mode or disable_thinking:
+            kwargs.pop("response_format", None)
+            kwargs.pop("extra_body", None)
+            resp = client.chat.completions.create(**kwargs)
+        else:
+            raise
     choice = resp.choices[0].message
     return (choice.content or "").strip()

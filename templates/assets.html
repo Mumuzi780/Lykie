@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>把学会的，变成自己的 · Lykie</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m76">
+  <link rel="stylesheet" href="/static/assets.css?v=14">
+</head>
+<body class="assets-page" data-username="{{ username }}">
+  <div class="assets-shell">
+    <header class="assets-top">
+      <div class="assets-top-brand">
+        <span class="assets-brand">Lykie</span>
+        <span class="assets-top-tagline">把学会的，变成自己的。</span>
+      </div>
+      <div class="assets-top-actions">
+        <a class="btn ghost" href="/">返回刷题</a>
+        <span class="account-name" title="当前账号">{{ username }}</span>
+        <a class="btn ghost" href="/logout">退出</a>
+      </div>
+    </header>
+
+    <div class="assets-workspace">
+      <aside class="assets-col assets-col-archive" aria-label="档案">
+        <h2 class="assets-section-title">档案</h2>
+        <input id="vocabSearch" type="search" class="vocab-search" placeholder="搜索原词、释义、短语或例句来源…" autocomplete="off">
+        <div id="vocabList" class="vocab-list"></div>
+      </aside>
+
+      <section class="assets-col assets-col-capture" aria-label="录词">
+        <h2 class="assets-section-title">录入</h2>
+        <form id="vocabForm" class="vocab-form" autocomplete="off">
+          <label class="vocab-label" for="vocabWord">单词</label>
+          <input id="vocabWord" name="word" type="text" maxlength="80" required placeholder="输入原词" autofocus>
+
+          <span class="vocab-label">词性 <span class="opt">可多选，选几个出几个义项框</span></span>
+          <div class="pos-pills pos-pills-multi" id="posMultiPills" role="group" aria-label="词性多选"></div>
+
+          <div id="senseBlocks" class="sense-blocks"></div>
+
+          <div class="meta-actions">
+            <button type="button" class="btn ghost meta-action-btn" id="phraseToggleBtn" aria-expanded="false">添加短语</button>
+            <button type="button" class="btn ghost meta-action-btn" id="relatedToggleBtn" aria-expanded="false">添加旁系</button>
+          </div>
+
+          <div id="phrasePanel" class="meta-panel" hidden>
+            <span class="vocab-label">短语 <span class="opt">可多条；释义 / 例句 / 来源</span></span>
+            <div id="phraseBlocks" class="phrase-blocks"></div>
+            <button type="button" class="btn ghost" id="phraseAddBtn">再加一条短语</button>
+          </div>
+
+          <div id="relatedPanel" class="meta-panel" hidden>
+            <span class="vocab-label">旁系 <span class="opt">词族其它词形</span></span>
+            <div class="related-compose">
+              <input id="relatedWord" type="text" maxlength="80" placeholder="如 happiness" autocomplete="off">
+              <div class="pos-pills related-pos-pills" id="relatedPosPills" role="group" aria-label="旁系词性"></div>
+              <button type="button" class="btn ghost" id="relatedAddBtn">加入列表</button>
+            </div>
+            <div id="relatedChips" class="related-chips" aria-live="polite"></div>
+          </div>
+
+          <button type="submit" class="btn primary vocab-submit" id="vocabSubmit">存进档案</button>
+          <p class="vocab-hint" id="vocabHint" hidden></p>
+        </form>
+      </section>
+
+      <aside class="assets-col assets-col-detail" aria-label="详情">
+        <h2 class="assets-section-title">详情</h2>
+        <div id="vocabDetail" class="vocab-detail">
+          <p class="vocab-detail-empty">点左侧档案中的词，这里显示详细信息。</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/static/assets.js?v=14"></script>
+</body>
+</html>
