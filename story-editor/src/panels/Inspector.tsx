@@ -1,6 +1,6 @@
 import type { Node } from '@xyflow/react'
 import { TYPING_MS_PER_CHAR, typingDelayHint, typingDelayMs } from '../io/typing'
-import { TIMEOUT_HANDLE, uid, type ChoiceOption, type StoryNodeType } from '../types'
+import { TIMEOUT_HANDLE, uid, type ChoiceOption, type FreeReplyBranch, type StoryNodeType } from '../types'
 
 type Props = {
   node: Node | null
@@ -30,7 +30,9 @@ export function Inspector({ node, startNodeId, onChange, onSetStart, onDelete }:
   const delayMs = Number(data.delayMs) || 0
   const timeoutMs = Number(data.timeoutMs) || 0
   const options = (data.options as ChoiceOption[]) || []
+  const branches = (data.branches as FreeReplyBranch[]) || []
   const text = String(data.text || '')
+  const prompt = String(data.prompt || '')
   const suggested = typingDelayMs(text)
 
   return (
@@ -164,7 +166,63 @@ export function Inspector({ node, startNodeId, onChange, onSetStart, onDelete }:
               加选项
             </button>
           </div>
-          <p className="hint">右侧圆点：每个选项一条出边；最下为「{TIMEOUT_HANDLE}」超时分支。</p>
+          <p className="hint">右侧圆点：每个选项一条出边；最后一项为「{TIMEOUT_HANDLE}」超时分支。</p>
+        </>
+      )}
+
+      {type === 'free_reply' && (
+        <>
+          <div className="field">
+            <label>提示文案（可选）</label>
+            <textarea
+              rows={2}
+              value={prompt}
+              onChange={(e) => set({ prompt: e.target.value })}
+              placeholder="例如：随便回一句"
+            />
+          </div>
+          <div className="field">
+            <label>预设分支（运行时由 Lykie 判定）</label>
+            {branches.map((br, idx) => (
+              <div key={br.id} className="opt-edit">
+                <input
+                  value={br.label}
+                  onChange={(e) => {
+                    const next = branches.map((o, i) =>
+                      i === idx ? { ...o, label: e.target.value } : o,
+                    )
+                    set({ branches: next })
+                  }}
+                  placeholder="分支含义，供判定对照"
+                />
+                <button
+                  type="button"
+                  className="btn danger"
+                  disabled={branches.length <= 1}
+                  onClick={() => set({ branches: branches.filter((o) => o.id !== br.id) })}
+                >
+                  删
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn"
+              onClick={() =>
+                set({
+                  branches: [
+                    ...branches,
+                    { id: uid('br'), label: `分支 ${branches.length + 1}` },
+                  ],
+                })
+              }
+            >
+              加分支
+            </button>
+          </div>
+          <p className="hint">
+            玩家自由打字；右侧每个圆点对应一条预设分支出线。判定逻辑不在编辑器里，交给 Lykie。
+          </p>
         </>
       )}
 

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Edge, Node } from '@xyflow/react'
-import { OUT_HANDLE, TIMEOUT_HANDLE, type ChoiceOption } from '../types'
+import {
+  OUT_HANDLE,
+  TIMEOUT_HANDLE,
+  type ChoiceOption,
+  type FreeReplyBranch,
+} from '../types'
 
 type Props = {
   open: boolean
@@ -11,6 +16,11 @@ type Props = {
 }
 
 type Bubble = { role: 'lykie' | 'system' | 'player' | 'meta'; text: string }
+
+type FreeReplyUi = {
+  prompt: string
+  branches: FreeReplyBranch[]
+}
 
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -41,16 +51,23 @@ function nextVia(edges: Edge[], source: string, handle: string | null) {
 export function PreviewModal({ open, nodes, edges, startNodeId, onClose }: Props) {
   const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [choices, setChoices] = useState<ChoiceOption[] | null>(null)
+  const [freeReply, setFreeReply] = useState<FreeReplyUi | null>(null)
+  const [freeText, setFreeText] = useState('')
   const [status, setStatus] = useState('准备…')
   const [running, setRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const choiceResolver = useRef<((v: string) => void) | null>(null)
+  const freeResolver = useRef<((v: { text: string; branchId: string }) => void) | null>(
+    null,
+  )
 
   useEffect(() => {
     if (!open) {
       abortRef.current?.abort()
       setBubbles([])
       setChoices(null)
+      setFreeReply(null)
+      setFreeText('')
       setRunning(false)
       return
     }
@@ -65,6 +82,8 @@ export function PreviewModal({ open, nodes, edges, startNodeId, onClose }: Props
     abortRef.current = ac
     setBubbles([])
     setChoices(null)
+    setFreeReply(null)
+    setFreeText('')
     setRunning(true)
     setStatus('播放中…')
 
@@ -142,6 +161,43 @@ export function PreviewModal({ open, nodes, edges, startNodeId, onClose }: Props
           continue
         }
 
+        if (type === 'free_reply') {
+          const branches = (data.branches as FreeReplyBranch[]) || []
+          const prompt = String(data.prompt || '')
+          setFreeText('')
+          setFreeReply({ prompt, branches })
+          setStatus('自由回复（预览：手选分支，模拟 Lykie 判定）')
+
+          const picked = await new Promise<{ text: string; branchId: string }>(
+            (resolve, reject) => {
+              freeResolver.current = resolve
+              ac.signal.addEventListener(
+                'abort',
+                () => reject(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          )
+
+          setFreeReply(null)
+          freeResolver.current = null
+          const reply = picked.text.trim() || '（空回复）'
+          const brLabel =
+            branches.find((b) => b.id === picked.branchId)?.label || picked.branchId
+          setBubbles((b) => [
+            ...b,
+            { role: 'player', text: reply },
+            { role: 'meta', text: `（判定 → ${brLabel}）` },
+          ])
+          const edge = nextVia(edges, cur, picked.branchId)
+          if (!edge) {
+            setStatus('该分支没有连线')
+            break
+          }
+          cur = edge.target
+          continue
+        }
+
         // lykie / system
         const delayMs = Number(data.delayMs) || 0
         if (delayMs > 0) {
@@ -163,6 +219,7 @@ export function PreviewModal({ open, nodes, edges, startNodeId, onClose }: Props
     } finally {
       setRunning(false)
       setChoices(null)
+      setFreeReply(null)
       if (!ac.signal.aborted) setStatus((s) => (s === '播放中…' || s === '…' ? '播放结束' : s))
     }
   }
@@ -198,6 +255,33 @@ export function PreviewModal({ open, nodes, edges, startNodeId, onClose }: Props
                 {c.label}
               </button>
             ))}
+          </div>
+        )}
+        {freeReply && (
+          <div className="preview-free">
+            {freeReply.prompt ? (
+              <div className="preview-free-hint">{freeReply.prompt}</div>
+            ) : null}
+            <textarea
+              value={freeText}
+              onChange={(e) => setFreeText(e.target.value)}
+              placeholder="在这里打字（预览用）"
+            />
+            <div className="preview-free-hint">点分支 = 模拟 Lykie 判定结果</div>
+            <div className="preview-free-branches">
+              {freeReply.branches.map((br) => (
+                <button
+                  key={br.id}
+                  type="button"
+                  className="btn"
+                  onClick={() =>
+                    freeResolver.current?.({ text: freeText, branchId: br.id })
+                  }
+                >
+                  {br.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         <div className="modal-foot">

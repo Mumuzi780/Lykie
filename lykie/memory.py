@@ -274,9 +274,13 @@ def set_relationship_stage(state, stage: str) -> str:
     sid = str(stage or "").strip()
     if sid not in RELATIONSHIP_STAGES:
         sid = "acquainted"
+    prev = get_relationship_stage(state)
     state.setdefault("flags", {})["relationship_stage"] = sid
     if "relationship_auto" not in state["flags"]:
         state["flags"]["relationship_auto"] = False
+    if prev == "opening" and sid != "opening":
+        from .opening import clear_flags
+        clear_flags(state)
     return sid
 
 
@@ -745,6 +749,8 @@ def wipe_user_memory(state):
     state["teach_log"] = []
     flags = state.setdefault("flags", {})
     flags["player_name"] = ""
+    from .opening import clear_flags
+    clear_flags(state)
     state["panel_log"] = [
         {
             "role": "system",

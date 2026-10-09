@@ -9,6 +9,7 @@
   --primary: #4f8ef7;
   --lykie: #3b82f6;
   --choice: #f59e0b;
+  --free-reply: #14b8a6;
   --system: #8b5cf6;
   --wait: #64748b;
   --end: #ef4444;
@@ -102,6 +103,7 @@ body { background: var(--bg); color: var(--text); }
 }
 .palette-btn.lykie { border-left: 3px solid var(--lykie); }
 .palette-btn.choice { border-left: 3px solid var(--choice); }
+.palette-btn.free_reply { border-left: 3px solid var(--free-reply); }
 .palette-btn.system { border-left: 3px solid var(--system); }
 .palette-btn.wait { border-left: 3px solid var(--wait); }
 .palette-btn.end { border-left: 3px solid var(--end); }
@@ -176,11 +178,12 @@ body { background: var(--bg); color: var(--text); }
   box-shadow: 0 6px 18px rgba(0,0,0,.25);
 }
 .sn.selected { border-color: var(--primary); }
-.sn.lykie { border-top: 3px solid var(--lykie); }
-.sn.choice { border-top: 3px solid var(--choice); min-width: 200px; }
-.sn.system { border-top: 3px solid var(--system); }
-.sn.wait { border-top: 3px solid var(--wait); }
-.sn.end { border-top: 3px solid var(--end); }
+.sn.lykie { border-left: 3px solid var(--lykie); }
+.sn.choice { border-left: 3px solid var(--choice); min-width: 200px; }
+.sn.free_reply { border-left: 3px solid var(--free-reply); min-width: 200px; }
+.sn.system { border-left: 3px solid var(--system); }
+.sn.wait { border-left: 3px solid var(--wait); }
+.sn.end { border-left: 3px solid var(--end); }
 
 .sn-tag {
   font-size: 11px;
@@ -305,6 +308,33 @@ body { background: var(--bg); color: var(--text); }
   gap: 8px;
   padding: 10px 14px;
   border-top: 1px solid var(--border);
+}
+.preview-free {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.preview-free textarea {
+  width: 100%;
+  min-height: 64px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  resize: vertical;
+}
+.preview-free-branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.preview-free-hint {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .react-flow__edge-textbg { fill: var(--panel); }

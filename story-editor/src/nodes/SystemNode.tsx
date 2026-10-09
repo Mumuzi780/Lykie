@@ -11,7 +11,7 @@ export function SystemNode({ id, data, selected }: NodeProps) {
         nodeId={id}
         id="in"
         handleType="target"
-        defaultSide="top"
+        defaultSide="left"
         handleLayout={d.handleLayout}
       />
       <div className="sn-tag">系统</div>
@@ -24,7 +24,7 @@ export function SystemNode({ id, data, selected }: NodeProps) {
         nodeId={id}
         id={OUT_HANDLE}
         handleType="source"
-        defaultSide="bottom"
+        defaultSide="right"
         handleLayout={d.handleLayout}
       />
     </div>

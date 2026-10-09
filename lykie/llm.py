@@ -12,6 +12,7 @@ SPEAK_PATH = Path(__file__).resolve().parent / "prompt_speak.txt"
 
 ACTION_LINES = {
     "thin": "本轮动作：thin。薄回一两句，别展开，别当老师讲题。",
+    "chat": "本轮动作：chat。正常聊天，礼貌回复即可。",
     "schedule": "本轮动作：schedule。按下面给的课表/时段答在干嘛或有没有课。不要另编一天行程。",
     "teach": "本轮动作：teach。可以讲这道题；像坐旁边一点点教。不会就支吾，不要硬念解析装会。",
     "deflect": "本轮动作：deflect。少说或停这项分享。有题也不要交付解析或标准答案。拒讲用你自己的话。",
@@ -192,6 +193,12 @@ def build_speak_messages(state, user_message, action="thin", material="", occupa
     system += "\n\n【当前时间（真实，硬约束）】\n" + format_now_block()
     system += f"\n程序忙闲：{occupancy}（{occupancy_label(occupancy)}）。不要另编今晚行程。"
     system += "\n\n【当前关系】\n" + relationship_brief(state)
+    from . import opening as lykie_opening
+    if lykie_opening.is_active(state):
+        flags = (state or {}).get("flags") or {}
+        realized = str(flags.get("opening_beat") or "") == "realized"
+        cue = str(flags.get("opening_realized_cue") or "")
+        system += "\n\n" + lykie_opening.speak_block(state, realized, cue)
     system += "\n\n【她对这个人的印象（本账号；清空对话仍在）】\n" + portrait_summary(state)
     facts = facts_summary(state)
     if facts and facts != "（尚无）":

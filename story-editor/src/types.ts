@@ -1,9 +1,21 @@
 import type { Edge, Node } from '@xyflow/react'
 import { systemDefaultDelayMs, typingDelayMs } from './io/typing'
 
-export type StoryNodeType = 'lykie' | 'choice' | 'system' | 'wait' | 'end'
+export type StoryNodeType =
+  | 'lykie'
+  | 'choice'
+  | 'free_reply'
+  | 'system'
+  | 'wait'
+  | 'end'
 
 export type ChoiceOption = {
+  id: string
+  label: string
+}
+
+/** 自由回复的预设分支（运行时由 Lykie 判定走哪条；编辑器只存标签与出线） */
+export type FreeReplyBranch = {
   id: string
   label: string
 }
@@ -16,6 +28,12 @@ export type LykieData = {
 export type ChoiceData = {
   options: ChoiceOption[]
   timeoutMs: number
+}
+
+export type FreeReplyData = {
+  /** 给玩家看的提示，可空 */
+  prompt: string
+  branches: FreeReplyBranch[]
 }
 
 export type SystemData = {
@@ -35,6 +53,7 @@ export type EndData = {
 export type StoryNodeData =
   | LykieData
   | ChoiceData
+  | FreeReplyData
   | SystemData
   | WaitData
   | EndData
@@ -84,6 +103,14 @@ export function defaultData(type: StoryNodeType): Record<string, unknown> {
         ],
         timeoutMs: 0,
       }
+    case 'free_reply':
+      return {
+        prompt: '',
+        branches: [
+          { id: uid('br'), label: '分支 A' },
+          { id: uid('br'), label: '分支 B' },
+        ],
+      }
     case 'system':
       return { text: '系统提示', delayMs: systemDefaultDelayMs() }
     case 'wait':
@@ -97,6 +124,7 @@ export function typeLabel(type: StoryNodeType): string {
   const map: Record<StoryNodeType, string> = {
     lykie: 'Lykie',
     choice: '玩家选项',
+    free_reply: '自由回复',
     system: '系统',
     wait: '等待',
     end: '结束',

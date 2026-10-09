@@ -1,7 +1,7 @@
 import type { StoryNodeType } from '../types'
 import { typeLabel } from '../types'
 
-const items: StoryNodeType[] = ['lykie', 'choice', 'system', 'wait', 'end']
+const items: StoryNodeType[] = ['lykie', 'choice', 'free_reply', 'system', 'wait', 'end']
 
 type Props = {
   onAdd: (type: StoryNodeType) => void

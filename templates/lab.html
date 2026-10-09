@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>开场试验台 · Lykie</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m80">
+  <link rel="stylesheet" href="/static/lab.css?v=1">
+</head>
+<body class="lab-page" data-username="{{ username }}">
+  <header class="lab-top">
+    <div class="lab-top-brand">
+      <span class="lab-brand">试验台</span>
+      <span class="lab-tag">只接模型 · 不读正式记忆 / 口吻 / 监督 / 开场节点</span>
+    </div>
+    <div class="lab-top-actions">
+      <span class="lab-chars" id="labChars">0 字</span>
+      <button type="button" class="btn ghost" id="labSeedBtn">由她先说第一句</button>
+      <button type="button" class="btn ghost" id="labClearChatBtn">清空对话</button>
+      <button type="button" class="btn ghost" id="labResetLayersBtn">恢复默认层</button>
+      <a class="btn ghost" href="/">返回刷题</a>
+      <span class="account-name">{{ username }}</span>
+      <a class="btn ghost" href="/logout">退出</a>
+    </div>
+  </header>
+
+  <div class="lab-shell">
+    <aside class="lab-col lab-layers" aria-label="分层提示词">
+      <div class="lab-col-head">
+        <h2>提示词层</h2>
+        <p class="lab-hint">越靠上越先写入。关掉的层本轮不进模型。尽量少开。</p>
+      </div>
+      <div id="labLayerList" class="lab-layer-list"></div>
+      <button type="button" class="btn ghost lab-add" id="labAddLayerBtn">加一层</button>
+    </aside>
+
+    <section class="lab-col lab-chat" aria-label="试验对话">
+      <details class="lab-preview" id="labPreviewBox">
+        <summary>本轮实际写入的系统提示 <span id="labPreviewChars"></span></summary>
+        <pre id="labPreview" class="lab-preview-body">（空）</pre>
+      </details>
+      <div class="lab-messages" id="labMessages"></div>
+      <div class="lab-composer">
+        <textarea id="labInput" rows="3" placeholder="在试验台跟她说…" autocomplete="off"></textarea>
+        <button type="button" class="lykie-send" id="labSendBtn" title="发送" aria-label="发送">↑</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/lab.js?v=2"></script>
+</body>
+</html>

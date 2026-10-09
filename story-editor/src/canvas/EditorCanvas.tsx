@@ -19,6 +19,7 @@ import { HandleEditContext } from '../handles/HandleEditContext'
 import type { HandleLayout } from '../handles/layout'
 import { ChoiceNode } from '../nodes/ChoiceNode'
 import { EndNode } from '../nodes/EndNode'
+import { FreeReplyNode } from '../nodes/FreeReplyNode'
 import { LykieNode } from '../nodes/LykieNode'
 import { SystemNode } from '../nodes/SystemNode'
 import { WaitNode } from '../nodes/WaitNode'
@@ -33,6 +34,7 @@ import {
 const nodeTypes = {
   lykie: LykieNode,
   choice: ChoiceNode,
+  free_reply: FreeReplyNode,
   system: SystemNode,
   wait: WaitNode,
   end: EndNode,
@@ -70,8 +72,13 @@ function edgeLabel(connection: Connection, nodes: Node[]): string | undefined {
   if (!handle || handle === OUT_HANDLE) return undefined
   if (handle === TIMEOUT_HANDLE) return '超时'
   const src = nodes.find((n) => n.id === connection.source)
-  const opts = (src?.data as { options?: { id: string; label: string }[] })?.options
-  const opt = opts?.find((o) => o.id === handle)
+  const data = src?.data as {
+    options?: { id: string; label: string }[]
+    branches?: { id: string; label: string }[]
+  }
+  const opt =
+    data?.options?.find((o) => o.id === handle) ||
+    data?.branches?.find((o) => o.id === handle)
   return opt?.label?.slice(0, 10) || handle
 }
 
@@ -410,6 +417,8 @@ export function EditorCanvas({
                   return '#3b82f6'
                 case 'choice':
                   return '#f59e0b'
+                case 'free_reply':
+                  return '#14b8a6'
                 case 'system':
                   return '#8b5cf6'
                 case 'wait':

@@ -2335,6 +2335,7 @@ async function wipeLykieMemory() {
       return;
     }
     restorePanelLog(data.panel_log || []);
+    stopOpeningNudge();
     await refreshLykieState();
   } catch (e) {
     await uiAlert('网络错误');
@@ -2363,6 +2364,7 @@ async function clearChatToOpeningEnd() {
     }
     restorePanelLog(data.panel_log || []);
     appendLykieBubble('system', '已清空到开场结束，可重新测自由聊');
+    stopOpeningNudge();
     await refreshLykieState();
   } catch (e) {
     await uiAlert('网络错误');
@@ -2763,6 +2765,7 @@ async function refreshLykieState() {
     lykieConfigured = !!data.configured;
     lastPanelLog = Array.isArray(data.panel_log) ? data.panel_log : lastPanelLog;
     syncLykieStageSelect(data);
+    applyOpeningFromState(data, { restartTimer: false });
     if (!status) return data;
     if (lykieConfigured) {
       const bits = (data.profile && data.profile.bits) || [];
@@ -2770,8 +2773,21 @@ async function refreshLykieState() {
         ? (`档案${data.profile.strict ? '(严)' : ''} ${bits.length ? bits.join('·') : '已接入'}`)
         : '档案缺失';
       const layer = data.relationship_label || '认识但不熟悉';
+      let extraLayer = '';
+      if (data.opening && data.opening.active) {
+        const beat = data.opening.beat || '';
+        const beatLabel = ({
+          awaiting: '等回',
+          nudged: '已催',
+          stalled: '不再催',
+          realized: '已察觉',
+        })[beat] || beat;
+        extraLayer = ` · 开场1·${beatLabel}`;
+        const by = data.opening.realized_by && data.opening.realized_by.label;
+        if (beat === 'realized' && by) extraLayer += '·' + by;
+      }
       status.textContent =
-        `已连接 · ${data.model || 'model'} · ${archive} · 层·${layer} · 日常 ${data.fact_count || 0} · 口吻 ${data.style_note_count || 0}（共用） · 监督 ${data.correction_count || 0}（共用） · 日志 ${data.author_log_count || 0}（共用） · 印象 ${Number(data.portrait_offense_count) ? (data.portrait_unapologized ? '有过节·未道歉' : (data.portrait_warned ? '有过节·已警告' : '有过节')) : '无'}`;
+        `已连接 · ${data.model || 'model'} · ${archive} · 层·${layer}${extraLayer} · 日常 ${data.fact_count || 0} · 口吻 ${data.style_note_count || 0}（共用） · 监督 ${data.correction_count || 0}（共用） · 日志 ${data.author_log_count || 0}（共用） · 印象 ${Number(data.portrait_offense_count) ? (data.portrait_unapologized ? '有过节·未道歉' : (data.portrait_warned ? '有过节·已警告' : '有过节')) : '无'}`;
     } else {
       status.textContent = '未配置 API Key：复制 .env.example 为 .env 后填入 LYKIE_API_KEY 并重启';
     }
@@ -2817,12 +2833,122 @@ async function onLykieStageChange() {
       return;
     }
     appendLykieBubble('system', `（作者）已钉在${data.label || stage}`);
+    applyOpeningFromState(data);
     await refreshLykieState();
   } catch (e) {
     await uiAlert('切层失败');
     await refreshLykieState();
   } finally {
     pinningStage = false;
+  }
+}
+
+let openingNudgeTimer = null;
+let openingNudgeBusy = false;
+let openingWatch = null;
+
+function stopOpeningNudge() {
+  if (openingNudgeTimer) {
+    clearTimeout(openingNudgeTimer);
+    openingNudgeTimer = null;
+  }
+}
+
+function applyOpeningFromState(data, opts) {
+  const opening = (data && data.opening) || null;
+  openingWatch = opening;
+  if (!opening || !opening.active || !opening.waiting) {
+    stopOpeningNudge();
+    return;
+  }
+  if (opts && opts.restartTimer === false) {
+    if (!openingNudgeTimer) scheduleOpeningNudge(opening);
+    return;
+  }
+  scheduleOpeningNudge(opening);
+}
+
+function scheduleOpeningNudge(opening) {
+  stopOpeningNudge();
+  if (!opening || !opening.waiting) return;
+  const ms = Math.max(8, Number(opening.nudge_sec) || 45) * 1000;
+  openingNudgeTimer = setTimeout(() => maybeOpeningNudge(), ms);
+}
+
+function onOpeningComposeChanged() {
+  if (!openingWatch || !openingWatch.waiting) return;
+  if (lykieInputHasText()) {
+    stopOpeningNudge();
+    return;
+  }
+  scheduleOpeningNudge(openingWatch);
+}
+
+async function maybeOpeningNudge() {
+  if (!openingWatch || !openingWatch.waiting) return;
+  if (lykieInputHasText() || chatBatchQueue.length || lykieBusy) {
+    openingNudgeTimer = setTimeout(() => maybeOpeningNudge(), 3000);
+    return;
+  }
+  await fireOpeningNudge();
+}
+
+async function fireOpeningNudge() {
+  if (openingNudgeBusy) return;
+  openingNudgeBusy = true;
+  stopOpeningNudge();
+  try {
+    const res = await fetchAuth('/api/lykie/opening/nudge', { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) return;
+    const bubbles = Array.isArray(data.bubbles) ? data.bubbles : [];
+    for (const b of bubbles) {
+      const text = (b && (b.text || b.content)) || '';
+      if (text) appendLykieBubble('assistant', text, { noFeedback: true });
+    }
+    if (data.stopped) {
+      appendLykieBubble('system', '（作者）她不再催了。关系停在开局。你再主动找她，她会起疑。');
+    }
+    await persistPanelLog();
+    applyOpeningFromState(data);
+    await refreshLykieState();
+  } catch (e) {
+    /* ignore */
+  } finally {
+    openingNudgeBusy = false;
+  }
+}
+
+async function startOpeningNodeTest() {
+  if (window.StoryRunner && window.StoryRunner.isActive()) {
+    await uiAlert('旧开场播放中，先停掉再测节点');
+    return;
+  }
+  if (!await uiConfirm(
+    '测开场节点 1：清空本面板对话，钉在开局，由她发出定稿第一句。口吻/监督不清。继续？',
+    { title: '测开场', okText: '开始' }
+  )) {
+    return;
+  }
+  clearChatBatchTimer();
+  chatBatchQueue = [];
+  showChatBatchWaiting(false);
+  clearPendingQuestionCard();
+  stopOpeningNudge();
+  try {
+    const res = await fetchAuth('/api/lykie/opening/start', { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) {
+      await uiAlert(data.error || '无法开始开场');
+      return;
+    }
+    setLykiePanelOpen(true);
+    restorePanelLog(data.panel_log || []);
+    syncLykieStageSelect(data);
+    applyOpeningFromState(data);
+    await refreshLykieState();
+  } catch (e) {
+    await uiAlert('网络错误');
   }
 }
 
@@ -2965,6 +3091,11 @@ function appendThinkDebug(think) {
   if (think.busy) extra.push('忙闲 ' + think.busy);
   if (think.taught_today != null && think.taught_today !== '') extra.push('今日已教 ' + think.taught_today);
   if (think.begging) extra.push('恳求');
+  if (think.realized_not_ai) {
+    extra.push('察觉非AI：' + (think.opening_reason_label || think.opening_cue || '本轮'));
+  } else if (think.opening_reason_label || think.opening_cue) {
+    extra.push('开场线索 ' + (think.opening_reason_label || think.opening_cue));
+  }
   div.textContent = `想：${action}`
     + (why ? `\n${why}` : '')
     + `\n${lookLine}`
@@ -3046,6 +3177,7 @@ function queueChatMessage(text) {
 
 /** 输入框有字：她接着等；清空后再从 3 秒重新计。 */
 function onChatComposeChanged() {
+  onOpeningComposeChanged();
   if (!chatBatchQueue.length) return;
   if (lykieInputHasText()) {
     clearChatBatchTimer();
@@ -3144,6 +3276,16 @@ async function sendLykie(mode, messageOrBatch, questionCard) {
       }
       appendThinkDebug(data.think);
       appendProfileNotes(data.profile_notes);
+      applyOpeningFromState(data);
+      if (data.opening_just_realized) {
+        const by = data.opening && data.opening.realized_by && data.opening.realized_by.label;
+        appendLykieBubble(
+          'system',
+          '（作者）她察觉对方不太像 AI'
+            + (by ? '：' + by : '')
+            + '。关系仍停在开局。',
+        );
+      }
       if (data.relationship_dropped) {
         syncLykieStageSelect(data);
         appendLykieBubble(
@@ -3299,6 +3441,7 @@ if ($('saAskLykieBtn')) $('saAskLykieBtn').onclick = onAskLykie;
 if ($('lykiePendingCardClear')) $('lykiePendingCardClear').onclick = () => {
   clearPendingQuestionCard();
 };
+if ($('lykieOpeningTestBtn')) $('lykieOpeningTestBtn').onclick = startOpeningNodeTest;
 if ($('lykieClearChatBtn')) $('lykieClearChatBtn').onclick = clearChatToOpeningEnd;
 if ($('lykieWipeMemoryBtn')) $('lykieWipeMemoryBtn').onclick = wipeLykieMemory;
 if ($('lykieStageSelect')) $('lykieStageSelect').addEventListener('change', onLykieStageChange);
@@ -3455,4 +3598,5 @@ function refreshCelestial() {
   } else if ($('lykieMessages') && !$('lykieMessages').children.length) {
     appendLykieBubble('system', '嗨，我是 Lykie。刷题累了可以找我聊聊；卡住了就把题放到对话里。');
   }
+  applyOpeningFromState(state);
 })();

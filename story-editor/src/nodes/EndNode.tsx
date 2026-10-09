@@ -11,7 +11,7 @@ export function EndNode({ id, data, selected }: NodeProps) {
         nodeId={id}
         id="in"
         handleType="target"
-        defaultSide="top"
+        defaultSide="left"
         handleLayout={d.handleLayout}
       />
       <div className="sn-tag">结束</div>

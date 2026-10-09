@@ -51,8 +51,13 @@ export function fromStoryGraph(graph: StoryGraph): {
     if (handle === TIMEOUT_HANDLE) label = '超时'
     else if (handle) {
       const src = graph.nodes.find((n) => n.id === e.source)
-      const opts = (src?.data as { options?: { id: string; label: string }[] })?.options
-      const opt = opts?.find((o) => o.id === handle)
+      const data = src?.data as {
+        options?: { id: string; label: string }[]
+        branches?: { id: string; label: string }[]
+      }
+      const opt =
+        data?.options?.find((o) => o.id === handle) ||
+        data?.branches?.find((o) => o.id === handle)
       label = opt?.label?.slice(0, 8) || handle
     }
     return {

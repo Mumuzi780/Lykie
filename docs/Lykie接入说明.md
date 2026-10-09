@@ -63,11 +63,11 @@ python add_user.py list
 |------|------|
 | `lykie/prompt_core.txt` | 人设核（纠正等仍用；闲聊开口改走 `prompt_speak.txt`） |
 闲聊先思考再按 need 摘档案块，不再每轮注入整份 `lykie/self.txt`。右侧状态栏显示「档案(严) 人工智能·宿舍·课表」仍表示档案已装入查找。
-| `lykie/think.py` / `lookup.py` / `prompt_speak.txt` | 思考、按需摘材、开口短核 |
+| `lykie/think.py` / `lookup.py` / `prompt_speak.txt` / `lykie/opening.py` | 思考、按需摘材、开口短核、开场节点 1 |
 | `lykie/llm.py` / `memory.py` / `extract.py` | 调用、记忆、事实抽取 |
 | `data/users/用户名/lykie_state.json` | 该账号的对话 / 日常事实 / 感情层 |
 | `data/lykie_shared.json` | 全站口吻（`style_notes`）与监督（`corrections`） |
 | `data/lykie_author_log.md` | 全站作者现场日志（不进模型） |
 | `/api/lykie/state`、`/api/lykie/chat`、`/api/lykie/feedback` | 后端接口 |
 
-开场剧情见 `docs/开场剧情接入.md`。桌宠、主动催题、慢变特质自动演化仍未做。
+开场剧情见 `docs/开场剧情接入.md`。现行测法：面板「测开场」进入节点 1（不自动对所有账号开；旧 `fragment_01` 不自动播）。最少提示词实验用 `/lab` 试验台。桌宠、主动催题、慢变特质自动演化仍未做。

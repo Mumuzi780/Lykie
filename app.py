@@ -26,6 +26,8 @@ from lykie import import_scan as lykie_import_scan
 from lykie import llm as lykie_llm
 from lykie import lookup as lykie_lookup
 from lykie import memory as lykie_memory
+from lykie import lab as lykie_lab
+from lykie import opening as lykie_opening
 from lykie import think as lykie_think
 from lykie import mock as lykie_mock
 from lykie import profile as lykie_profile
@@ -439,6 +441,11 @@ def logout():
 @app.route("/assets")
 def assets_page():
     return render_template("assets.html", username=g.store.username)
+
+
+@app.route("/lab")
+def lab_page():
+    return render_template("lab.html", username=g.store.username)
 
 
 @app.route("/api/assets/vocab", methods=["GET"])
@@ -2186,6 +2193,7 @@ def api_lykie_state():
             for sid in lykie_memory.RELATIONSHIP_STAGES
         ],
         "story_pending": False,
+        "opening": lykie_opening.public_state(state),
         "panel_log": state.get("panel_log") or [],
         "chat_tail_len": len(state.get("chat_tail") or []),
         "profile": prof,
@@ -2203,6 +2211,98 @@ def api_lykie_panel():
     log = lykie_memory.set_panel_log(state, messages)
     lykie_memory.save_state(g.store.lykie_path, state)
     return jsonify({"ok": True, "count": len(log)})
+
+
+def _lab_payload(state, extra=None):
+    data = {"ok": True}
+    data.update(lykie_lab.public_state(state))
+    if extra:
+        data.update(extra)
+    return jsonify_user(data)
+
+
+@app.route("/api/lab/state")
+def api_lab_state():
+    state = lykie_lab.load_state(g.store.username)
+    return _lab_payload(state)
+
+
+@app.route("/api/lab/layers", methods=["POST"])
+def api_lab_layers():
+    data = request.get_json(force=True) or {}
+    state = lykie_lab.load_state(g.store.username)
+    if isinstance(data.get("layers"), list):
+        state["layers"] = data["layers"]
+    state = lykie_lab.save_state(g.store.username, state)
+    return _lab_payload(state)
+
+
+@app.route("/api/lab/chat", methods=["POST"])
+def api_lab_chat():
+    data = request.get_json(force=True) or {}
+    message = str(data.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "消息为空"}), 400
+    state = lykie_lab.load_state(g.store.username)
+    try:
+        state, result = lykie_lab.chat_once(state, message)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"模型调用失败：{e}"}), 502
+    lykie_lab.save_state(g.store.username, state)
+    return _lab_payload(state, result)
+
+
+@app.route("/api/lab/seed", methods=["POST"])
+def api_lab_seed():
+    state = lykie_lab.seed_first(lykie_lab.load_state(g.store.username))
+    state = lykie_lab.save_state(g.store.username, state)
+    return _lab_payload(state)
+
+
+@app.route("/api/lab/reset_chat", methods=["POST"])
+def api_lab_reset_chat():
+    state = lykie_lab.reset_chat(lykie_lab.load_state(g.store.username))
+    state = lykie_lab.save_state(g.store.username, state)
+    return _lab_payload(state)
+
+
+@app.route("/api/lab/reset_layers", methods=["POST"])
+def api_lab_reset_layers():
+    state = lykie_lab.reset_layers(lykie_lab.load_state(g.store.username))
+    state = lykie_lab.save_state(g.store.username, state)
+    return _lab_payload(state)
+
+
+@app.route("/api/lykie/opening/start", methods=["POST"])
+def api_lykie_opening_start():
+    """作者测开场节点 1：钉开局、清对话，由她发出定稿第一句。不自动对所有账号开。"""
+    state = lykie_memory.load_state(g.store.lykie_path)
+    panel = lykie_opening.start_not_ai(state)
+    lykie_memory.save_state(g.store.lykie_path, state)
+    return jsonify({
+        "ok": True,
+        "panel_log": panel,
+        "opening": lykie_opening.public_state(state),
+        "relationship_stage": lykie_memory.get_relationship_stage(state),
+        "relationship_label": lykie_memory.stage_label(
+            lykie_memory.get_relationship_stage(state)
+        ),
+        "flags": state.get("flags") or {},
+    })
+
+
+@app.route("/api/lykie/opening/nudge", methods=["POST"])
+def api_lykie_opening_nudge():
+    """开场节点 1：长时间不回则催一次；再等仍不回则停。"""
+    state = lykie_memory.load_state(g.store.lykie_path)
+    result = lykie_opening.nudge(state)
+    if result.get("ok"):
+        lykie_memory.save_state(g.store.lykie_path, state)
+    status = 200 if result.get("ok") else 400
+    result["opening"] = lykie_opening.public_state(state)
+    return jsonify(result), status
 
 
 @app.route("/api/lykie/chat_reset_opening", methods=["POST"])
@@ -2230,6 +2330,7 @@ def api_lykie_memory_clear():
         "relationship_label": lykie_memory.stage_label(
             lykie_memory.get_relationship_stage(state)
         ),
+        "opening": lykie_opening.public_state(state),
     })
 
 
@@ -2280,6 +2381,9 @@ def api_lykie_relationship():
         "stage": sid,
         "label": lykie_memory.stage_label(sid),
         "flags": state.get("flags") or {},
+        "opening": lykie_opening.public_state(state),
+        "relationship_stage": sid,
+        "relationship_label": lykie_memory.stage_label(sid),
     })
 
 
@@ -2495,6 +2599,7 @@ def api_lykie_chat():
     lookup_result = None
     occupancy = "free"
     active_card = None
+    just_realized = False
     if mode == "chat":
         occupancy = lykie_lookup.occupancy_flag()
         attacking = lykie_memory.is_direct_attack(batch)
@@ -2523,6 +2628,7 @@ def api_lykie_chat():
             taught_today=taught_today,
             begging=begging,
             remembered=remembered,
+            batch=batch,
         )
         lookup_result = lykie_lookup.run_lookup(
             think_decision.get("need"),
@@ -2532,6 +2638,18 @@ def api_lykie_chat():
             store=g.store,
             action=think_decision.get("action") or "thin",
         )
+        just_realized = False
+        if lykie_opening.is_active(state):
+            result = lykie_opening.classify_not_ai(
+                think_decision, batch, state
+            )
+            already = bool(result.get("already"))
+            think_decision = lykie_opening.align_think(
+                think_decision, result, attacking=attacking
+            )
+            if result.get("realized") and not already:
+                lykie_opening.mark_realized(state, result)
+                just_realized = True
 
     try:
         if mode == "chat" and (think_decision or {}).get("action") == "silence":
@@ -2642,6 +2760,8 @@ def api_lykie_chat():
         ),
         "relationship_dropped": dropped_stage,
         "portrait_updated": portrait_hit,
+        "opening": lykie_opening.public_state(state),
+        "opening_just_realized": just_realized,
     }
     if mode == "chat" and lykie_think.debug_enabled(g.store.username):
         payload["think"] = lykie_think.public_think_payload(think_decision, lookup_result)

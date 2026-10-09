@@ -8,7 +8,7 @@ import re
 
 from .memory import STAGE_BRIEFS, get_relationship_stage, normalize_portrait
 
-ACTIONS = ("thin", "schedule", "teach", "deflect", "push", "silence")
+ACTIONS = ("thin", "chat", "schedule", "teach", "deflect", "push", "silence")
 NEED_ALLOWED = ("none", "timetable", "question", "profile")
 TEACH_STAGES = ("casual", "heart", "couple")  # 认识层另有次数关；开局不讲
 THINK_TAIL = 8
@@ -19,6 +19,7 @@ THINK_SYSTEM = """你在帮 Lykie 决定这一轮怎么开口。只输出一个 
 
 action 只能是：
 - thin：薄回一两句
+- chat：正常聊天，礼貌回复即可（寒暄、报名字、普通接话走这里，不要塞进 push）
 - schedule：按课表/时段答在干嘛（不要自己编今晚行程）
 - teach：讲这道题（题已经进过对话就记得，不要求本轮再贴卡。认识层有次数；上课 busy 才不讲；study/late 可以嫌烦或讲得短，不是禁讲）
 - deflect：少说或停这项分享
@@ -57,6 +58,8 @@ def fallback_decision(occupancy="free", has_question=False, why="思考解析失
         "busy": occupancy,
         "why_not_teach": why,
         "parse_ok": False,
+        "realized_not_ai": False,
+        "opening_cue": "",
     }
 
 
@@ -70,6 +73,7 @@ def clamp_decision(
     attacking=False,
     taught_today=0,
     begging=False,
+    opening_active=False,
 ):
     """程序关：无题/开局/未道歉/上课/认识层次数 → 不许 teach，也不给解析。"""
     from .memory import acquainted_teach_gate
@@ -161,7 +165,15 @@ def clamp_decision(
         if "timetable" not in need:
             need = (["timetable"] + [n for n in need if n != "none"])[:2]
 
+    if opening_active and action == "silence" and not attacking:
+        action = "thin"
+        if not reasons:
+            reasons = ["开场节点要接话"]
+    if opening_active and action == "push" and not attacking:
+        action = "thin"
+
     why = str(d.get("why") or "").strip() or "按这一轮局势选的"
+    cue = str(d.get("opening_cue") or "").strip().lower()
     return {
         "action": action,
         "need": need,
@@ -174,6 +186,8 @@ def clamp_decision(
         "parse_ok": True,
         "taught_today": int(taught_today or 0),
         "begging": bool(begging),
+        "realized_not_ai": bool(d.get("realized_not_ai")),
+        "opening_cue": cue[:40],
     }
 
 
@@ -186,12 +200,14 @@ def build_think_messages(
     taught_today=0,
     begging=False,
     remembered=None,
+    batch=None,
 ):
     from .memory import (
         ACQUAINTED_TEACH_FREE,
         ACQUAINTED_TEACH_HARD,
         portrait_summary,
     )
+    from . import opening as lykie_opening
 
     stage = get_relationship_stage(state)
     brief = STAGE_BRIEFS.get(stage) or STAGE_BRIEFS["acquainted"]
@@ -232,6 +248,8 @@ def build_think_messages(
         + f"\n\n本轮用户：\n{user_text}"
     )
     user += "\n\n印象摘要：\n" + portrait_summary(state)
+    if lykie_opening.is_active(state):
+        user += "\n\n" + lykie_opening.think_extra(state, batch or [user_text])
     return [
         {"role": "system", "content": THINK_SYSTEM},
         {"role": "user", "content": user},
@@ -287,9 +305,11 @@ def run_think(
     begging=False,
     remembered=None,
     complete_fn=None,
+    batch=None,
 ):
     """调用模型得到决策。失败则 thin+none。complete_fn 便于测试注入。"""
     from . import llm as lykie_llm
+    from . import opening as lykie_opening
 
     fn = complete_fn or lykie_llm.chat_completion
     messages = build_think_messages(
@@ -301,6 +321,7 @@ def run_think(
         taught_today=taught_today,
         begging=begging,
         remembered=remembered,
+        batch=batch,
     )
     try:
         raw = fn(
@@ -327,6 +348,7 @@ def run_think(
         attacking=attacking,
         taught_today=taught_today,
         begging=begging,
+        opening_active=lykie_opening.is_active(state),
     )
 
 
@@ -347,6 +369,10 @@ def public_think_payload(decision, lookup_result) -> dict:
         "occupancy": (lookup_result or {}).get("occupancy") or (decision or {}).get("busy") or "",
         "taught_today": int((decision or {}).get("taught_today") or 0),
         "begging": bool((decision or {}).get("begging")),
+        "realized_not_ai": bool((decision or {}).get("realized_not_ai")),
+        "opening_cue": (decision or {}).get("opening_cue") or "",
+        "opening_reasons": (decision or {}).get("opening_reasons") or [],
+        "opening_reason_label": (decision or {}).get("opening_reason_label") or "",
     }
 
 
