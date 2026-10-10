@@ -8,17 +8,6 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROMPT_PATH = Path(__file__).resolve().parent / "prompt_core.txt"
-SPEAK_PATH = Path(__file__).resolve().parent / "prompt_speak.txt"
-
-ACTION_LINES = {
-    "thin": "本轮动作：thin。薄回一两句，别展开，别当老师讲题。",
-    "chat": "本轮动作：chat。正常聊天，礼貌回复即可。",
-    "schedule": "本轮动作：schedule。按下面给的课表/时段答在干嘛或有没有课。不要另编一天行程。",
-    "teach": "本轮动作：teach。可以讲这道题；像坐旁边一点点教。不会就支吾，不要硬念解析装会。",
-    "deflect": "本轮动作：deflect。少说或停这项分享。有题也不要交付解析或标准答案。拒讲用你自己的话。",
-    "push": "本轮动作：push。顶回去或扣住，不要先把答案/档案交出去。有题也不要讲。",
-    "silence": "本轮动作：silence。整段只输出 [不回复]。",
-}
 
 # 项目根目录 .env
 load_dotenv(BASE_DIR / ".env")
@@ -40,13 +29,6 @@ def load_core_prompt():
         return PROMPT_PATH.read_text(encoding="utf-8").strip()
     except OSError:
         return "你是 Lykie。用口语短句和用户聊天，讲题像朋友，不会就不嘴硬。"
-
-
-def load_speak_prompt():
-    try:
-        return SPEAK_PATH.read_text(encoding="utf-8").strip()
-    except OSError:
-        return load_core_prompt()
 
 
 _WEEKDAYS = "一二三四五六日"
@@ -121,112 +103,6 @@ def format_question_block(question):
     if analysis:
         lines.append(f"题库解析：{analysis}")
     return "\n".join(lines)
-
-
-def build_messages(state, user_message, mode="chat", question=None, last_reply=None):
-    from .memory import (
-        corrections_summary,
-        facts_summary,
-        portrait_summary,
-        relationship_brief,
-        style_notes_summary,
-    )
-
-    from .profile import format_self_profile_block
-
-    system = load_core_prompt()
-    system += "\n\n【当前时间（真实，硬约束）】\n" + format_now_block()
-    system += "\n\n【你自己的档案（作者写定，禁止现编）】\n" + format_self_profile_block()
-    system += "\n\n【当前关系与剧情状态（硬约束，回忆不得与此冲突）】\n" + relationship_brief(state)
-    system += "\n\n【她对这个人的印象（本账号；清空对话仍在）】\n" + portrait_summary(state)
-    system += "\n\n【已记住的关于用户的事实】\n" + facts_summary(state)
-    system += "\n\n【用户长期纠正的口吻规则（必须遵守）】\n" + style_notes_summary(state)
-    system += (
-        "\n\n【人工监督案例（学点评里的分寸，不是背台词）】\n"
-        + corrections_summary(state)
-    )
-    system += (
-        "\n\n若事实与「关系与剧情状态」冲突，以关系与剧情状态为准。"
-        "「她对这个人的印象」比这一轮刚说的客套更优先：记着未道歉的羞辱，就不要当第一次见面。"
-        "聊天记录可能跨了白天黑夜，吃饭和问候以【当前时间】为准，不要沿用上一轮的时段。"
-        "不要编造欠人情；不要假装教过用户题，除非事实里明确写了你教过。"
-        "监督案例：先看这一轮对方问的是什么，再遵守点评原则。"
-        "问法变了就按这一轮答，不要因为用词相近就把好范例整段套上。"
-        "\n【发送格式】闲聊时优先短句；若有多句，必须每句单独一行（用换行分隔），不要挤成一大段。"
-        "系统会把每一行显示成一条独立消息。"
-        "若应先不回，整段只输出 [不回复]。"
-    )
-
-    messages = [{"role": "system", "content": system}]
-
-    for turn in state.get("chat_tail") or []:
-        role = turn.get("role")
-        content = (turn.get("content") or "").strip()
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
-
-    if mode == "correct":
-        clip = ""
-        if last_reply:
-            clip = last_reply if len(last_reply) <= 800 else last_reply[:800] + "…"
-        user_content = (
-            "用户正在纠正你的说话方式（长期有效的口吻，不是改你是谁）。"
-            "简短表示记住了，必要时用改过后的口吻回一句；不要客服腔。\n\n"
-            f"用户纠正：「{user_message}」\n"
-        )
-        if clip:
-            user_content += f"\n你上一句原话：「{clip}」"
-    else:
-        # user_message 可以是单句，或「用户连发」块
-        user_content = user_message
-
-    messages.append({"role": "user", "content": user_content})
-    return messages
-
-
-def build_speak_messages(state, user_message, action="thin", material="", occupancy="free"):
-    """闲聊开口：短核 + 本轮 action + 查到的材料 + 最近对话。不注入整份档案/监督。"""
-    from .lookup import occupancy_label
-    from .memory import facts_summary, portrait_summary, relationship_brief
-
-    system = load_speak_prompt()
-    system += "\n\n【当前时间（真实，硬约束）】\n" + format_now_block()
-    system += f"\n程序忙闲：{occupancy}（{occupancy_label(occupancy)}）。不要另编今晚行程。"
-    system += "\n\n【当前关系】\n" + relationship_brief(state)
-    from . import opening as lykie_opening
-    if lykie_opening.is_active(state):
-        flags = (state or {}).get("flags") or {}
-        realized = str(flags.get("opening_beat") or "") == "realized"
-        cue = str(flags.get("opening_realized_cue") or "")
-        system += "\n\n" + lykie_opening.speak_block(state, realized, cue)
-    system += "\n\n【她对这个人的印象（本账号；清空对话仍在）】\n" + portrait_summary(state)
-    facts = facts_summary(state)
-    if facts and facts != "（尚无）":
-        system += "\n\n【已记住的关于用户的事实】\n" + facts
-    system += "\n\n" + (ACTION_LINES.get(action) or ACTION_LINES["thin"])
-    mat = (material or "").strip()
-    if mat:
-        system += "\n\n【本轮查到的材料（没写的私事不要现编）】\n" + mat
-    else:
-        system += "\n\n【本轮查到的材料】无档案正文。具体私事含糊或不答，不要现编。"
-    system += (
-        "\n\n若事实与「当前关系」冲突，以当前关系为准。"
-        "印象里未道歉的羞辱，不要当第一次见面。"
-        "吃饭和问候以【当前时间】为准。"
-        "不要编造欠人情。"
-        "\n【发送格式】闲聊优先短句；多句必须每句单独一行。"
-        "若应先不回，整段只输出 [不回复]。"
-        "不要输出 %%档案 或任何系统标注。"
-    )
-
-    messages = [{"role": "system", "content": system}]
-    for turn in state.get("chat_tail") or []:
-        role = turn.get("role")
-        content = (turn.get("content") or "").strip()
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": user_message})
-    return messages
 
 
 SILENCE_TOKENS = ("[不回复]", "【不回复】", "[silence]", "[SILENCE]", "[pass]", "[PASS]")

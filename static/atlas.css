@@ -1,0 +1,49 @@
+/* Atlas 作者工具（阶段一：列表编辑） */
+.atlas-app { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; font-family: "Noto Sans SC", sans-serif; color: var(--text, #333); }
+.atlas-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.atlas-header h1 { font-size: 22px; margin: 0; }
+.atlas-header-actions { display: flex; gap: 8px; align-items: center; }
+.atlas-stale { font-size: 12px; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 999px; padding: 2px 10px; }
+.atlas-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 4px; gap: 10px; flex-wrap: wrap; }
+.atlas-tabs { display: flex; gap: 6px; }
+.atlas-tab { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 14px; }
+.atlas-tab.active { background: #111827; color: #fff; border-color: #111827; }
+.atlas-draft-status { font-size: 12px; color: #6b7280; }
+.atlas-hint { font-size: 12px; color: #9ca3af; margin: 6px 0 14px; }
+.atlas-main { min-height: 300px; }
+.atlas-pane[hidden] { display: none; }
+.atlas-layer-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; color: #6b7280; }
+.atlas-layer-head span { flex: 1; }
+.atlas-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.atlas-item { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; transition: border-color .15s; }
+.atlas-item:hover { border-color: #9ca3af; }
+.atlas-item-text { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.atlas-item-meta { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.atlas-chip { font-size: 11px; border-radius: 999px; padding: 1px 8px; border: 1px solid #d1d5db; color: #6b7280; }
+.atlas-chip.core { background: #111827; color: #fff; border-color: #111827; }
+.atlas-chip.stable { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.atlas-chip.current { background: #dcfce7; color: #166534; border-color: #86efac; }
+.atlas-chip.floating { background: #f3f4f6; color: #6b7280; }
+.atlas-chip.secret { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.atlas-chip.undecided { border-style: dashed; }
+.atlas-chip.verbatim { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.atlas-empty { color: #9ca3af; font-size: 13px; padding: 24px 0; text-align: center; }
+.atlas-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.atlas-modal { background: #fff; border-radius: 12px; padding: 18px; width: min(560px, 92vw); }
+.atlas-modal h3 { margin: 0 0 10px; font-size: 16px; }
+.atlas-modal textarea { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-size: 14px; resize: vertical; }
+.atlas-modal-row { margin-top: 10px; font-size: 14px; }
+.atlas-modal-row select { margin-left: 6px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; }
+.atlas-checks { display: flex; gap: 14px; flex-wrap: wrap; }
+.atlas-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.btn.danger { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+/* 阶段二：分节总览 + 钻取条目 */
+.atlas-sections { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.atlas-section-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #fff; cursor: pointer; transition: border-color .15s; }
+.atlas-section-card:hover { border-color: #9ca3af; }
+.atlas-section-name { font-size: 15px; font-weight: 600; }
+.atlas-section-meta { font-size: 12px; color: #6b7280; margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.atlas-weight { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b7280; margin-top: 8px; }
+.atlas-weight input { width: 64px; padding: 3px 6px; border: 1px solid #d1d5db; border-radius: 6px; }
+.atlas-modal input[type="text"] { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-size: 14px; }

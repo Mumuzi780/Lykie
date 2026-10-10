@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <title>档案 Atlas · Lykie</title>
+  <link rel="stylesheet" href="/static/style.css?v=m80">
+  <link rel="stylesheet" href="/static/atlas.css?v=a2">
+</head>
+<body data-username="{{ username }}">
+  <div class="atlas-app">
+    <header class="atlas-header">
+      <h1>档案 Atlas</h1>
+      <div class="atlas-header-actions">
+        <span class="atlas-stale" id="proseStale" hidden>散文待重新渲染</span>
+        <button type="button" id="importDraftBtn" class="btn ghost">从 self.txt 导入草稿</button>
+        <button type="button" id="saveEntriesBtn" class="btn primary">保存条目</button>
+        <a class="btn ghost" href="/">返回</a>
+      </div>
+    </header>
+
+    <div class="atlas-toolbar">
+      <div class="atlas-tabs">
+        <button type="button" class="atlas-tab active" data-tab="entries">她的档案</button>
+        <button type="button" class="atlas-tab" data-tab="facts">他的画像</button>
+      </div>
+      <div class="atlas-draft-status" id="draftStatus"></div>
+    </div>
+
+    <p class="atlas-hint">阶段二：分节总览 + 钻取条目。权重越小排越前；节级标记 = 节内条目全部带该标。点卡片进入条目编辑。</p>
+
+    <main class="atlas-main">
+      <!-- 她的档案 -->
+      <section class="atlas-pane active" id="pane-entries">
+        <div id="sectionView">
+          <div class="atlas-layer-head"><span>分节</span></div>
+          <div class="atlas-sections" id="sectionList"></div>
+        </div>
+        <div id="entryView" hidden>
+          <div class="atlas-layer-head">
+            <button type="button" id="backToSections" class="btn ghost">← 返回分节</button>
+            <span id="entryViewTitle"></span>
+            <button type="button" id="addEntryBtn" class="btn ghost">＋ 新增条目</button>
+          </div>
+          <ul class="atlas-list" id="entryList"></ul>
+        </div>
+      </section>
+
+      <!-- 他的画像 -->
+      <section class="atlas-pane" id="pane-facts" hidden>
+        <div class="atlas-layer-head">
+          <span>Lykie 记住的他（facts）</span>
+          <button type="button" id="addFactBtn" class="btn ghost">＋ 新增</button>
+          <button type="button" id="saveFactsBtn" class="btn primary">保存画像</button>
+        </div>
+        <ul class="atlas-list" id="factList"></ul>
+      </section>
+    </main>
+  </div>
+
+  <!-- 条目编辑弹层 -->
+  <div class="atlas-modal-backdrop" id="entryModal" hidden>
+    <div class="atlas-modal">
+      <h3 id="entryModalTitle">编辑条目</h3>
+      <input type="text" id="entryTextInput" placeholder="字段短值…" hidden>
+      <textarea id="entryText" rows="4" placeholder="完整自然句，一条一个意思…"></textarea>
+      <div class="atlas-modal-row">
+        <label>分节
+          <select id="entrySection"></select>
+        </label>
+      </div>
+      <div class="atlas-modal-row atlas-checks">
+        <label><input type="checkbox" id="entrySecret"> 作者层·禁止说出口</label>
+        <label><input type="checkbox" id="entryUndecided"> 未定·不要编</label>
+        <label><input type="checkbox" id="entryVerbatim"> 逐字块（课表/清单）</label>
+      </div>
+      <div class="atlas-modal-actions">
+        <button type="button" id="entryDeleteBtn" class="btn danger">删除</button>
+        <button type="button" id="entryCancelBtn" class="btn ghost">取消</button>
+        <button type="button" id="entryOkBtn" class="btn primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/atlas.js?v=a2"></script>
+</body>
+</html>

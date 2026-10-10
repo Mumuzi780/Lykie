@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Lykie 个人档案：读取、严格模式、回复里的档案标注。"""
+import os
 import re
 from pathlib import Path
 
 SELF_PROFILE_PATH = Path(__file__).resolve().parent / "self.txt"
+PROSE_PATH = Path(__file__).resolve().parent / "profile_prose.txt"
 
 _STRICT_RE = re.compile(r"^严格模式\s*[:：]\s*(\S+)", re.MULTILINE)
 _META_RE = re.compile(r"%%档案\s*\n(.*?)\n%%\s*", re.DOTALL)
@@ -16,6 +18,20 @@ def load_self_profile():
         return SELF_PROFILE_PATH.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def _profile_source():
+    """auto：已发布散文存在则用散文，否则回退 self.txt；legacy：强制 self.txt。"""
+    mode = (os.environ.get("LYKIE_PROFILE_SOURCE") or "auto").strip().lower()
+    if mode == "legacy":
+        return load_self_profile(), "legacy"
+    try:
+        prose = PROSE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        prose = ""
+    if prose:
+        return prose, "atlas"
+    return load_self_profile(), "legacy"
 
 
 def is_profile_strict(raw=None):
@@ -87,8 +103,8 @@ def parse_archive_meta(text):
 
 
 def format_self_profile_block():
-    body = load_self_profile()
-    strict = is_profile_strict(body)
+    body, source = _profile_source()
+    strict = is_profile_strict(load_self_profile())
     if strict:
         head = (
             "当前是【严格模式 / 测试补全档案】。\n"
@@ -151,7 +167,7 @@ def format_profile_notices(meta, strict):
         if fill or need:
             if not need:
                 need = ["（本轮需要私事，但没写清缺哪一条）"]
-            lines = ["请补全 lykie/self.txt（补完再说一遍即可）"]
+            lines = ["请补全档案（/atlas 或 lykie/self.txt），补完再说一遍即可"]
             for item in need:
                 lines.append("· " + item)
             notes.append({"kind": "fill", "text": "\n".join(lines)})
@@ -182,7 +198,7 @@ def _field_value(raw, name):
 
 def profile_runtime_info():
     """给状态栏用：已装入助手的档案摘要（不含作者层秘密）。"""
-    raw = load_self_profile()
+    raw, _source = _profile_source()
     if not raw:
         return {"loaded": False, "strict": True, "bits": []}
     major = _field_value(raw, "专业")
@@ -198,6 +214,6 @@ def profile_runtime_info():
         bits.append("课表")
     return {
         "loaded": True,
-        "strict": is_profile_strict(raw),
+        "strict": is_profile_strict(load_self_profile()),
         "bits": bits,
     }
