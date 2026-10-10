@@ -472,6 +472,11 @@ def shape_block(
     style = option_style or detect_option_style(block)
     if expect_type in (None, "choice"):
         q = shape_choice_block(block, option_style=style, answer_label=label)
+        if not q and option_style:
+            # 样板学出的样式与本块不符（混排）时，按本块实测样式回退一次
+            alt = detect_option_style(block)
+            if alt != style:
+                q = shape_choice_block(block, option_style=alt, answer_label=label)
         if q:
             return q
         if choice_only or expect_type == "choice":

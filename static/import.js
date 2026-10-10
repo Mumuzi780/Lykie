@@ -38,6 +38,8 @@
   let exemplarDraftBackup = '';
   /** pool | source */
   let exemplarMode = 'pool';
+  /** 学习通网页粘贴：剪贴板 text/html（含学习通题目 DOM 特征时缓存，供后端直解） */
+  let pasteHtml = '';
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
@@ -488,6 +490,9 @@
     if (uncovered.length && ackSkippedTypes.length) {
       summary += ` 已跳过：${uncovered.map((k) => TYPE_MAP[k] || k).join('、')}。`;
     }
+    if (meta.platform === 'xuexitong-html') {
+      summary += ' 已按学习通网页格式解析。';
+    }
     $('previewSummary').textContent = summary;
     $('previewHint').textContent = pending > 0
       ? '待确认题已置顶。点选 A/B/C/D 后才能入库。'
@@ -664,6 +669,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: fullText,
+        html: pasteHtml || undefined,
         exemplar: exemplars.choice || '',
         exemplars,
         preview: true,
@@ -705,6 +711,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: fullText,
+          html: pasteHtml || undefined,
           exemplar: exemplars.choice || '',
           exemplars,
           name,
@@ -753,6 +760,7 @@
     file = (e.target.files && e.target.files[0]) || null;
     preview = null;
     fullText = '';
+    pasteHtml = '';
     detectedTypes = [];
     scanPools = {};
     exemplarsState = {};
@@ -767,6 +775,15 @@
     syncFileUi();
     setStep(1);
   };
+  // 学习通答题页复制时剪贴板带 text/html（结构化题目 DOM）：
+  // 命中特征就缓存给 /api/import_text 后端直解；text/plain 照旧落入文本框兜底展示
+  $('importText').addEventListener('paste', (e) => {
+    const cd = e.clipboardData;
+    const html = cd ? cd.getData('text/html') : '';
+    pasteHtml = html && (html.indexOf('questionLi') >= 0 || html.indexOf('rightAnswerContent') >= 0)
+      ? html
+      : '';
+  });
   if ($('switchToPasteBtn')) {
     $('switchToPasteBtn').onclick = () => switchToPasteMode();
   }

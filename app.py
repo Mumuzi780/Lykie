@@ -19,8 +19,10 @@ from lykie import accounts as lykie_accounts
 from lykie import author_log as lykie_author_log
 from lykie import extract as lykie_extract
 from lykie import folders as lykie_folders
+from lykie import import_dom as lykie_import_dom
 from lykie import import_exemplar as lykie_import_ex
 from lykie import import_noise as lykie_import_noise
+from lykie import import_platform as lykie_import_platform
 from lykie import import_rules as lykie_import_rules
 from lykie import import_scan as lykie_import_scan
 from lykie import llm as lykie_llm
@@ -238,6 +240,47 @@ def _resolve_import_questions(text: str, exemplar: str = "", exemplars: dict | N
         "covered_types": [],
         "uncovered_types": lykie_import_scan.uncovered_kinds(detected, set()),
     }
+
+
+def _resolve_dom_questions(questions: list[dict]):
+    """DOM 通道题目对齐样板下游：客观题补默认字段，简答拆到 meta.sa_questions。
+
+    返回 (objective_questions, meta)；meta 结构与 _resolve_import_questions
+    产物对齐（detected_types / covered_types / sa_questions…），全部题型
+    均已解析，故 uncovered_types 恒空。
+    """
+    obj: list[dict] = []
+    sa: list[dict] = []
+    for q in questions:
+        (sa if q.get("type") == "short_answer" else obj).append(q)
+    obj = [
+        lykie_import_rules.attach_question_defaults(dict(q), i + 1)
+        for i, q in enumerate(obj)
+    ]
+    sa_out = [
+        lykie_import_rules.attach_question_defaults(dict(q), i + 1)
+        for i, q in enumerate(sa)
+    ]
+    counts: dict[str, int] = {}
+    for q in questions:
+        k = str(q.get("type") or "")
+        counts[k] = counts.get(k, 0) + 1
+    detected = [
+        {"kind": k, "label": lykie_import_scan.KIND_LABELS.get(k, k), "count": v}
+        for k, v in counts.items()
+    ]
+    meta = {
+        "detected_types": detected,
+        "covered_types": sorted(counts.keys()),
+        "uncovered_types": [],
+        "skipped_blocks": 0,
+        "needs_answer_confirm": 0,
+        "mode": "dom",
+        "pipeline": "xuexitong-html",
+        "sa_questions": sa_out,
+        "sa_total": len(sa_out),
+    }
+    return obj, meta
 
 
 def _gate_uncovered_types(meta: dict, ack_skipped, import_sa: bool) -> str:
@@ -1701,12 +1744,15 @@ def api_import():
     try:
         if exemplar.strip():
             text = docx_to_text(tmp)
+            text, platform = lykie_import_platform.normalize_if_known(text)
             questions, err, meta = _resolve_import_questions(text, exemplar)
+            meta = dict(meta or {})
+            meta["platform"] = platform
             if err:
                 return jsonify({"ok": False, "error": err, "meta": meta}), 400
         else:
             questions = parse_docx(tmp)
-            meta = {"mode": "legacy"}
+            meta = {"mode": "legacy", "platform": None}
     except Exception as e:
         return jsonify({"ok": False, "error": f"解析失败：{e}"}), 400
     finally:
@@ -1792,6 +1838,7 @@ def api_import_scan():
     """扫描原文题型，并按题型归并题块池（供独立扫描步挑样板）。"""
     data = request.get_json(force=True) or {}
     text = str(data.get("text") or "")
+    text, platform = lykie_import_platform.normalize_if_known(text)
     if not text.strip():
         return jsonify({"ok": False, "error": "文本为空"}), 400
     result = lykie_import_scan.scan_pools(text)
@@ -1799,6 +1846,7 @@ def api_import_scan():
         "ok": True,
         "detected_types": result.get("detected_types") or [],
         "pools": result.get("pools") or {},
+        "platform": platform,
     })
 
 
@@ -1806,6 +1854,20 @@ def api_import_scan():
 def api_import_text():
     data = request.get_json(force=True)
     text = str(data.get("text", ""))
+    html = str(data.get("html") or "")
+    # 学习通 HTML 通道：剪贴板带结构化 DOM 且解出题目 → 直接采用，
+    # 跳过 normalize_if_known 与样板切块；零题 → 回落纯文本管道（可观测降级）
+    dom_questions, dom_meta, dom_fallback = None, None, False
+    if html and lykie_import_dom.looks_like_xuexitong_html(html):
+        parsed, _dom_err = lykie_import_dom.parse_xuexitong_html(html)
+        if parsed:
+            dom_questions, dom_meta = _resolve_dom_questions(parsed)
+        else:
+            dom_fallback = True
+    if dom_questions:
+        platform = lykie_import_dom.PLATFORM_XUEXITONG_HTML
+    else:
+        text, platform = lykie_import_platform.normalize_if_known(text)
     name = str(data.get("name", "")).strip() or "粘贴导入"
     preview = bool(data.get("preview", False))
     exemplar = str(data.get("exemplar") or "")
@@ -1814,10 +1876,15 @@ def api_import_text():
     ack_skipped = data.get("ack_skipped_types") or []
     import_sa = bool(data.get("import_sa", False))
 
-    if not text.strip():
+    if not text.strip() and not dom_questions:
         return jsonify({"ok": False, "error": "文本为空"}), 400
 
-    questions, err, meta = _resolve_import_questions(text, exemplar, exemplars)
+    if dom_questions:
+        questions, err, meta = dom_questions, "", dict(dom_meta)
+    else:
+        questions, err, meta = _resolve_import_questions(text, exemplar, exemplars)
+    meta = dict(meta or {})
+    meta["platform"] = "xuexitong-html-fallback" if dom_fallback else platform
     if err:
         return jsonify({"ok": False, "error": err, "meta": meta}), 400
 
