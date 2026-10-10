@@ -225,6 +225,93 @@ def load_prose():
         return ""
 
 
+def _write_text_atomic(path, text):
+    import tempfile
+    _ensure_dir(path)
+    fd, tmp = tempfile.mkstemp(prefix="atlas.", suffix=".tmp", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        raise
+
+
+def save_prose(text):
+    """发布散文：原子写入 profile_prose.txt。全站唯一的散文写入点。"""
+    with _lock:
+        _write_text_atomic(PROSE_PATH, str(text or "").strip() + "\n")
+
+
+_RENDER_PROMPT = (
+    "你是档案散文渲染器。把给定的分节档案条目改写成通顺的一节散文。\n"
+    "硬性要求：\n"
+    "1. 第一行原样输出【节名】；\n"
+    "2. 只允许重组措辞，不允许增删事实，不评价、不总结、不补充；\n"
+    "3. 「专业：」「住哪：」这类行首字段写法原样保留；\n"
+    "4. 条目开头与节名重复的【节名】行去掉，内容并入本节。"
+)
+
+
+def _strip_section_head(text, name):
+    t = (text or "").strip()
+    head = "【%s】" % name
+    if t.startswith(head):
+        t = t[len(head):].strip()
+    return t
+
+
+def render_prose_draft():
+    """LLM 离线渲染散文草稿（不落盘，只在编辑器展示）。
+
+    红线：verbatim / undecided / secret 逐字拷贝不过 LLM；
+    节按节表 weight 升序；secret 进【作者层·禁止说出口】，undecided 进【不要由模型发明的】。
+    """
+    from . import llm
+    data = load_entries()
+    sections = sorted(data["sections"], key=lambda s: s.get("weight", 0))
+    out = []
+    secret_lines = []
+    undecided_lines = []
+    for s in sections:
+        name = s["name"]
+        members = [e for e in data["entries"] if (e.get("section") or "").strip() == name]
+        llm_texts = []
+        for e in members:
+            text = (e.get("text") or "").strip()
+            if not text:
+                continue
+            if e.get("secret"):
+                secret_lines.append(_strip_section_head(text, name))
+            elif e.get("undecided"):
+                undecided_lines.append(_strip_section_head(text, name))
+            elif e.get("verbatim"):
+                out.append(text)  # 逐字块自带【节名】头，原样保留
+            else:
+                llm_texts.append(_strip_section_head(text, name))
+        if llm_texts:
+            messages = [
+                {"role": "system", "content": _RENDER_PROMPT},
+                {"role": "user", "content": "【%s】\n%s" % (name, "\n".join(llm_texts))},
+            ]
+            rendered = (llm.chat_completion(messages, temperature=0.3) or "").strip()
+            if not rendered:
+                raise RuntimeError("渲染失败：模型未返回内容（节：%s）" % name)
+            if not rendered.startswith("【"):
+                rendered = "【%s】\n%s" % (name, rendered)
+            out.append(rendered)
+    if secret_lines:
+        out.append("【作者层·禁止说出口】\n" + "\n".join(secret_lines))
+    if undecided_lines:
+        out.append("【不要由模型发明的】\n" + "\n".join(undecided_lines))
+    return "\n\n".join(out)
+
+
 def _self_txt_path():
     return os.path.join(BASE_DIR, "lykie", "self.txt")
 

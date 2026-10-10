@@ -47,3 +47,9 @@
 .atlas-weight { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b7280; margin-top: 8px; }
 .atlas-weight input { width: 64px; padding: 3px 6px; border: 1px solid #d1d5db; border-radius: 6px; }
 .atlas-modal input[type="text"] { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-size: 14px; }
+
+/* 阶段三：散文渲染/发布；阶段四：画像只读 */
+.atlas-modal-wide { width: min(720px, 94vw); }
+.atlas-fact-layer-note { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+.atlas-item.readonly { cursor: default; }
+.atlas-item.readonly:hover { border-color: #e5e7eb; }

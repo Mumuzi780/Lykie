@@ -2467,25 +2467,34 @@ def api_atlas_entries_save():
     })
 
 
-@app.route("/api/atlas/facts/save", methods=["POST"])
-def api_atlas_facts_save():
+@app.route("/api/atlas/render", methods=["POST"])
+def api_atlas_render():
+    """LLM 渲染散文草稿：不落盘、不生效，只在编辑器展示。"""
+    if not _require_author():
+        return jsonify({"ok": False, "error": "无权访问"}), 403
+    try:
+        draft = lykie_atlas.render_prose_draft()
+    except Exception as e:
+        return jsonify({"ok": False, "error": "渲染失败：%s" % e}), 500
+    return jsonify_user({"ok": True, "draft": draft})
+
+
+@app.route("/api/atlas/publish", methods=["POST"])
+def api_atlas_publish():
+    """作者审核后发布散文：原子写入 profile_prose.txt，清 stale。"""
     if not _require_author():
         return jsonify({"ok": False, "error": "无权访问"}), 403
     data = request.get_json(force=True) or {}
-    facts = data.get("facts")
-    if not isinstance(facts, list):
-        return jsonify({"ok": False, "error": "facts 必须是列表"}), 400
-    clean = []
-    for f in facts:
-        o = lykie_atlas.fact_obj(f)
-        if o:
-            clean.append(o)
-    state = lykie_memory.load_state(g.store.lykie_path)
-    state["facts"] = clean[: lykie_memory.FACTS_MAX]
-    lykie_memory.save_state(g.store.lykie_path, state)
+    prose = str(data.get("prose") or "").strip()
+    if not prose:
+        return jsonify({"ok": False, "error": "散文内容不能为空"}), 400
+    lykie_atlas.save_prose(prose)
+    meta = lykie_atlas.mark_prose_published()
     return jsonify_user({
         "ok": True,
-        "facts": lykie_atlas.facts_as_objects(state),
+        "prose_stale": meta["prose_stale"],
+        "prose_published_at": meta["prose_published_at"],
+        "prose": prose,
     })
 
 

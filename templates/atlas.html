@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <title>档案 Atlas · Lykie</title>
   <link rel="stylesheet" href="/static/style.css?v=m80">
-  <link rel="stylesheet" href="/static/atlas.css?v=a2">
+  <link rel="stylesheet" href="/static/atlas.css?v=a3">
 </head>
 <body data-username="{{ username }}">
   <div class="atlas-app">
@@ -14,6 +14,8 @@
       <h1>档案 Atlas</h1>
       <div class="atlas-header-actions">
         <span class="atlas-stale" id="proseStale" hidden>散文待重新渲染</span>
+        <button type="button" id="renderProseBtn" class="btn ghost">渲染散文</button>
+        <button type="button" id="viewProseBtn" class="btn ghost" hidden>查看散文</button>
         <button type="button" id="importDraftBtn" class="btn ghost">从 self.txt 导入草稿</button>
         <button type="button" id="saveEntriesBtn" class="btn primary">保存条目</button>
         <a class="btn ghost" href="/">返回</a>
@@ -47,14 +49,19 @@
         </div>
       </section>
 
-      <!-- 他的画像 -->
+      <!-- 他的画像（只读，两级：分层总览 → 钻取条目） -->
       <section class="atlas-pane" id="pane-facts" hidden>
-        <div class="atlas-layer-head">
-          <span>Lykie 记住的他（facts）</span>
-          <button type="button" id="addFactBtn" class="btn ghost">＋ 新增</button>
-          <button type="button" id="saveFactsBtn" class="btn primary">保存画像</button>
+        <div id="factLayerView">
+          <div class="atlas-layer-head"><span>他的画像（只读）</span></div>
+          <div class="atlas-sections" id="factLayerList"></div>
         </div>
-        <ul class="atlas-list" id="factList"></ul>
+        <div id="factEntryView" hidden>
+          <div class="atlas-layer-head">
+            <button type="button" id="backToFactLayers" class="btn ghost">← 返回分层</button>
+            <span id="factViewTitle"></span>
+          </div>
+          <ul class="atlas-list" id="factList"></ul>
+        </div>
       </section>
     </main>
   </div>
@@ -83,6 +90,18 @@
     </div>
   </div>
 
-  <script src="/static/atlas.js?v=a2"></script>
+  <!-- 散文草稿/发布弹层 -->
+  <div class="atlas-modal-backdrop" id="proseModal" hidden>
+    <div class="atlas-modal atlas-modal-wide">
+      <h3 id="proseModalTitle">散文草稿</h3>
+      <textarea id="proseText" rows="18"></textarea>
+      <div class="atlas-modal-actions">
+        <button type="button" id="proseCancelBtn" class="btn ghost">取消</button>
+        <button type="button" id="prosePublishBtn" class="btn primary">发布</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/atlas.js?v=a3"></script>
 </body>
 </html>

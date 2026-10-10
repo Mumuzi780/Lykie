@@ -1,4 +1,4 @@
-/* Atlas 作者工具（阶段二：分节总览 + 钻取条目） */
+/* Atlas 作者工具（分节总览 + 钻取条目 + 散文渲染发布；画像只读） */
 (function () {
   "use strict";
 
@@ -7,10 +7,12 @@
     entries: [],
     sections: [],
     facts: [],
+    prose: "",
     proseStale: false,
     draftStatus: { total: 0, pending: 0 },
-    currentSection: null,  // 钻取中的节名；null = 总览
-    editing: null,         // 正在编辑的条目引用
+    currentSection: null,    // 钻取中的节名；null = 总览
+    currentFactLayer: null,  // 画像钻取中的层；null = 分层总览
+    editing: null,           // 正在编辑的条目引用
     dirty: false,
   };
 
@@ -123,26 +125,61 @@
     });
   }
 
+  // ---------- 画像 facts（只读，两级） ----------
+  var FACT_LAYERS = [
+    { key: "core", label: "核" },
+    { key: "stable", label: "稳" },
+    { key: "current", label: "摆" },
+    { key: "floating", label: "浮" },
+  ];
+
   function renderFacts() {
-    var ul = $("factList");
-    if (!state.facts.length) {
-      ul.innerHTML = '<li class="atlas-empty">Lykie 还没记住任何关于他的事实。</li>';
+    var inDrill = !!state.currentFactLayer;
+    $("factLayerView").hidden = inDrill;
+    $("factEntryView").hidden = !inDrill;
+    if (inDrill) {
+      var layer = state.currentFactLayer;
+      var label = (LAYER_LABEL[layer] || layer);
+      $("factViewTitle").textContent = "画像 · " + label + "层";
+      var ul = $("factList");
+      var list = state.facts.filter(function (f) { return f.layer === layer; });
+      if (!list.length) {
+        ul.innerHTML = '<li class="atlas-empty">这一层还没有事实。</li>';
+        return;
+      }
+      ul.innerHTML = list.map(function (f) {
+        var chips = [chip(f.layer, label)];
+        if (f.added) chips.push(chip("", f.added));
+        return '<li class="atlas-item readonly">' +
+          '<div class="atlas-item-text">' + escapeHtml(f.text) + "</div>" +
+          '<div class="atlas-item-meta">' + chips.join("") + "</div></li>";
+      }).join("");
       return;
     }
-    ul.innerHTML = state.facts.map(function (f, i) {
-      var chips = [chip(f.layer, LAYER_LABEL[f.layer] || f.layer)];
-      if (f.added) chips.push(chip("", f.added));
-      return '<li class="atlas-item" data-idx="' + i + '">' +
-        '<div class="atlas-item-text">' + escapeHtml(f.text) + "</div>" +
-        '<div class="atlas-item-meta">' + chips.join("") + "</div></li>";
+    var box = $("factLayerList");
+    if (!state.facts.length) {
+      box.innerHTML = '<div class="atlas-empty">Lykie 还没记住任何关于他的事实。</div>';
+      return;
+    }
+    box.innerHTML = FACT_LAYERS.map(function (l) {
+      var count = state.facts.filter(function (f) { return f.layer === l.key; }).length;
+      return '<div class="atlas-section-card" data-layer="' + l.key + '">' +
+        '<div class="atlas-section-name">' + l.label + "层</div>" +
+        '<div class="atlas-section-meta">' + count + " 条</div>" +
+        '<div class="atlas-fact-layer-note">只读，层级由系统写入</div>' +
+        "</div>";
     }).join("");
-    Array.prototype.forEach.call(ul.querySelectorAll(".atlas-item"), function (li) {
-      li.addEventListener("click", function () { openFactModal(parseInt(li.getAttribute("data-idx"), 10)); });
+    Array.prototype.forEach.call(box.querySelectorAll(".atlas-section-card"), function (card) {
+      card.addEventListener("click", function () {
+        state.currentFactLayer = card.getAttribute("data-layer");
+        renderFacts();
+      });
     });
   }
 
   function renderHeader() {
     $("proseStale").hidden = !state.proseStale;
+    $("viewProseBtn").hidden = !state.prose;
     var ds = state.draftStatus || { total: 0, pending: 0 };
     $("draftStatus").textContent = "共 " + ds.total + " 条，未分组 " + ds.pending + " 条";
   }
@@ -158,6 +195,7 @@
       state.entries = d.entries || [];
       state.sections = d.sections || [];
       state.facts = d.facts || [];
+      state.prose = d.prose || "";
       state.proseStale = !!d.prose_stale;
       state.draftStatus = d.draft_status || { total: 0, pending: 0 };
       state.dirty = false;
@@ -274,39 +312,58 @@
     }).catch(function (err) { alert("保存失败：" + err.message); });
   }
 
-  // ---------- 画像 facts ----------
-  function openFactModal(idx) {
-    var f = state.facts[idx];
-    if (!f) return;
-    var text = prompt("修改这条画像事实：", f.text);
-    if (text === null) return;
-    text = text.trim();
-    if (!text) return;
-    f.text = text;
-    state.dirty = true;
-    renderFacts();
+  // ---------- 散文渲染 / 发布 ----------
+  function openProseModal(text, isDraft) {
+    $("proseText").value = text;
+    $("proseModalTitle").textContent = isDraft ? "散文草稿（审核后可发布）" : "当前已发布散文";
+    $("proseModal").hidden = false;
   }
 
-  function addFact() {
-    var text = prompt("新画像事实（一句话）：");
-    if (text === null) return;
-    text = text.trim();
-    if (!text) return;
-    state.facts.push({ text: text, layer: "floating", added: "" });
-    state.dirty = true;
-    renderFacts();
+  function closeProseModal() {
+    $("proseModal").hidden = true;
   }
 
-  function saveFacts() {
-    return api("/api/atlas/facts/save", {
-      method: "POST",
-      body: JSON.stringify({ facts: state.facts }),
+  $("renderProseBtn").addEventListener("click", function () {
+    if (state.dirty && !confirm("有未保存的修改，渲染前会先保存，继续？")) return;
+    var p = state.dirty ? saveEntries() : Promise.resolve();
+    $("renderProseBtn").disabled = true;
+    p.then(function () {
+      return api("/api/atlas/render", { method: "POST", body: "{}" });
     }).then(function (d) {
-      state.facts = d.facts || [];
-      state.dirty = true;
-      renderFacts();
-    }).catch(function (err) { alert("保存失败：" + err.message); });
-  }
+      openProseModal(d.draft || "", true);
+    }).catch(function (err) { alert(err.message); })
+      .then(function () { $("renderProseBtn").disabled = false; });
+  });
+
+  $("viewProseBtn").addEventListener("click", function () {
+    openProseModal(state.prose, false);
+  });
+
+  $("prosePublishBtn").addEventListener("click", function () {
+    var prose = $("proseText").value.trim();
+    if (!prose) { alert("散文内容不能为空"); return; }
+    if (!confirm("发布后模型将改用这份散文（self.txt 退为存档），继续？")) return;
+    api("/api/atlas/publish", {
+      method: "POST",
+      body: JSON.stringify({ prose: prose }),
+    }).then(function (d) {
+      state.prose = d.prose || prose;
+      state.proseStale = !!d.prose_stale;
+      closeProseModal();
+      renderHeader();
+      alert("已发布。模型侧的档案注入已切换为这份散文。");
+    }).catch(function (err) { alert("发布失败：" + err.message); });
+  });
+
+  $("proseCancelBtn").addEventListener("click", closeProseModal);
+  $("proseModal").addEventListener("click", function (ev) {
+    if (ev.target === $("proseModal")) closeProseModal();
+  });
+
+  $("backToFactLayers").addEventListener("click", function () {
+    state.currentFactLayer = null;
+    renderFacts();
+  });
 
   // ---------- 事件 ----------
   Array.prototype.forEach.call(document.querySelectorAll(".atlas-tab"), function (btn) {
@@ -341,8 +398,6 @@
   });
 
   $("addEntryBtn").addEventListener("click", openEntryModalNew);
-  $("addFactBtn").addEventListener("click", addFact);
-  $("saveFactsBtn").addEventListener("click", saveFacts);
   $("saveEntriesBtn").addEventListener("click", function () { saveEntries(); });
   $("entryOkBtn").addEventListener("click", saveEntryModal);
   $("entryCancelBtn").addEventListener("click", closeEntryModal);
