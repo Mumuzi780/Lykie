@@ -2469,14 +2469,10 @@ def api_atlas_entries_save():
 
 @app.route("/api/atlas/render", methods=["POST"])
 def api_atlas_render():
-    """LLM 渲染散文草稿：不落盘、不生效，只在编辑器展示。"""
+    """本地拼接散文草稿：不调模型、不落盘、不生效，只在编辑器展示。"""
     if not _require_author():
         return jsonify({"ok": False, "error": "无权访问"}), 403
-    try:
-        draft = lykie_atlas.render_prose_draft()
-    except Exception as e:
-        return jsonify({"ok": False, "error": "渲染失败：%s" % e}), 500
-    return jsonify_user({"ok": True, "draft": draft})
+    return jsonify_user({"ok": True, "draft": lykie_atlas.render_prose_draft()})
 
 
 @app.route("/api/atlas/publish", methods=["POST"])

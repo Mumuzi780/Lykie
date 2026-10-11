@@ -1,4 +1,4 @@
-/* Atlas 作者工具（分节总览 + 钻取条目 + 散文渲染发布；画像只读） */
+/* Atlas 作者工具（分节总览 + 钻取条目 + 散文本地拼接发布；画像只读） */
 (function () {
   "use strict";
 
@@ -312,10 +312,10 @@
     }).catch(function (err) { alert("保存失败：" + err.message); });
   }
 
-  // ---------- 散文渲染 / 发布 ----------
+  // ---------- 散文拼接 / 发布 ----------
   function openProseModal(text, isDraft) {
     $("proseText").value = text;
-    $("proseModalTitle").textContent = isDraft ? "散文草稿（审核后可发布）" : "当前已发布散文";
+    $("proseModalTitle").textContent = isDraft ? "散文草稿（本地拼接，审核后可发布）" : "当前已发布散文";
     $("proseModal").hidden = false;
   }
 
@@ -324,7 +324,7 @@
   }
 
   $("renderProseBtn").addEventListener("click", function () {
-    if (state.dirty && !confirm("有未保存的修改，渲染前会先保存，继续？")) return;
+    if (state.dirty && !confirm("有未保存的修改，生成草稿前会先保存，继续？")) return;
     var p = state.dirty ? saveEntries() : Promise.resolve();
     $("renderProseBtn").disabled = true;
     p.then(function () {

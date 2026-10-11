@@ -13,8 +13,8 @@
     <header class="atlas-header">
       <h1>档案 Atlas</h1>
       <div class="atlas-header-actions">
-        <span class="atlas-stale" id="proseStale" hidden>散文待重新渲染</span>
-        <button type="button" id="renderProseBtn" class="btn ghost">渲染散文</button>
+        <span class="atlas-stale" id="proseStale" hidden>档案已修改，散文待更新</span>
+        <button type="button" id="renderProseBtn" class="btn ghost">生成草稿</button>
         <button type="button" id="viewProseBtn" class="btn ghost" hidden>查看散文</button>
         <button type="button" id="importDraftBtn" class="btn ghost">从 self.txt 导入草稿</button>
         <button type="button" id="saveEntriesBtn" class="btn primary">保存条目</button>
@@ -30,7 +30,7 @@
       <div class="atlas-draft-status" id="draftStatus"></div>
     </div>
 
-    <p class="atlas-hint">阶段二：分节总览 + 钻取条目。权重越小排越前；节级标记 = 节内条目全部带该标。点卡片进入条目编辑。</p>
+    <p class="atlas-hint">分节总览 + 钻取条目。权重越小排越前；节级标记 = 节内条目全部带该标。「生成草稿」为本地拼接，不调模型；措辞润色回工作区改完贴进发布框。</p>
 
     <main class="atlas-main">
       <!-- 她的档案 -->
