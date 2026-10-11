@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Lykie 本地记忆：facts 分账号；口吻 / 监督全站共用（塑造角色，不是测用户影响）。"""
+from __future__ import annotations
+
 import json
 import os
 import re

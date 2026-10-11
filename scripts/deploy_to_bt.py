@@ -14,10 +14,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-BASE = "http://49.233.174.218:8888"
+BASE = "http://49.233.174.218:15241"
 PUBLIC = "http://49.233.174.218"
 COOKIE = DIST / "_bt_cookies.txt"
 TOKEN = (DIST / "_csrf.txt").read_text(encoding="utf-8").strip()
+
+
+def _raw_cookie_header():
+    """从 Netscape cookie 文件原样拼 Cookie 头（不做 URL 解码，宝塔 8.x 对编码敏感）。"""
+    pairs = []
+    for line in COOKIE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 7:
+            pairs.append(f"{parts[5]}={parts[6]}")
+    return "; ".join(pairs)
+
+
+COOKIE_HEADER = _raw_cookie_header()
 REMOTE_ROOT = "C:/wwwroot/Lykie"
 PY = r"C:\Program Files\python\python.exe"
 
@@ -33,10 +49,13 @@ SYNC_FILES = [
     "lykie/__init__.py",
     "lykie/accounts.py",
     "lykie/atlas.py",
+    "lykie/author_log.py",
     "lykie/extract.py",
     "lykie/folders.py",
+    "lykie/import_dom.py",
     "lykie/import_exemplar.py",
     "lykie/import_noise.py",
+    "lykie/import_platform.py",
     "lykie/import_rules.py",
     "lykie/import_scan.py",
     "lykie/llm.py",
@@ -115,11 +134,13 @@ def post(path, data=None, timeout=120, retries=3):
                 BASE + path,
                 data=urllib.parse.urlencode(data or {}).encode("utf-8"),
                 headers={
+                    "Accept": "application/json, text/plain, */*",
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": BASE + "/",
+                    "Cookie": COOKIE_HEADER,
+                    "Origin": BASE,
+                    "Referer": BASE + "/files",
                     "x-http-token": TOKEN,
-                    "User-Agent": "Mozilla/5.0",
-                    "X-Requested-With": "XMLHttpRequest",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0",
                 },
                 method="POST",
             )
