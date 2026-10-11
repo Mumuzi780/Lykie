@@ -1183,7 +1183,7 @@ def api_sa_reset():
 
 @app.route("/api/banks")
 def api_banks():
-    lykie_folders.ensure_folders(g.store)
+    lykie_folders.ensure_sort_defaults(g.store)
     result = []
     for b in g.store.banks:
         qs = b["questions"]
@@ -1198,6 +1198,9 @@ def api_banks():
             "mode": b.get("mode") or ("short_answer" if is_sa else "objective"),
             "folder_id": b.get("folder_id") or None,
             "shared_from": b.get("shared_from") or None,
+            "archived": b.get("archived", False),
+            "last_studied_at": b.get("last_studied_at", ""),
+            "sort_order": b.get("sort_order", 0),
         })
     return jsonify_user({
         "banks": result,
@@ -1343,6 +1346,39 @@ def api_folders_reorder():
     return jsonify_user({"ok": True, "folders": lykie_folders.list_folders(g.store)})
 
 
+@app.route("/api/folders/toggle", methods=["POST"])
+def api_folders_toggle():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_folders.toggle_folder(
+        g.store, str(data.get("folder_id") or ""), bool(data.get("collapsed", False))
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({"ok": True})
+
+
+@app.route("/api/banks/reorder", methods=["POST"])
+def api_banks_reorder():
+    data = request.get_json(force=True) or {}
+    parent_id = data.get("parent_id")
+    if parent_id is not None and parent_id != "":
+        parent_id = str(parent_id)
+    else:
+        parent_id = None
+    ok, err = lykie_folders.reorder_banks(
+        g.store, parent_id, data.get("ordered_ids") or []
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "banks": _bank_result(g.store),
+        "folders": lykie_folders.list_folders(g.store),
+    })
+
+
 @app.route("/api/banks/move", methods=["POST"])
 def api_banks_move():
     data = request.get_json(force=True) or {}
@@ -1357,6 +1393,58 @@ def api_banks_move():
     g.store.save()
     return jsonify_user({
         "ok": True,
+        "folders": lykie_folders.list_folders(g.store),
+    })
+
+
+def _bank_result(store):
+    """完整 banks+folders payload，archive/unarchive/move 后前端直接替换缓存。"""
+    lykie_folders.ensure_sort_defaults(store)
+    result = []
+    for b in store.banks:
+        qs = b["questions"]
+        is_sa = lykie_sa.is_sa_bank(b)
+        result.append({
+            "id": b["id"],
+            "name": b.get("name", "未命名题库"),
+            "imported_at": b.get("imported_at", ""),
+            "total": len(qs),
+            "killed": sum(1 for q in qs if q.get("status") == "killed"),
+            "is_sa": is_sa,
+            "mode": b.get("mode") or ("short_answer" if is_sa else "objective"),
+            "folder_id": b.get("folder_id") or None,
+            "shared_from": b.get("shared_from") or None,
+            "archived": b.get("archived", False),
+            "last_studied_at": b.get("last_studied_at", ""),
+            "sort_order": b.get("sort_order", 0),
+        })
+    return result
+
+
+@app.route("/api/banks/archive", methods=["POST"])
+def api_banks_archive():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_folders.archive_bank(g.store, str(data.get("id") or ""))
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "banks": _bank_result(g.store),
+        "folders": lykie_folders.list_folders(g.store),
+    })
+
+
+@app.route("/api/banks/unarchive", methods=["POST"])
+def api_banks_unarchive():
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_folders.unarchive_bank(g.store, str(data.get("id") or ""))
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    g.store.save()
+    return jsonify_user({
+        "ok": True,
+        "banks": _bank_result(g.store),
         "folders": lykie_folders.list_folders(g.store),
     })
 
@@ -1708,8 +1796,10 @@ def api_settle():
 def api_select_bank():
     data = request.get_json(force=True)
     bid = str(data.get("id", ""))
-    if any(b["id"] == bid for b in g.store.banks):
+    hit = next((b for b in g.store.banks if b["id"] == bid), None)
+    if hit:
         g.store.current_bank_id = bid
+        hit["last_studied_at"] = lykie_folders.now_str()
         g.store.save()
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "题库不存在"}), 404
@@ -2020,6 +2110,7 @@ def api_answer():
         return jsonify({"ok": False, "error": "题目不存在"}), 404
 
     correct = bool(data.get("correct", False))
+    b["last_studied_at"] = lykie_folders.now_str()
     run = lykie_settle.record_answer(b, q, correct)
     st = lykie_settle.run_qstat(run, str(q["id"]))
     can, reason = lykie_settle.kill_gate(q, run)

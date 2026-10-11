@@ -99,7 +99,7 @@ body {
 
 /* ==================== 侧栏 ==================== */
 .sidebar {
-  width: 300px;
+  width: 460px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--surface);
@@ -129,16 +129,146 @@ body {
 
 .bank-list {
   list-style: none;
-  margin-top: 16px;
+  margin-top: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding-bottom: 8px;
+}
+
+/* ---- 双栏侧栏：左栏文件夹导航 + 右栏题库列表 ---- */
+.sidebar-cols {
+  display: flex;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 16px;
+}
+
+.folder-nav {
+  width: 148px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.folder-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  min-height: 34px;
+  user-select: none;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.folder-nav-item:not(.preset):not(.folder-nav-create) {
+  cursor: grab;
+}
+.folder-nav-item.active {
+  background: var(--active);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+.folder-nav-item.drop-hover {
+  background: var(--active);
+  border-color: var(--primary);
+  border-style: dashed;
+}
+.folder-nav-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+.folder-nav-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-nav-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.65;
+  background: var(--border);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+.folder-nav-ops {
+  display: none;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.folder-nav-item:hover .folder-nav-ops {
+  display: inline-flex;
+}
+.folder-nav-item:hover .folder-nav-count {
+  display: none;
+}
+.folder-nav-op {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 2px;
+  line-height: 1;
+  opacity: 0.75;
+}
+.folder-nav-op:hover {
+  opacity: 1;
+}
+.folder-nav-create {
+  border: 1px dashed var(--border);
+  color: var(--muted, inherit);
+  background: transparent;
+  width: 100%;
+  font-size: 13px;
+  text-align: left;
+}
+.folder-nav-create:hover {
+  border-color: var(--primary);
+}
+.folder-nav-plus {
+  font-weight: 700;
+  margin-right: 2px;
+}
+.folder-nav-placeholder {
+  border-radius: 8px;
+  border: 1px dashed var(--primary);
+  background: var(--active);
+  flex-shrink: 0;
+}
+
+/* 右栏上下文标题 */
+.bank-ctx-title {
+  list-style: none;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.bank-empty-hint {
+  list-style: none;
+  font-size: 12px;
+  opacity: 0.6;
+  padding: 14px 6px;
+  text-align: center;
 }
 .sidebar-header h2 {
   font-size: 16px;
@@ -298,6 +428,10 @@ body {
     background var(--motion-fast) var(--motion-ease),
     border-color var(--motion-fast) var(--motion-ease),
     box-shadow var(--motion-fast) var(--motion-ease);
+}
+/* bank-list 是固定高度的 flex 纵向容器：子项禁止收缩，超高出滚动条而不是被压扁裁切 */
+.bank-list > .bank-item {
+  flex-shrink: 0;
 }
 .bank-item:hover { background: var(--surface-hover); }
 .bank-item.active {
@@ -2431,12 +2565,12 @@ button.lykie-send:active { transform: scale(.94); }
     margin-left: auto;
     margin-right: auto;
   }
-  /* 侧栏宽 300px：收起后补偿，避免月亮/连击跟着主区左缘外飘 */
+  /* 侧栏宽 460px：收起后补偿，避免月亮/连击跟着主区左缘外飘 */
   body.bank-sidebar-collapsed .celestial-btn {
-    left: calc(300px + (100% - 300px) * 0.06);
+    left: calc(460px + (100% - 460px) * 0.06);
   }
   body.bank-sidebar-collapsed .combo-badge {
-    right: calc(300px + (100% - 300px) * 0.06);
+    right: calc(460px + (100% - 460px) * 0.06);
   }
 }
 
@@ -2445,6 +2579,36 @@ button.lykie-send:active { transform: scale(.94); }
     flex-direction: column;
     max-width: none;
     min-height: 100dvh;
+  }
+
+  /* 窄屏双栏降级：左栏变横向滚动 chips 条 */
+  .sidebar-cols {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .folder-nav {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding: 2px 0 6px;
+    flex-shrink: 0;
+  }
+  .folder-nav-item {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 5px 10px;
+    min-height: 30px;
+  }
+  .folder-nav-placeholder {
+    width: 60px;
+    height: 30px;
+  }
+  .folder-nav-create {
+    width: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .bank-drawer-backdrop {
@@ -2887,21 +3051,9 @@ button.lykie-send:active { transform: scale(.94); }
   font-weight: 600;
   letter-spacing: 0.06em;
 }
-.bank-folder {
-  list-style: none;
-  margin: 6px 0;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card) 94%, var(--primary) 3%);
-  overflow: hidden;
-  position: relative;
-}
-.bank-folder.dragging {
-  opacity: 0.45;
-}
-.bank-folder.drag-over-before::before,
-.bank-folder.drag-over-after::after {
+/* bank-folder 系列已废弃：文件夹改为左栏 folder-nav，旧折叠块样式移除 */
+.bank-item.drag-over-before::before,
+.bank-item.drag-over-after::after {
   content: '';
   position: absolute;
   left: 8px;
@@ -2912,93 +3064,89 @@ button.lykie-send:active { transform: scale(.94); }
   pointer-events: none;
   z-index: 2;
 }
-.bank-folder.drag-over-before::before {
-  top: 0;
+.bank-item.drag-over-before::before {
+  top: -1px;
 }
-.bank-folder.drag-over-after::after {
-  bottom: 0;
+.bank-item.drag-over-after::after {
+  bottom: -1px;
 }
-.bank-folder-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px 12px 10px;
-  cursor: pointer;
+
+.bank-drag-placeholder {
+  border: 2px dashed var(--primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 50%, var(--primary) 5%);
+  min-height: 60px;
 }
-.bank-folder-drag {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  margin-top: 2px;
+
+/* 拖拽球体徽章：题库拖起时跟随鼠标的小球（方案A），深浅主题自动反色 */
+.bank-drag-chip {
+  position: fixed;
+  z-index: 1100;
+  pointer-events: none;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+/* bank-item-nested 已废弃：嵌套层级由左栏导航承担 */
+
+/* ---- 归档抽屉已废弃（归档=左栏预设项），归档题库弱化样式保留 ---- */
+.bank-item-archived {
+  opacity: 0.62;
+  filter: saturate(0.55);
+}
+.bank-item-archived .bank-name {
+  font-weight: 500;
+}
+
+/* ---- 时间灰字 ---- */
+.bank-ago {
   color: var(--muted);
   font-size: 12px;
-  letter-spacing: -2px;
-  cursor: grab;
-  user-select: none;
-  line-height: 1.4;
 }
-.bank-folder-drag:active {
-  cursor: grabbing;
-}
-.bank-folder-toggle {
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  padding: 2px 4px;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1.4;
-}
-.bank-folder-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.bank-folder-main .bank-name {
-  font-weight: 600;
-}
-.bank-folder-children {
-  list-style: none;
-  margin: 0;
-  padding: 0 10px 10px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.bank-folder.collapsed .bank-folder-children {
-  display: none;
-}
-.bank-item-nested {
-  border-left: 2px solid color-mix(in srgb, var(--border) 70%, var(--primary) 30%);
-}
-.bank-move-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  max-height: 50vh;
-  overflow: auto;
-}
-.bank-move-opt {
-  text-align: left;
-  width: 100%;
-  padding: 12px 14px;
+
+/* ---- ⋯ 二级菜单 ---- */
+.bank-more-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 128px;
+  padding: 4px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card);
-  color: var(--text);
-  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+}
+.bank-more-item {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
   font-family: inherit;
+  color: var(--text);
+  border-radius: 6px;
   cursor: pointer;
 }
-.bank-move-opt:hover {
-  border-color: var(--primary);
+.bank-more-item:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
-.bank-move-opt.is-current {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--card) 88%, var(--primary) 8%);
+.bank-more-item.danger {
+  color: var(--red);
+}
+body.is-bank-dragging {
+  user-select: none;
 }
 .bank-item.bank-mock {
   border-left: 3px solid color-mix(in srgb, var(--primary) 55%, transparent);

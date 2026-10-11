@@ -170,7 +170,7 @@
     const modal = $('collectionModal');
     const box = $('collectionBankChecks');
     if (!modal || !box) return;
-    const objBanks = (banks || []).filter((b) => !b.is_sa);
+    const objBanks = (banks || []).filter((b) => !b.is_sa && !b.archived);
     if (objBanks.length < 2) {
       await uiAlert('至少需要 2 个客观题章节库才能组成模考');
       return;

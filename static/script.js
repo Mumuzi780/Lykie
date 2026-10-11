@@ -140,34 +140,23 @@ function toggleTheme() {
   applyTheme(cur);
 }
 
-// ==================== 题库列表 / 文件夹 ====================
+// ==================== 题库列表 / 文件夹 / 归档 ====================
 let foldersCache = [];
-const FOLDER_COLLAPSE_KEY = 'lykieFolderCollapsed';
+// 归档/未分类已改为左栏预设项，抽屉折叠状态（lykieArchiveCollapsed）废弃
 
-function loadFolderCollapsedMap() {
-  try {
-    return JSON.parse(localStorage.getItem(FOLDER_COLLAPSE_KEY) || '{}') || {};
-  } catch (e) {
-    return {};
-  }
-}
-
-function saveFolderCollapsedMap(map) {
-  try {
-    localStorage.setItem(FOLDER_COLLAPSE_KEY, JSON.stringify(map || {}));
-  } catch (e) { /* ignore */ }
-}
-
-function isFolderCollapsed(fid) {
-  const map = loadFolderCollapsedMap();
-  return !!map[String(fid)];
-}
-
-function setFolderCollapsed(fid, collapsed) {
-  const map = loadFolderCollapsedMap();
-  if (collapsed) map[String(fid)] = true;
-  else delete map[String(fid)];
-  saveFolderCollapsedMap(map);
+// last_studied_at → 「N 天前」灰字文案
+function agoLabel(iso) {
+  if (!iso) return '';
+  const t = new Date(String(iso).replace(' ', 'T'));
+  if (isNaN(t.getTime())) return '';
+  const now = new Date();
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.floor((startOfDay(now) - startOfDay(t)) / 86400000);
+  if (days < 1) return '今天';
+  if (days === 1) return '昨天';
+  if (days === 2) return '前天';
+  if (days > 60) return '60+天前';
+  return `${days}天前`;
 }
 
 function appendBankItem(listEl, b, opts) {
@@ -180,147 +169,113 @@ function appendBankItem(listEl, b, opts) {
   li.className = 'bank-item'
     + (!mockCol && b.id === currentBankId ? ' active' : '')
     + (b.is_sa ? ' bank-sa' : '')
-    + (opts.nested ? ' bank-item-nested' : '');
+    + (b.archived ? ' bank-item-archived' : '');
   li.dataset.bankId = String(b.id);
   if (b.folder_id) li.dataset.folderId = String(b.folder_id);
   const progress = b.is_sa
     ? `简答 · ${b.total} 题`
     : `已斩 ${b.killed}/${b.total}`;
+  const ago = agoLabel(b.last_studied_at);
+  const actions = b.archived
+    ? `<button class="mini-btn" data-act="restore">恢复</button>` +
+      `<button class="mini-btn danger" data-act="delete">删除</button>`
+    : `<button class="mini-btn" data-act="view">查看</button>` +
+      `<button class="mini-btn" data-act="archive">归档</button>` +
+      `<button class="mini-btn" data-act="more">⋯</button>`;
     li.innerHTML =
       `<div class="bank-name">${escapeHtml(b.name)}</div>` +
-      `<div class="bank-meta">${escapeHtml(b.imported_at)}</div>` +
+      `<div class="bank-meta">${escapeHtml(b.imported_at)}${ago ? `<span class="bank-ago"> · ${ago}</span>` : ''}</div>` +
     `<div class="bank-progress">${progress}</div>` +
-      `<div class="bank-actions">` +
-        `<button class="mini-btn" data-act="view">查看</button>` +
-      `<button class="mini-btn" data-act="share">分享</button>` +
-      `<button class="mini-btn" data-act="move">移入</button>` +
-        `<button class="mini-btn" data-act="rename">重命名</button>` +
-        `<button class="mini-btn danger" data-act="delete">删除</button>` +
-      `</div>`;
+      `<div class="bank-actions">` + actions + `</div>`;
     li.onclick = () => selectBank(b.id);
+  // 移除原生拖拽，改用自定义拖拽实现即时响应
+  li.style.cursor = 'grab';
+  li.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.bank-actions') || e.target.closest('button')) return;
+    startBankDrag(e, li, b);
+  });
+  if (!b.archived) {
     li.querySelector('[data-act="view"]').onclick = e => { e.stopPropagation(); openBankView(b.id); };
-  li.querySelector('[data-act="share"]').onclick = e => { e.stopPropagation(); openShareBankModal(b); };
-  li.querySelector('[data-act="move"]').onclick = e => { e.stopPropagation(); openMoveBankModal(b); };
-    li.querySelector('[data-act="rename"]').onclick = e => { e.stopPropagation(); renameBank(b); };
+    li.querySelector('[data-act="archive"]').onclick = e => { e.stopPropagation(); archiveBank(b.id); };
+    li.querySelector('[data-act="more"]').onclick = e => { e.stopPropagation(); openBankMoreMenu(e.currentTarget, b); };
+  } else {
+    li.querySelector('[data-act="restore"]').onclick = e => { e.stopPropagation(); unarchiveBank(b.id); };
     li.querySelector('[data-act="delete"]').onclick = e => { e.stopPropagation(); deleteBank(b); };
+  }
   listEl.appendChild(li);
 }
 
-function appendFolderBlock(listEl, folder, childBanks) {
-  const collapsed = isFolderCollapsed(folder.id);
-  const li = document.createElement('li');
-  li.className = 'bank-folder' + (collapsed ? ' collapsed' : '');
-  li.dataset.folderId = String(folder.id);
-
-  const head = document.createElement('div');
-  head.className = 'bank-folder-head';
-  head.innerHTML =
-    `<span class="bank-folder-drag" draggable="true" title="拖拽调整顺序" aria-label="拖拽调整顺序">⋮⋮</span>` +
-    `<button type="button" class="bank-folder-toggle" aria-label="展开或折叠" data-act="toggle">` +
-    `<span class="bank-folder-chevron">${collapsed ? '▸' : '▾'}</span></button>` +
-    `<div class="bank-folder-main">` +
-    `<div class="bank-name">${escapeHtml(folder.name)}</div>` +
-    `<div class="bank-progress">${childBanks.length} 个题库</div>` +
-    `</div>` +
-    `<div class="bank-actions">` +
-    `<button class="mini-btn" data-act="rename">重命名</button>` +
-    `<button class="mini-btn danger" data-act="delete">删除</button>` +
-    `</div>`;
-
-  const children = document.createElement('ul');
-  children.className = 'bank-folder-children';
-  childBanks.forEach((b) => appendBankItem(children, b, { nested: true }));
-
-  const toggle = () => {
-    const next = !li.classList.contains('collapsed');
-    li.classList.toggle('collapsed', next);
-    setFolderCollapsed(folder.id, next);
-    const chev = head.querySelector('.bank-folder-chevron');
-    if (chev) chev.textContent = next ? '▸' : '▾';
-  };
-  head.querySelector('[data-act="toggle"]').onclick = (e) => { e.stopPropagation(); toggle(); };
-  head.querySelector('.bank-folder-main').onclick = (e) => { e.stopPropagation(); toggle(); };
-  head.querySelector('[data-act="rename"]').onclick = (e) => { e.stopPropagation(); renameFolder(folder); };
-  head.querySelector('[data-act="delete"]').onclick = (e) => { e.stopPropagation(); deleteFolder(folder); };
-  bindFolderDrag(li, head.querySelector('.bank-folder-drag'));
-
-  li.appendChild(head);
-  li.appendChild(children);
-  listEl.appendChild(li);
+// ⋯ 二级菜单：分享 / 移入 / 重命名 / 删除
+function openBankMoreMenu(anchor, b) {
+  closeBankMoreMenu();
+  const menu = document.createElement('div');
+  menu.className = 'bank-more-menu';
+  menu.id = 'bankMoreMenu';
+  const items = [
+    { label: '分享', act: () => openShareBankModal(b) },
+    { label: '重命名', act: () => renameBank(b) },
+    { label: '删除', act: () => deleteBank(b), danger: true },
+  ];
+  menu.innerHTML = items
+    .map((it, i) => `<button type="button" class="bank-more-item${it.danger ? ' danger' : ''}" data-i="${i}">${it.label}</button>`)
+    .join('');
+  menu.querySelectorAll('.bank-more-item').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      closeBankMoreMenu();
+      items[Number(btn.dataset.i)].act();
+    };
+  });
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8) + 'px';
+  menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
+  setTimeout(() => {
+    document.addEventListener('click', closeBankMoreMenu, { once: true });
+  }, 0);
 }
 
-let folderDragId = null;
-
-function clearFolderDragMarkers() {
-  document.querySelectorAll('.bank-folder.dragging, .bank-folder.drag-over-before, .bank-folder.drag-over-after')
-    .forEach((el) => el.classList.remove('dragging', 'drag-over-before', 'drag-over-after'));
+function closeBankMoreMenu() {
+  const m = document.getElementById('bankMoreMenu');
+  if (m) m.remove();
 }
 
-function bindFolderDrag(li, handle) {
-  if (!handle) return;
-  handle.addEventListener('dragstart', (e) => {
-    folderDragId = li.dataset.folderId;
-    li.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    try {
-      e.dataTransfer.setData('text/plain', folderDragId);
-    } catch (_) { /* ignore */ }
+async function archiveBank(bankId) {
+  const res = await api('/api/banks/archive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: bankId }),
   });
-  handle.addEventListener('dragend', () => {
-    folderDragId = null;
-    clearFolderDragMarkers();
+  if (res.ok === false) {
+    await uiAlert(res.error || '归档失败');
+    return;
+  }
+  applyBanksFoldersPayload(res);
+}
+
+async function unarchiveBank(bankId) {
+  const res = await api('/api/banks/unarchive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: bankId }),
   });
+  if (res.ok === false) {
+    await uiAlert(res.error || '恢复失败');
+    return;
+  }
+  applyBanksFoldersPayload(res);
+}
 
-  li.addEventListener('dragover', (e) => {
-    if (!folderDragId || folderDragId === li.dataset.folderId) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const rect = li.getBoundingClientRect();
-    const before = e.clientY < rect.top + rect.height / 2;
-    li.classList.toggle('drag-over-before', before);
-    li.classList.toggle('drag-over-after', !before);
-    document.querySelectorAll('.bank-folder').forEach((other) => {
-      if (other !== li) other.classList.remove('drag-over-before', 'drag-over-after');
-    });
-  });
-
-  li.addEventListener('dragleave', (e) => {
-    if (!li.contains(e.relatedTarget)) {
-      li.classList.remove('drag-over-before', 'drag-over-after');
-    }
-  });
-
-  li.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    const fromId = folderDragId || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
-    const toId = li.dataset.folderId;
-    const placeBefore = li.classList.contains('drag-over-before');
-    clearFolderDragMarkers();
-    folderDragId = null;
-    if (!fromId || !toId || fromId === toId) return;
-
-    const list = $('bankList');
-    const folders = [...list.querySelectorAll(':scope > .bank-folder')];
-    const fromEl = folders.find((el) => el.dataset.folderId === fromId);
-    const toEl = folders.find((el) => el.dataset.folderId === toId);
-    if (!fromEl || !toEl) return;
-
-    if (placeBefore) list.insertBefore(fromEl, toEl);
-    else list.insertBefore(fromEl, toEl.nextSibling);
-
-    const ids = [...list.querySelectorAll(':scope > .bank-folder')].map((el) => el.dataset.folderId);
-    const res = await api('/api/folders/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (res.ok === false) {
-      await uiAlert(res.error || '排序失败');
-      await refreshBanks();
-      return;
-    }
-    foldersCache = res.folders || foldersCache;
-  });
+// archive/unarchive 响应带完整 banks/folders，直接替换缓存并重渲染
+function applyBanksFoldersPayload(res) {
+  if (res && Array.isArray(res.banks)) lastBanksPayload = res.banks;
+  if (res && Array.isArray(res.folders)) foldersCache = res.folders;
+  const stillCurrent = (lastBanksPayload || []).some(
+    (b) => String(b.id) === String(currentBankId) && !b.archived
+  );
+  if (!stillCurrent) currentBankId = null;
+  renderBankList(lastBanksPayload || []);
+  renderFolderNav();
 }
 
 async function refreshBanks() {
@@ -328,22 +283,525 @@ async function refreshBanks() {
   currentBankId = data.current_bank_id;
   foldersCache = data.folders || [];
   if (window.LykieMock) LykieMock.onBanksPayload(data);
-  const list = $('bankList');
-  list.innerHTML = '';
-
-  const banks = data.banks || [];
-  const folderIds = new Set((foldersCache || []).map((f) => String(f.id)));
-  const rootBanks = banks.filter((b) => !b.folder_id || !folderIds.has(String(b.folder_id)));
-  rootBanks.forEach((b) => appendBankItem(list, b, { nested: false }));
-
-  (foldersCache || []).forEach((f) => {
-    const kids = banks.filter((b) => String(b.folder_id || '') === String(f.id));
-    appendFolderBlock(list, f, kids);
-  });
-
-  if (window.LykieMock) LykieMock.appendCollections(list, data.collections || []);
+  renderBankList(data.banks || []);
+  renderFolderNav();
+  if (window.LykieMock) LykieMock.appendCollections($('bankList'), data.collections || []);
   updateNotifBadge(data.notifications_unread || 0);
   return data;
+}
+
+// ---- 双栏侧栏：左栏文件夹导航 + 右栏上下文题库列表 ----
+const FOLDER_NAV_KEY = 'lykieCurrentFolder';
+let currentFolderId = localStorage.getItem(FOLDER_NAV_KEY) || 'uncategorized'; // 'uncategorized' | 'archive' | folderId
+let lastBanksPayload = [];
+let folderNavDragState = null; // 左栏文件夹拖拽（与题库拖拽状态分离）
+
+function saveCurrentFolder() {
+  try { localStorage.setItem(FOLDER_NAV_KEY, currentFolderId); } catch (e) { /* ignore */ }
+}
+
+function folderBankCount(fid) {
+  // 用户文件夹：该 folder_id 的活跃题库数；预设：uncategorized=根区活跃数，archive=归档数
+  const banks = lastBanksPayload || [];
+  if (fid === 'archive') return banks.filter((b) => b.archived).length;
+  const folderIds = new Set((foldersCache || []).map((f) => String(f.id)));
+  if (fid === 'uncategorized') return banks.filter((b) => !b.archived && (!b.folder_id || !folderIds.has(String(b.folder_id)))).length;
+  return banks.filter((b) => !b.archived && String(b.folder_id || '') === String(fid)).length;
+}
+
+function renderFolderNav() {
+  const nav = $('folderNav');
+  if (!nav) return;
+  nav.innerHTML = '';
+  const cur = String(currentFolderId);
+
+  // 预设：未分类（固定第一）
+  nav.appendChild(makeFolderNavItem({ id: 'uncategorized', name: '未分类', preset: true }));
+  // 用户文件夹（按 sort_order）
+  (foldersCache || [])
+    .slice()
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    .forEach((f) => nav.appendChild(makeFolderNavItem(f)));
+  // 新建入口
+  const createLi = document.createElement('button');
+  createLi.type = 'button';
+  createLi.className = 'folder-nav-item folder-nav-create';
+  createLi.innerHTML = '<span class="folder-nav-plus">＋</span>新建文件夹';
+  createLi.onclick = (e) => { e.stopPropagation(); createFolder(); };
+  nav.appendChild(createLi);
+  // 预设：归档（固定最后）
+  nav.appendChild(makeFolderNavItem({ id: 'archive', name: '归档', preset: true }));
+}
+
+function makeFolderNavItem(f) {
+  const isPreset = !!f.preset;
+  const fid = String(f.id);
+  const li = document.createElement('div');
+  li.className = 'folder-nav-item'
+    + (fid === String(currentFolderId) ? ' active' : '')
+    + (isPreset ? ' preset' : '');
+  li.dataset.folderId = fid;
+  const count = folderBankCount(fid);
+  li.innerHTML =
+    `<span class="folder-nav-icon">${fid === 'archive' ? '🗄' : (isPreset ? '📚' : '📁')}</span>` +
+    `<span class="folder-nav-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>` +
+    `<span class="folder-nav-count" hidden>0</span>` +
+    (isPreset ? '' :
+      `<span class="folder-nav-ops">` +
+      `<button type="button" class="folder-nav-op" data-op="rename" title="重命名">✏️</button>` +
+      `<button type="button" class="folder-nav-op" data-op="delete" title="删除">🗑</button></span>`);
+  const cntEl = li.querySelector('.folder-nav-count');
+  if (count > 0) { cntEl.textContent = String(count); cntEl.hidden = false; }
+
+  li.onclick = (e) => {
+    if (e.target.closest('.folder-nav-op')) return;
+    currentFolderId = fid;
+    saveCurrentFolder();
+    renderFolderNav();
+    renderBankList();
+  };
+  if (!isPreset) {
+    li.querySelector('[data-op="rename"]').onclick = (e) => { e.stopPropagation(); renameFolder(f); };
+    li.querySelector('[data-op="delete"]').onclick = (e) => { e.stopPropagation(); deleteFolder(f); };
+    // 左栏用户文件夹可拖拽排序（预设项不绑）
+    li.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest('.folder-nav-op') || e.target.closest('button')) return;
+      startFolderNavDrag(e, li, f);
+    });
+  }
+  return li;
+}
+
+function renderBankList(allBanks) {
+  if (allBanks) lastBanksPayload = allBanks;
+  const list = $('bankList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const cur = String(currentFolderId);
+  const banks = lastBanksPayload || [];
+  const folderIds = new Set((foldersCache || []).map((f) => String(f.id)));
+
+  // 上下文标题
+  let ctxName = '未分类';
+  let ctxIcon = '📚';
+  if (cur === 'archive') { ctxName = '归档'; ctxIcon = '🗄'; }
+  else if (cur !== 'uncategorized') {
+    const f = (foldersCache || []).find((x) => String(x.id) === cur);
+    ctxName = f ? f.name : '未分类';
+    if (!f) { currentFolderId = 'uncategorized'; saveCurrentFolder(); }
+    ctxIcon = '📁';
+  }
+  const head = document.createElement('li');
+  head.className = 'bank-ctx-title';
+  head.innerHTML = `<span>${ctxIcon}</span> ${escapeHtml(ctxName)}`;
+  list.appendChild(head);
+
+  // 当前上下文的题库
+  let shown = [];
+  if (cur === 'archive') shown = banks.filter((b) => b.archived);
+  else if (cur === 'uncategorized') shown = banks.filter((b) => !b.archived && (!b.folder_id || !folderIds.has(String(b.folder_id))));
+  else shown = banks.filter((b) => !b.archived && String(b.folder_id || '') === cur);
+  shown
+    .slice()
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    .forEach((b) => appendBankItem(list, b, { nested: false }));
+
+  // 空态提示（模考分区由 mock.js 在其后追加）
+  if (!shown.length) {
+    const empty = document.createElement('li');
+    empty.className = 'bank-empty-hint';
+    empty.textContent = cur === 'archive' ? '抽屉是空的' : '这里还没有题库，导入或从其他文件夹拖入';
+    list.appendChild(empty);
+  }
+}
+
+// ---- 归档/未分类已改为左栏预设项，抽屉交互废弃 ----
+
+function clearDropHover() {
+  document.querySelectorAll('.drop-hover').forEach((el) => el.classList.remove('drop-hover'));
+}
+
+// ---- 自定义拖拽：即时响应 + 拖本体 ----
+let bankDragState = null; // { id, archived, folderId, el, startY, startX, offsetY, offsetX, placeholder, isDragging }
+
+function startBankDrag(e, li, b) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  // 只记录状态、绑定监听，不动 DOM —— 纯点击不受任何影响，click 正常触发
+  const rect = li.getBoundingClientRect();
+  bankDragState = {
+    id: String(b.id),
+    archived: !!b.archived,
+    folderId: b.folder_id || null,
+    bankName: String(b.name || ''),
+    el: li,
+    placeholder: null,
+    startY: e.clientY,
+    startX: e.clientX,
+    offsetY: e.clientY - rect.top,
+    offsetX: e.clientX - rect.left,
+    isDragging: false,
+    parent: li.parentElement,
+    nextSibling: li.nextSibling,
+  };
+  document.addEventListener('mousemove', onBankDragMove);
+  document.addEventListener('mouseup', onBankDragEnd);
+}
+
+// 超过阈值后进入拖拽视觉：原位插占位符（排序反馈），原卡片原地隐藏，鼠标旁跟随小球体徽章（方案A）
+function bankDragBeginVisual() {
+  const st = bankDragState;
+  const el = st.el;
+  const rect = el.getBoundingClientRect();
+  const ph = document.createElement('li');
+  ph.className = 'bank-drag-placeholder';
+  ph.style.height = rect.height + 'px';
+  st.placeholder = ph;
+  el.parentNode.insertBefore(ph, el);
+  // 原卡片原地隐藏（不移动，DOM 位置保留），占位符占据其视觉槽位
+  el.style.display = 'none';
+  // 球体徽章：图标 + 截断名（6 字），跟随鼠标右下偏移
+  const name = (st.bankName || '').trim() || '题库';
+  const chip = document.createElement('div');
+  chip.className = 'bank-drag-chip';
+  chip.textContent = (st.archived ? '🗄 ' : '📚 ') + (name.length > 6 ? name.slice(0, 6) + '…' : name);
+  document.body.appendChild(chip);
+  st.chip = chip;
+  document.body.classList.add('is-bank-dragging');
+}
+
+// 左栏悬停高亮：目标为 folder-nav-item（预设项/用户文件夹通用）
+function bankDragSetNavHover(itemEl) {
+  document.querySelectorAll('.folder-nav-item.drop-hover').forEach((el) => {
+    if (el !== itemEl) el.classList.remove('drop-hover');
+  });
+  if (itemEl) itemEl.classList.add('drop-hover');
+}
+
+function bankDragAutoScroll(e) {
+  const list = $('bankList');
+  if (!list) return;
+  const r = list.getBoundingClientRect();
+  // 仅当鼠标在右栏水平范围内才自动滚动右栏（左栏拖拽时右栏不动）
+  if (e.clientX < r.left || e.clientX > r.right) return;
+  const edge = 48;
+  if (e.clientY < r.top + edge) list.scrollTop -= 10;
+  else if (e.clientY > r.bottom - edge) list.scrollTop += 10;
+}
+
+function onBankDragMove(e) {
+  if (!bankDragState) return;
+  const st = bankDragState;
+  if (!st.isDragging) {
+    const dy = Math.abs(e.clientY - st.startY);
+    const dx = Math.abs(e.clientX - st.startX);
+    if (dy <= 5 && dx <= 5) return;
+    st.isDragging = true;
+    bankDragBeginVisual();
+  }
+  const { el, placeholder, chip } = st;
+  // 球体徽章跟随鼠标（右下偏移，不挡正下方目标），原卡片保持隐藏
+  if (chip) {
+    chip.style.left = Math.min(e.clientX + 14, window.innerWidth - 170) + 'px';
+    chip.style.top = Math.min(e.clientY + 14, window.innerHeight - 40) + 'px';
+  }
+  bankDragAutoScroll(e);
+
+  // ---- 几何命中（双栏）：先左栏导航，再右栏列表；两栏以 gap 中线互斥，杜绝串线 ----
+  const nav = $('folderNav');
+  const list = $('bankList');
+  if (!list || !placeholder) return;
+
+  const nr = nav ? nav.getBoundingClientRect() : null;
+  const lr = list.getBoundingClientRect();
+  const gapMid = nr ? (nr.right + lr.left) / 2 : lr.left - 8;
+  const inNavX = !!nr && e.clientX >= nr.left - 8 && e.clientX < gapMid;
+  const inListX = e.clientX > gapMid && e.clientX <= lr.right + 8;
+
+  if (inNavX && nav) {
+    // 左栏意图 = 题库进"缓冲区"：占位符保持隐藏（右侧不留槽位），整个悬停期间稳定无闪烁
+    if (!placeholder.hidden) placeholder.hidden = true;
+    // 命中判定带 ±2px gap 容忍（相邻项矩形无缝衔接，消除项间 4px 空隙的命中落空）
+    let navHit = null;
+    for (const it of nav.querySelectorAll(':scope > .folder-nav-item')) {
+      if (it.classList.contains('folder-nav-create')) continue;
+      const r = it.getBoundingClientRect();
+      if (e.clientY >= r.top - 2 && e.clientY <= r.bottom + 2) { navHit = it; break; }
+    }
+    if (navHit) {
+      bankDragSetNavHover(navHit);
+      st.navTargetId = navHit.dataset.folderId || null;
+    } else {
+      bankDragSetNavHover(null);
+      st.navTargetId = null;
+    }
+    return;
+  }
+  bankDragSetNavHover(null);
+  st.navTargetId = null;
+  if (placeholder.hidden) placeholder.hidden = false;
+
+  // 右栏：鼠标不在右栏水平范围内（含在左栏/gap 内）→ 冻结占位符，不排序
+  if (!inListX) return;
+  movePlaceholderNear(placeholder, el, list, e.clientY);
+}
+
+// 在 container 的直接子项中按垂直几何找最近插入点；已就位则跳过插入（杜绝布局反馈震荡）
+function movePlaceholderNear(placeholder, draggingEl, container, y) {
+  const kids = [...container.children].filter((n) => n !== placeholder && n !== draggingEl);
+  if (!kids.length) {
+    if (placeholder.parentElement !== container) container.appendChild(placeholder);
+    return;
+  }
+  let best = null;
+  for (const k of kids) {
+    const r = k.getBoundingClientRect();
+    if (r.height === 0) continue; // 不可见（折叠容器内）
+    if (y >= r.top && y <= r.bottom) { best = { el: k, before: y < r.top + r.height / 2 }; break; }
+    const dTop = Math.abs(y - r.top);
+    const dBot = Math.abs(y - r.bottom);
+    const cand = dTop <= dBot ? { el: k, before: true, dist: dTop } : { el: k, before: false, dist: dBot };
+    if (!best || cand.dist < best.dist) best = cand;
+  }
+  if (!best) return;
+  const inPlace = best.before
+    ? placeholder === best.el.previousElementSibling
+    : placeholder === best.el.nextElementSibling;
+  if (!inPlace) {
+    if (best.before) container.insertBefore(placeholder, best.el);
+    else container.insertBefore(placeholder, best.el.nextSibling);
+  }
+}
+
+async function onBankDragEnd(e) {
+  if (!bankDragState) return;
+  const st = bankDragState;
+  bankDragState = null;
+  document.removeEventListener('mousemove', onBankDragMove);
+  document.removeEventListener('mouseup', onBankDragEnd);
+  document.body.classList.remove('is-bank-dragging');
+  bankDragSetNavHover(null);
+
+  const { el, placeholder, isDragging, id, archived, folderId, navTargetId, chip } = st;
+  // 纯点击：DOM 从未动过，click 事件照常触发
+  if (!isDragging) return;
+
+  // 销毁球体徽章 + 原卡片恢复可见（本体未移动过，仅需取消隐藏）
+  if (chip) chip.remove();
+  el.style.display = '';
+
+  // ---- 落点 A：左栏导航目标（移入文件夹 / 归档 / 回未分类） ----
+  if (navTargetId) {
+    if (placeholder && placeholder.parentElement) placeholder.parentElement.removeChild(placeholder);
+    st.parent.insertBefore(el, st.nextSibling); // 先放回原位，成功后全量重渲染
+    if (navTargetId === 'archive') {
+      if (archived) return; // 归档视图内拖到归档：无操作
+      const res = await api('/api/banks/archive', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok === false) { await uiAlert(res.error || '归档失败'); return; }
+      applyBanksFoldersPayload(res);
+      return;
+    }
+    const targetFolderId = navTargetId === 'uncategorized' ? null : navTargetId;
+    // 恢复 + 移入 / 直接移入 / 移出
+    if (archived) {
+      const res = await api('/api/banks/unarchive', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok === false) { await uiAlert(res.error || '恢复失败'); await refreshBanks(); return; }
+      applyBanksFoldersPayload(res);
+    }
+    if (String(folderId || '') !== String(targetFolderId || '') || archived) {
+      await moveBankTo(id, targetFolderId);
+    }
+    return;
+  }
+
+  // ---- 落点 B：右栏内排序（占位符位置即目标位置） ----
+  const container = placeholder && placeholder.parentElement;
+  if (!container || container.closest('.folder-nav')) {
+    // 无有效落点（含占位符仍隐藏）：放回原位
+    if (placeholder && placeholder.parentElement) placeholder.parentElement.removeChild(placeholder);
+    st.parent.insertBefore(el, st.nextSibling);
+    return;
+  }
+
+  // 放回占位符位置（insertBefore 会把本体从 body 摘回）
+  container.insertBefore(el, placeholder);
+  container.removeChild(placeholder);
+
+  // 归档题库在归档视图内拖动 = 同级排序，继续往下走
+
+  // 跨上下文移动（理论上拖拽引擎已阻止，防御性兜底）
+  const cur = String(currentFolderId);
+  const targetCtx = archived ? 'archive' : (cur === 'archive' ? 'uncategorized' : cur);
+  if (String(folderId || '') !== ctxToFolderId(targetCtx) && !archived) {
+    await moveBankTo(id, ctxToFolderId(targetCtx));
+    return;
+  }
+
+  // 同级排序：静默保存（:scope 只取容器直接子级）
+  const orderedIds = [...el.parentElement.querySelectorAll(':scope > .bank-item')].map((n) => n.dataset.bankId);
+  api('/api/banks/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: archived ? '__archive__' : ctxToFolderId(cur), ordered_ids: orderedIds }),
+  }).then((res) => {
+    if (res.ok === false) {
+      uiAlert(res.error || '排序失败');
+      refreshBanks();
+      return;
+    }
+    if (res && Array.isArray(res.banks)) lastBanksPayload = res.banks;
+    if (res && Array.isArray(res.folders)) foldersCache = res.folders;
+  });
+}
+
+// 上下文 → folder_id（'uncategorized'/'archive' → null）
+function ctxToFolderId(ctx) {
+  return ctx === 'uncategorized' || ctx === 'archive' ? null : ctx;
+}
+
+// 文件夹头部：接受题库拖入（未归档→移入；归档→恢复并移入）
+// 题库拖拽目标统一由自定义拖拽引擎（onBankDragMove 命中检测）处理，此处不再绑原生事件
+
+async function moveBankTo(bankId, folderId) {
+  const res = await api('/api/banks/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: bankId, folder_id: folderId }),
+  });
+  if (res.ok === false) {
+    await uiAlert(res.error || '移动失败');
+  }
+  await refreshBanks();
+}
+
+// ---- 左栏文件夹拖拽（与题库拖拽状态分离，防止互相污染） ----
+function startFolderNavDrag(e, li, f) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const rect = li.getBoundingClientRect();
+  folderNavDragState = {
+    id: String(f.id),
+    el: li,
+    placeholder: null,
+    startY: e.clientY,
+    startX: e.clientX,
+    offsetY: e.clientY - rect.top,
+    offsetX: e.clientX - rect.left,
+    isDragging: false,
+    parent: li.parentElement,
+    nextSibling: li.nextSibling,
+  };
+  document.addEventListener('mousemove', onFolderNavDragMove);
+  document.addEventListener('mouseup', onFolderNavDragEnd);
+}
+
+function onFolderNavDragMove(e) {
+  if (!folderNavDragState) return;
+  const st = folderNavDragState;
+  if (!st.isDragging) {
+    if (Math.abs(e.clientY - st.startY) <= 5 && Math.abs(e.clientX - st.startX) <= 5) return;
+    st.isDragging = true;
+    // 占位符插到左栏原位，本体挂 body 跟随（与题库拖拽同款视觉）
+    const el = st.el;
+    const rect = el.getBoundingClientRect();
+    const ph = document.createElement('div');
+    ph.className = 'folder-nav-placeholder';
+    ph.style.height = rect.height + 'px';
+    st.placeholder = ph;
+    el.parentNode.insertBefore(ph, el);
+    el.style.width = rect.width + 'px';
+    el.style.position = 'fixed';
+    el.style.zIndex = '1000';
+    el.style.pointerEvents = 'none';
+    el.style.opacity = '0.92';
+    el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.18)';
+    el.style.cursor = 'grabbing';
+    document.body.appendChild(el);
+    document.body.classList.add('is-folder-dragging');
+  }
+  const { el } = st;
+  el.style.top = (e.clientY - st.offsetY) + 'px';
+  el.style.left = (e.clientX - st.offsetX) + 'px';
+
+  // 左栏内几何排序（跳过预设项和新建入口：只有用户文件夹参与排序）
+  // 鼠标在左栏水平范围外（如拖到右栏）时冻结占位符，不牵动排序
+  const nav = $('folderNav');
+  if (!nav || !st.placeholder) return;
+  const nr = nav.getBoundingClientRect();
+  if (e.clientX < nr.left - 8 || e.clientX > nr.right + 8) return;
+  const kids = [...nav.children].filter((n) =>
+    n !== st.placeholder && n !== st.el && n.classList.contains('folder-nav-item')
+    && !n.classList.contains('preset') && !n.classList.contains('folder-nav-create'));
+  let best = null;
+  for (const k of kids) {
+    const r = k.getBoundingClientRect();
+    if (e.clientY >= r.top && e.clientY <= r.bottom) { best = { el: k, before: e.clientY < r.top + r.height / 2 }; break; }
+    const dTop = Math.abs(e.clientY - r.top);
+    const dBot = Math.abs(e.clientY - r.bottom);
+    const cand = dTop <= dBot ? { el: k, before: true, dist: dTop } : { el: k, before: false, dist: dBot };
+    if (!best || cand.dist < best.dist) best = cand;
+  }
+  if (!best) return;
+  const inPlace = best.before
+    ? st.placeholder === best.el.previousElementSibling
+    : st.placeholder === best.el.nextElementSibling;
+  if (!inPlace) {
+    if (best.before) nav.insertBefore(st.placeholder, best.el);
+    else nav.insertBefore(st.placeholder, best.el.nextSibling);
+  }
+}
+
+async function onFolderNavDragEnd() {
+  if (!folderNavDragState) return;
+  const st = folderNavDragState;
+  folderNavDragState = null;
+  document.removeEventListener('mousemove', onFolderNavDragMove);
+  document.removeEventListener('mouseup', onFolderNavDragEnd);
+  document.body.classList.remove('is-folder-dragging');
+
+  const { el, placeholder, isDragging } = st;
+  if (!isDragging) return;
+
+  el.style.position = '';
+  el.style.zIndex = '';
+  el.style.pointerEvents = '';
+  el.style.opacity = '';
+  el.style.boxShadow = '';
+  el.style.cursor = '';
+  el.style.width = '';
+  el.style.top = '';
+  el.style.left = '';
+
+  const nav = $('folderNav');
+  if (!nav || !placeholder || !placeholder.parentElement) {
+    st.parent.insertBefore(el, st.nextSibling);
+    return;
+  }
+  // 放回占位符位置，收集顺序，静默持久化
+  nav.insertBefore(el, placeholder);
+  nav.removeChild(placeholder);
+  const ids = [...nav.querySelectorAll(':scope > .folder-nav-item:not(.preset):not(.folder-nav-create)')]
+    .map((n) => n.dataset.folderId);
+  api('/api/folders/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  }).then((res) => {
+    if (res.ok === false) {
+      uiAlert(res.error || '排序失败');
+      refreshBanks();
+      return;
+    }
+    if (res && Array.isArray(res.folders)) foldersCache = res.folders;
+  });
 }
 
 let shareBankTarget = null;
@@ -618,50 +1076,7 @@ async function deleteFolder(folder) {
   await refreshBanks();
 }
 
-function openMoveBankModal(bank) {
-  const modal = $('bankMoveModal');
-  const box = $('bankMoveList');
-  if (!modal || !box) return;
-  const folders = foldersCache || [];
-  const cur = bank.folder_id ? String(bank.folder_id) : '';
-  box.innerHTML =
-    `<button type="button" class="bank-move-opt${cur === '' ? ' is-current' : ''}" data-fid="">` +
-    `移出到根列表</button>` +
-    folders
-      .map(
-        (f) =>
-          `<button type="button" class="bank-move-opt${cur === String(f.id) ? ' is-current' : ''}" data-fid="${escapeHtml(f.id)}">` +
-          `${escapeHtml(f.name)}</button>`
-      )
-      .join('');
-  box.querySelectorAll('.bank-move-opt').forEach((btn) => {
-    btn.onclick = async () => {
-      const fid = btn.getAttribute('data-fid') || '';
-      const res = await api('/api/banks/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: bank.id, folder_id: fid || null }),
-      });
-      if (res.ok === false) {
-        await uiAlert(res.error || '移动失败');
-        return;
-      }
-      modal.hidden = true;
-      if (typeof setModalScrollLock === 'function') setModalScrollLock(false);
-      await refreshBanks();
-    };
-  });
-  const title = $('bankMoveTitle');
-  if (title) title.textContent = `移入文件夹 · ${bank.name}`;
-  modal.hidden = false;
-  if (typeof setModalScrollLock === 'function') setModalScrollLock(true);
-}
-
-function closeMoveBankModal() {
-  const modal = $('bankMoveModal');
-  if (modal) modal.hidden = true;
-  if (typeof setModalScrollLock === 'function') setModalScrollLock(false);
-}
+function openMoveBankModal(bank) { /* 已废弃：移动题库统一走拖拽（左栏文件夹目标），弹窗移除 */ }
 
 async function selectBank(id) {
   if (window.LykieMock && typeof LykieMock.guardBankSwitch === 'function') {
@@ -2037,17 +2452,7 @@ async function resetProgress() {
 }
 
 // ==================== 事件绑定 ====================
-if ($('folderCreateBtn')) {
-  $('folderCreateBtn').onclick = () => createFolder();
-}
-if ($('bankMoveModalClose')) {
-  $('bankMoveModalClose').onclick = () => closeMoveBankModal();
-}
-if ($('bankMoveModal')) {
-  $('bankMoveModal').addEventListener('click', (e) => {
-    if (e.target === $('bankMoveModal')) closeMoveBankModal();
-  });
-}
+// folderCreateBtn 已删除：新建文件夹入口在左栏底部（folder-nav-create）
 if ($('bankShareModalClose')) $('bankShareModalClose').onclick = () => closeShareBankModal();
 if ($('bankShareCancel')) $('bankShareCancel').onclick = () => closeShareBankModal();
 if ($('bankShareSubmit')) $('bankShareSubmit').onclick = () => submitShareBank();
@@ -3580,6 +3985,24 @@ function refreshCelestial() {
   const bankParam = params.get('bank');
   if (bankParam) {
     await selectBank(bankParam);
+    // 导入归属：刚导入的题库在当前用户文件夹上下文中不可见 → 移入该文件夹（未分类/归档上下文不动）
+    const cur = String(currentFolderId);
+    if (cur !== 'uncategorized' && cur !== 'archive') {
+      const b = (lastBanksPayload || []).find((x) => String(x.id) === String(bankParam));
+      if (b && !b.archived && String(b.folder_id || '') !== cur) {
+        const res = await api('/api/banks/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: bankParam, folder_id: cur }),
+        });
+        if (res.ok !== false) {
+          if (Array.isArray(res.banks)) lastBanksPayload = res.banks;
+          if (Array.isArray(res.folders)) foldersCache = res.folders;
+          renderBankList(lastBanksPayload);
+          renderFolderNav();
+        }
+      }
+    }
     try {
       params.delete('bank');
       const qs = params.toString();
