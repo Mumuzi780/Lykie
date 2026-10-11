@@ -5,10 +5,22 @@ from __future__ import annotations
 from lykie import share as lykie_share
 
 # 当前对用户宣告的版本号（小版本用 3.1 这种形式）
-SITE_VERSION = "3.1"
+SITE_VERSION = "4.0"
 
 # 用户向短说明（收件箱详情用）。改版本时同步更新 docs/版本更新-v*.md
 RELEASES: dict[str, dict] = {
+    "4.0": {
+        "title": "V4.0 · 题库收纳",
+        "message": "Lykie V4.0 已更新",
+        "summary": "题库收纳大改版：双栏侧栏 + 归档 + 全拖拽。",
+        "bullets": [
+            "双栏侧栏：左侧文件夹导航，右侧只看该文件夹的题库，点击切换。",
+            "归档：长期不用的题库拖进「归档」，随时拖回来，不占模考。",
+            "全拖拽整理：拖动排序、拖进文件夹，换设备也保持。",
+            "学习通进题：粘贴文本自动规整，支持单选 / 多选 / 判断 / 填空 / 简答。",
+        ],
+        "date": "2026-10-12",
+    },
     "3.1": {
         "title": "V3.1 · 斩题手感升级",
         "message": "Lykie V3.1 已更新",
