@@ -37,6 +37,7 @@ from lykie import settle as lykie_settle
 from lykie import share as lykie_share
 from lykie import releases as lykie_releases
 from lykie import assets as lykie_assets
+from lykie import readings as lykie_readings
 from lykie import short_answer as lykie_sa
 from lykie import typo as lykie_typo
 from story import load_story, list_stories
@@ -505,7 +506,7 @@ def api_assets_vocab_list():
 @app.route("/api/assets/vocab", methods=["POST"])
 def api_assets_vocab_save():
     data = request.get_json(force=True) or {}
-    entry, err, created = lykie_assets.record_vocab(
+    entry, err, created, synced = lykie_assets.record_vocab(
         g.store.username,
         word=data.get("word") or "",
         pos=data.get("pos") or "other",
@@ -524,6 +525,7 @@ def api_assets_vocab_save():
         "ok": True,
         "entry": entry,
         "created": created,
+        "synced_examples": synced,
     })
 
 
@@ -540,7 +542,354 @@ def api_assets_vocab_delete(entry_id):
     ok = lykie_assets.delete_vocab(g.store.username, entry_id)
     if not ok:
         return jsonify({"ok": False, "error": "未找到"}), 404
-    return jsonify_user({"ok": True})
+    return jsonify({"ok": True})
+
+
+_TIDY_PROMPT = """你是词汇条目整理助手。下面是一个英语词条的当前结构：词头、各义项、全部例句（带全局编号）。
+
+整理规则：
+1. 语义相同或高度相近的义项合并为一个，释义取最准确简明的表述（可融合多个表述的措辞）。
+2. 每个义项只保留最能代表该义的例句（通常 1-2 条），删除语义重复、差异不明显的例句。
+3. 只能从现有例句中选择保留，不得发明新例句、不得修改例句文字。
+4. 不同词性的义项不得合并；同一例句只能保留在一个义项下。
+5. 若各义项已清晰且例句无重复，可原样返回。
+
+输出 JSON（不要输出任何其他文字）：
+{{"senses": [{{"pos": "词性缩写（如 adj.）", "meaning": "整理后释义", "example_ids": [保留例句的全局编号]}}]}}
+
+词条数据：
+{payload}"""
+
+
+@app.route("/api/assets/vocab/<entry_id>/tidy_suggest", methods=["POST"])
+def api_assets_vocab_tidy_suggest(entry_id):
+    entry = None
+    data_all = lykie_assets.load_assets(g.store.username)
+    for it in data_all.get("vocab") or []:
+        if str(it.get("id")) == str(entry_id):
+            entry = it
+            break
+    if entry is None:
+        return jsonify({"ok": False, "error": "未找到词条"}), 404
+    if lykie_assets._is_stub(entry):
+        return jsonify({"ok": False, "error": "空壳词头无需整理"}), 400
+
+    flat = lykie_assets.flatten_examples(entry)
+    if not flat:
+        return jsonify({"ok": False, "error": "该词条没有例句，无需整理"}), 400
+
+    lines = [f"词头：{entry.get('word')}"]
+    for si, s in enumerate(entry.get("senses") or []):
+        lines.append(f"义项 {si + 1}（{s.get('pos') or 'other'}）{s.get('meaning') or ''}")
+    lines.append("全部例句：")
+    for f in flat:
+        ex = f["example"]
+        lines.append(f"  [{f['id']}] {ex.get('en') or ''}")
+    payload = "\n".join(lines)
+
+    try:
+        raw = lykie_llm.chat_completion(
+            [{"role": "user", "content": _TIDY_PROMPT.format(payload=payload)}],
+            temperature=0.2,
+            json_mode=True,
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"整理失败：{exc}，请稍后再试"})
+
+    obj = _parse_llm_json(raw)
+    senses = (obj or {}).get("senses")
+    if not isinstance(senses, list) or not senses:
+        return jsonify({"ok": False, "error": "模型返回异常，请重试"})
+
+    # 展平建议给前端展示（附例句原文），应用前用户过目
+    total = len(flat)
+    suggestion = []
+    for s in senses:
+        if not isinstance(s, dict):
+            continue
+        ids = []
+        for e in s.get("example_ids") or []:
+            try:
+                eid = int(e)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= eid < total:
+                ids.append(eid)
+        suggestion.append({
+            "pos": lykie_assets.normalize_pos(s.get("pos") or ""),
+            "meaning": str(s.get("meaning") or "").strip(),
+            "example_ids": ids,
+        })
+    if not suggestion:
+        return jsonify({"ok": False, "error": "模型返回异常，请重试"})
+    return jsonify_user({
+        "ok": True,
+        "word": entry.get("word"),
+        "suggestion": suggestion,
+        "examples": [{"id": f["id"], "en": f["example"].get("en") or ""} for f in flat],
+    })
+
+
+@app.route("/api/assets/vocab/<entry_id>/tidy_apply", methods=["POST"])
+def api_assets_vocab_tidy_apply(entry_id):
+    data = request.get_json(force=True) or {}
+    entry, err = lykie_assets.tidy_vocab(g.store.username, entry_id, data.get("senses"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify_user({"ok": True, "entry": lykie_assets.public_entry(entry)})
+
+
+# ==================== 阅读视图：划词查词/翻译 ====================
+
+@app.route("/reading")
+def reading_page():
+    return render_template("reading.html", username=g.store.username)
+
+
+@app.route("/reading/<text_id>")
+def reading_view_page(text_id):
+    text = lykie_readings.get_text(g.store.username, text_id)
+    if not text:
+        return redirect(url_for("reading_page"))
+    paragraphs = [p for p in str(text.get("content") or "").split("\n\n") if p.strip()]
+    article_paras, questions = lykie_readings.split_questions(paragraphs)
+    # 已查词标记表：imported 的词 gloss 以资产库释义为准（用户存词时可能改过）
+    marks = lykie_readings.get_lookup_marks(g.store.username, text_id)
+    vocab = lykie_assets.load_assets(g.store.username).get("vocab") or []
+    by_word = {}
+    for v in vocab:
+        if isinstance(v, dict):
+            word = str(v.get("word") or "").strip().lower()
+            if word:
+                by_word[word] = v
+    for m in marks:
+        if not m.get("imported"):
+            continue
+        v = (by_word.get(str(m.get("selection") or "").strip().lower())
+             or by_word.get(str(m.get("head") or "").strip().lower()))
+        if v:
+            senses = v.get("senses") or []
+            if senses and str((senses[0] or {}).get("meaning") or "").strip():
+                m["gloss"] = str(senses[0].get("meaning")).strip()[:200]
+    return render_template(
+        "reading_view.html",
+        username=g.store.username,
+        text=text,
+        paragraphs=article_paras,
+        questions=questions,
+        lookup_marks=marks,
+    )
+
+
+@app.route("/api/reading/texts", methods=["GET"])
+def api_reading_texts_list():
+    return jsonify_user({"ok": True, "items": lykie_readings.list_texts(g.store.username)})
+
+
+@app.route("/api/reading/texts", methods=["POST"])
+def api_reading_texts_create():
+    data = request.get_json(force=True) or {}
+    title = str(data.get("title") or "").strip()
+    source = str(data.get("source") or "").strip()
+    content = str(data.get("content") or "")
+    err = ""
+    if not title:
+        err = "标题必填"
+    elif not source:
+        err = "来源必填（本篇查词卡片会自动带上）"
+    elif not lykie_readings.normalize_content(content):
+        err = "正文为空"
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    item = lykie_readings.create_text(g.store.username, title, source, content)
+    return jsonify_user({"ok": True, "item": item})
+
+
+@app.route("/api/reading/preview", methods=["POST"])
+def api_reading_preview():
+    """导入实时分段预览：所见即最终阅读效果（与 create 走同一 normalize_content）。"""
+    data = request.get_json(force=True) or {}
+    content = lykie_readings.normalize_content(data.get("content") or "")
+    paragraphs = [p for p in content.split("\n\n") if p.strip()]
+    return jsonify_user({"ok": True, "paragraphs": paragraphs, "count": len(paragraphs)})
+
+
+@app.route("/api/reading/texts/<text_id>", methods=["GET"])
+def api_reading_texts_get(text_id):
+    text = lykie_readings.get_text(g.store.username, text_id)
+    if not text:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True, "item": text})
+
+
+@app.route("/api/reading/texts/<text_id>/delete", methods=["POST"])
+def api_reading_texts_delete(text_id):
+    ok = lykie_readings.delete_text(g.store.username, text_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/reading/lookup/<lookup_id>/imported", methods=["POST"])
+def api_reading_lookup_imported(lookup_id):
+    lykie_readings.mark_lookup_imported(g.store.username, lookup_id)
+    return jsonify({"ok": True})
+
+
+_LOOKUP_PROMPT = (
+    "你是英语词汇助手。下面给你一个英文句子和其中被选中的词或短语。\n"
+    "只依据这个句子的语境作答，不虚构、不补充句子之外的信息。输出严格 JSON：\n"
+    "{{\n"
+    '  "head": "选中内容的词典词头原形，小写；若是短语则保持原样",\n'
+    '  "pos": "词性缩写，从 n./v./adj./adv./n.&v./prep./conj./phr. 中选最贴切的一个",\n'
+    '  "meaning": "该词在此句语境中的中文释义，简明，只给这一个义项",\n'
+    '  "example_zh": "整个句子的中文翻译"\n'
+    "}}\n"
+    "句子：{sentence}\n"
+    "选中：{selection}"
+)
+
+_TRANSLATE_PROMPT = (
+    "你是英语翻译助手。把下面这个英文句子翻译成通顺的中文。"
+    "只依据句面作答，不虚构、不补充。输出严格 JSON：\n"
+    '{{"example_zh": "整句中文翻译"}}\n'
+    "句子：{sentence}"
+)
+
+_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _parse_llm_json(raw: str) -> dict | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except (json.JSONDecodeError, ValueError):
+        pass
+    m = _JSON_BLOCK_RE.search(text)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return None
+
+
+@app.route("/api/reading/lookup", methods=["POST"])
+def api_reading_lookup():
+    data = request.get_json(force=True) or {}
+    text_id = str(data.get("text_id") or "")
+    selection = str(data.get("selection") or "").strip()
+    sentence = str(data.get("sentence") or "").strip()
+    mode = "translate" if str(data.get("mode") or "") == "translate" else "lookup"
+    if not selection or not sentence:
+        return jsonify({"ok": False, "error": "缺少选中文本或所在句"}), 400
+
+    def to_index(v):
+        try:
+            n = int(v)
+            return n if n >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    para_index = to_index(data.get("para_index"))
+    occur_index = to_index(data.get("occur_index"))
+    q_num = str(data.get("q_num") or "").strip()[:10]
+    q_para_index = to_index(data.get("q_para_index"))
+
+    def cached_zh(record: dict) -> str:
+        res = record.get("result") or {}
+        return str(res.get("example_zh") or res.get("zh") or "").strip()
+
+    # 缓存命中：同文章查过就直接复用，不再调模型
+    hit = lykie_readings.find_cached_lookup(
+        g.store.username, text_id, mode, selection, sentence)
+    if hit:
+        if mode == "translate":
+            return jsonify_user({"ok": True, "cached": True,
+                                 "zh": cached_zh(hit), "lookup_id": hit["id"]})
+        res = hit.get("result") or {}
+        return jsonify_user({
+            "ok": True,
+            "cached": True,
+            "lookup_id": hit["id"],
+            "draft": {
+                "head": lykie_assets.normalize_word(res.get("head") or selection),
+                "pos": lykie_assets.normalize_pos(res.get("pos") or ""),
+                "meaning": str(res.get("meaning") or "").strip(),
+                "example_en": sentence,
+                "example_zh": cached_zh(hit),
+            },
+        })
+
+    # 句子级翻译缓存：查新词时复用已译过的整句，不让模型二次翻译
+    shared_zh = ""
+    if mode == "lookup":
+        sent_hit = lykie_readings.find_cached_lookup(
+            g.store.username, text_id, "translate", selection, sentence)
+        if sent_hit:
+            shared_zh = cached_zh(sent_hit)
+
+    if mode == "translate":
+        prompt = _TRANSLATE_PROMPT.format(sentence=sentence)
+    elif shared_zh:
+        prompt = _LOOKUP_PROMPT.format(sentence=sentence, selection=selection) + (
+            f"\n整句翻译已提供：{shared_zh}\n"
+            "example_zh 字段直接原样返回该翻译，不要重新翻译。"
+        )
+    else:
+        prompt = _LOOKUP_PROMPT.format(sentence=sentence, selection=selection)
+
+    try:
+        raw = lykie_llm.chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+        )
+    except Exception as exc:  # Key 失效/断网等：降级为手动填写，不阻塞录入
+        return jsonify({"ok": False, "error": f"查询失败：{exc}，可手动填写"})
+
+    obj = _parse_llm_json(raw)
+    if obj is None:
+        return jsonify({"ok": False, "error": "模型返回异常，请手动填写"})
+
+    if mode == "translate":
+        zh = str(obj.get("example_zh") or "").strip()
+        if not zh:
+            return jsonify({"ok": False, "error": "模型返回异常，请手动填写"})
+        record = lykie_readings.append_lookup(
+            g.store.username, text_id, selection, sentence, mode,
+            result={"zh": zh},
+        )
+        return jsonify_user({"ok": True, "zh": zh, "lookup_id": record["id"]})
+
+    head = lykie_assets.normalize_word(obj.get("head") or selection)
+    pos = lykie_assets.normalize_pos(obj.get("pos") or "")
+    meaning = str(obj.get("meaning") or "").strip()
+    example_zh = shared_zh or str(obj.get("example_zh") or "").strip()
+    record = lykie_readings.append_lookup(
+        g.store.username, text_id, selection, sentence, mode, head=head,
+        result={"head": head, "pos": pos, "meaning": meaning, "example_zh": example_zh},
+        para_index=para_index, occur_index=occur_index,
+        q_num=q_num, q_para_index=q_para_index,
+    )
+    # 例句英文由系统原样回填，不经模型之手 —— 与文章一字不差
+    return jsonify_user({
+        "ok": True,
+        "lookup_id": record["id"],
+        "draft": {
+            "head": head,
+            "pos": pos,
+            "meaning": meaning,
+            "example_en": sentence,
+            "example_zh": example_zh,
+        },
+    })
 
 
 def find_question(bank, qid):
