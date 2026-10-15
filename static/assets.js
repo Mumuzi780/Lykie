@@ -1,14 +1,28 @@
 (function () {
   const $ = (id) => document.getElementById(id);
 
+  // 从阅读页跳转过来时，顶栏显示「返回阅读」直达通道
+  (function backToReading() {
+    const el = $('backToReading');
+    if (!el) return;
+    try {
+      const back = new URLSearchParams(location.search).get('back') || '';
+      if (back.startsWith('/reading/')) {
+        el.href = back;
+        el.hidden = false;
+      }
+    } catch (e) { /* ignore */ }
+  })();
+
   let posOptions = ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'phr.', 'other'];
-  let selectedPoses = ['n.'];
+  let selectedPoses = [];
+  let fixedPhrase = false;
   let relatedPos = 'n.';
   let relatedDraft = [];
   /** @type {{ text: string, meaning: string, examples: string, source: string }[]} */
   let phraseDraft = [];
   /** @type {{ pos: string, meaning: string, examples: string, source: string }[]} */
-  let senseDraft = [{ pos: 'n.', meaning: '', examples: '', source: '' }];
+  let senseDraft = [];
   let cache = [];
   let activeId = null;
   let searchTimer = null;
@@ -19,6 +33,18 @@
     return String(s).replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  }
+
+  const SOURCE_KEY = 'assetsLastSource';
+
+  function stickySource() {
+    try { return localStorage.getItem(SOURCE_KEY) || ''; } catch (e) { return ''; }
+  }
+
+  function rememberSource(senses) {
+    const src = (senses || []).map((s) => (s.source || '').trim()).find(Boolean);
+    if (!src) return;
+    try { localStorage.setItem(SOURCE_KEY, src); } catch (e) { /* ignore */ }
   }
 
   async function api(url, opts) {
@@ -61,9 +87,10 @@
       const meaning = block.querySelector('.sense-meaning');
       const examples = block.querySelector('.sense-examples');
       const source = block.querySelector('.sense-source');
-      slot.meaning = meaning ? meaning.value : '';
-      slot.examples = examples ? examples.value : '';
-      slot.source = source ? source.value : '';
+      slot.meaning = meaning ? meaning.value : slot.meaning;
+      // 例句框在同句再录模式下隐藏，此时保留草稿原值不清空
+      slot.examples = examples ? examples.value : slot.examples;
+      slot.source = source ? source.value : slot.source;
     });
   }
 
@@ -74,10 +101,9 @@
       byPos[s.pos] = s;
     });
     const next = selectedPoses.map((pos) => (
-      byPos[pos] || { pos, meaning: '', examples: '', source: '' }
+      byPos[pos] || { pos, meaning: '', examples: '', source: stickySource() }
     ));
-    senseDraft = next.length ? next : [{ pos: 'n.', meaning: '', examples: '', source: '' }];
-    if (!selectedPoses.length) selectedPoses = ['n.'];
+    senseDraft = next;
   }
 
   function renderPosMultiPills() {
@@ -92,10 +118,6 @@
         syncSenseDraftFromDom();
         const idx = selectedPoses.indexOf(p);
         if (idx >= 0) {
-          if (selectedPoses.length === 1) {
-            setHint('至少保留一个词性', true);
-            return;
-          }
           selectedPoses.splice(idx, 1);
         } else {
           if (selectedPoses.length >= 20) {
@@ -118,19 +140,22 @@
     const host = $('senseBlocks');
     if (!host) return;
     if (!senseDraft.length) {
-      host.innerHTML = '<p class="vocab-empty">请先点选上方词性</p>';
+      host.innerHTML = '<p class="vocab-empty">请先点选上方词性（点几个出几个输入框）</p>';
       return;
     }
+    // 同句再录模式：原句由横幅携带，隐藏例句输入框
+    const hideExamples = !!pendingLinkFrom;
     host.innerHTML = senseDraft.map((s, i) => (
       `<div class="sense-block" data-i="${i}" data-pos="${escapeHtml(s.pos)}">` +
       `<div class="sense-block-head">` +
       `<span class="sense-pos-badge">${escapeHtml(s.pos)}</span>` +
-      `<span class="sense-block-label">义项 · ${escapeHtml(s.pos)}</span>` +
+      `<span class="sense-block-label">${fixedPhrase && s.pos === 'phr.' ? '固定短语' : `义项 · ${escapeHtml(s.pos)}`}</span>` +
       `</div>` +
       `<label class="vocab-label" for="senseMeaning${i}">释义 <span class="opt">选填</span></label>` +
       `<input class="sense-meaning" id="senseMeaning${i}" type="text" maxlength="500" value="${escapeHtml(s.meaning)}" placeholder="该词性下的释义">` +
-      `<label class="vocab-label" for="senseExamples${i}">例句 <span class="opt">英 || 中</span></label>` +
-      `<textarea class="sense-examples" id="senseExamples${i}" rows="3" placeholder="例句…">${escapeHtml(s.examples)}</textarea>` +
+      (hideExamples ? '' :
+        `<label class="vocab-label" for="senseExamples${i}">例句 <span class="opt">英 || 中</span></label>` +
+        `<textarea class="sense-examples" id="senseExamples${i}" rows="3" placeholder="例句…">${escapeHtml(s.examples)}</textarea>`) +
       `<label class="vocab-label" for="senseSource${i}">例句来源 <span class="opt">选填</span></label>` +
       `<input class="sense-source" id="senseSource${i}" type="text" maxlength="200" value="${escapeHtml(s.source || '')}" placeholder="如：四级真题 2020-6">` +
       `<div class="sense-ex-actions">` +
@@ -148,9 +173,25 @@
     });
   }
 
+  function setFixedPhrase(on) {
+    fixedPhrase = !!on;
+    const section = $('posSection');
+    if (section) section.hidden = fixedPhrase;
+    if (fixedPhrase) {
+      selectedPoses = ['phr.'];
+      senseDraft = [{ pos: 'phr.', meaning: '', examples: '', source: stickySource() }];
+    } else {
+      selectedPoses = [];
+      senseDraft = [];
+    }
+    renderPosMultiPills();
+    renderSenseBlocks();
+    setHint('');
+  }
+
   function resetSenseDraft() {
-    selectedPoses = ['n.'];
-    senseDraft = [{ pos: 'n.', meaning: '', examples: '', source: '' }];
+    selectedPoses = [];
+    senseDraft = [];
     renderPosMultiPills();
     renderSenseBlocks();
   }
@@ -158,7 +199,9 @@
   function parseExampleField(raw) {
     const s = String(raw || '').trim();
     if (!s) return { en: '', zh: '' };
-    const first = s.replace(/\r\n/g, '\n').split('\n').map((x) => x.trim()).filter(Boolean)[0] || '';
+    // 单个换行视为句内软换行（PDF 粘贴常带硬换行），空行才是例句分隔符
+    const blocks = s.replace(/\r\n/g, '\n').split(/\n\s*\n/);
+    const first = blocks.map((b) => b.replace(/\s+/g, ' ').trim()).filter(Boolean)[0] || '';
     if (first.includes('||')) {
       const idx = first.indexOf('||');
       return { en: first.slice(0, idx).trim(), zh: first.slice(idx + 2).trim() };
@@ -176,8 +219,18 @@
     }
     const senses = collectSenses();
     const block = senses[senseIndex] || senses[0];
-    const ex = parseExampleField(block && block.examples);
-    if (!ex.en && !ex.zh) {
+    const blockEx = parseExampleField(block && block.examples);
+    let chain = null;
+    if (blockEx.en || blockEx.zh) {
+      chain = {
+        en: blockEx.en,
+        zh: blockEx.zh,
+        source: ((block && block.source) || '').trim(),
+      };
+    } else if (pendingLinkExample && (pendingLinkExample.en || pendingLinkExample.zh)) {
+      chain = pendingLinkExample;
+    }
+    if (!chain) {
       setHint('请先在该义项里贴上例句', true);
       return;
     }
@@ -185,8 +238,8 @@
     if (btn) btn.disabled = true;
     setHint('正在保存当前词…');
     try {
-      const senses = collectSenses();
       const phrases = collectPhrases();
+      attachPendingExample(senses);
       const payload = {
         word,
         senses,
@@ -206,14 +259,18 @@
         setHint(res.error || '保存失败', true);
         return;
       }
+      rememberSource(senses);
+      $('vocabWord').value = '';
+      resetSenseDraft();
       relatedDraft = [];
       renderRelatedChips();
       phraseDraft = [];
       renderPhraseBlocks();
       await refreshList();
       if (res.entry) renderDetail(res.entry);
-      startCoSentRecord(res.entry.id, ex);
-      setHint(`「${res.entry.word}」已存。填下一个词，保存后会标同句。`);
+      const syncedN = Number(res.synced_examples || 0);
+      startCoSentRecord(res.entry.id, chain);
+      setHint(`「${res.entry.word}」已存，填下一个词${syncedN ? `（自动同步 ${syncedN} 条相关例句）` : ''}。`);
     } catch (err) {
       setHint(err.message || '网络错误', true);
     } finally {
@@ -422,22 +479,68 @@
     return d.en || d.zh || '';
   }
 
+  function attachPendingExample(senses) {
+    // 同句再录：原句由横幅携带，提交时自动挂到首个尚无例句的义项
+    if (!pendingLinkFrom || !pendingLinkExample) return;
+    const first = senses && senses[0];
+    if (!first || (first.examples || '').trim()) return;
+    const line = formatExampleLine(pendingLinkExample);
+    if (!line) return;
+    first.examples = line;
+    const src = String(pendingLinkExample.source || '').trim();
+    if (src && !(first.source || '').trim()) first.source = src;
+  }
+
+  function renderCoSentBanner() {
+    const el = $('coSentBanner');
+    if (!el) return;
+    const line = pendingLinkFrom && pendingLinkExample
+      ? formatExampleLine(pendingLinkExample)
+      : '';
+    el.hidden = !line;
+    if (!line) return;
+    const text = $('coSentBannerText');
+    if (text) {
+      text.textContent = line;
+      text.title = line;
+    }
+  }
+
   function startCoSentRecord(fromId, example) {
     pendingLinkFrom = fromId || null;
     pendingLinkExample = example
-      ? { en: (example.en || '').trim(), zh: (example.zh || '').trim() }
+      ? {
+          en: (example.en || '').trim(),
+          zh: (example.zh || '').trim(),
+          source: String((example && example.source) || '').trim(),
+        }
       : null;
-    const line = formatExampleLine(pendingLinkExample);
-    const src = (example && example.source) ? String(example.source).trim() : '';
-    selectedPoses = ['n.'];
-    senseDraft = [{ pos: 'n.', meaning: '', examples: line, source: src }];
+    renderCoSentBanner();
+    const src = (pendingLinkExample && pendingLinkExample.source) || stickySource();
+    const wordInput = $('vocabWord');
+    const curWord = (wordInput && wordInput.value || '').trim();
+    syncSenseDraftFromDom();
+    const hasDraft = curWord
+      || senseDraft.some((s) => (s.meaning || '').trim() || (s.examples || '').trim());
+
+    if (hasDraft) {
+      // 保留用户已输入的词与释义，仅补来源到空槽、刷新例句框显隐
+      senseDraft.forEach((s) => {
+        if (!(s.source || '').trim() && src) s.source = src;
+      });
+      renderSenseBlocks();
+      setHint('已带上原句，当前填写内容已保留；保存后会自动关联本句。');
+      return;
+    }
+
+    selectedPoses = [];
+    senseDraft = [];
     renderPosMultiPills();
     renderSenseBlocks();
     relatedDraft = [];
     renderRelatedChips();
     phraseDraft = [];
     renderPhraseBlocks();
-    const wordInput = $('vocabWord');
     if (wordInput) {
       wordInput.value = '';
       wordInput.focus();
@@ -446,12 +549,13 @@
     if (capture && capture.scrollIntoView) {
       capture.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    setHint(pendingLinkFrom ? '已带入例句，填上生词后保存，会与源词标记同句。' : '');
+    setHint('已带上原句，填词保存后会自动关联本句，无需再贴例句。');
   }
 
   function clearPendingLink() {
     pendingLinkFrom = null;
     pendingLinkExample = null;
+    renderCoSentBanner();
   }
 
   function relatedCircleHtml(entry) {
@@ -494,6 +598,86 @@
       (coChips || '<p class="vocab-related-empty">还没有同句词。点例句旁「同句再录」即可。</p>') +
       `</div>`
     );
+  }
+
+  // ---- AI 整理：模型给建议 → 用户过目确认 → 应用（原义项自动备份） ----
+  let tidyOverlay = null;
+
+  function closeTidy() {
+    if (tidyOverlay) { tidyOverlay.remove(); tidyOverlay = null; }
+  }
+
+  async function runTidy(entry) {
+    if (!entry || entry.stub) return;
+    closeTidy();
+    const ov = document.createElement('div');
+    ov.className = 'tidy-overlay';
+    ov.innerHTML = `<div class="tidy-panel"><p class="tidy-note">AI 正在分析「${escapeHtml(entry.word)}」的义项与例句…</p></div>`;
+    document.body.appendChild(ov);
+    tidyOverlay = ov;
+
+    const res = await api('/api/assets/vocab/' + encodeURIComponent(entry.id) + '/tidy_suggest', {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      ov.querySelector('.tidy-panel').innerHTML =
+        `<p class="tidy-note">${escapeHtml(res.error || '整理失败，请稍后再试')}</p>` +
+        `<div class="tidy-actions"><button type="button" class="btn ghost" id="tidyCancel">关闭</button></div>`;
+      $('tidyCancel').onclick = closeTidy;
+      return;
+    }
+
+    const exById = {};
+    (res.examples || []).forEach((e) => { exById[e.id] = e.en; });
+    const kept = new Set();
+    const senseRows = (res.suggestion || []).map((s) => {
+      const exs = (s.example_ids || []).map((id) => kept.add(id) && id);
+      return (
+        `<div class="tidy-sense">` +
+        `<div class="tidy-sense-head"><span class="vocab-sense-pos">${escapeHtml(s.pos || '')}</span>` +
+        `<span>${escapeHtml(s.meaning)}</span></div>` +
+        (exs.length ? exs.map((id) =>
+          `<p class="tidy-ex">保留 · ${escapeHtml(exById[id] || '')}</p>`).join('') : '') +
+        `</div>`
+      );
+    }).join('');
+    const dropped = (res.examples || []).filter((e) => !kept.has(e.id));
+    const droppedHtml = dropped.length
+      ? `<div class="tidy-dropped"><div class="vocab-related-title">将删除的例句（${dropped.length} 条）</div>` +
+        dropped.map((e) => `<p class="tidy-ex drop">${escapeHtml(e.en)}</p>`).join('') + `</div>`
+      : '';
+
+    ov.querySelector('.tidy-panel').innerHTML =
+      `<div class="tidy-head">AI 整理建议 · ${escapeHtml(res.word || entry.word)}</div>` +
+      `<div class="tidy-scroll">` +
+      `<p class="tidy-note">确认后将合并相近义项、只保留代表性例句。原结构已自动备份，可让开发者恢复。</p>` +
+      senseRows + droppedHtml +
+      `</div>` +
+      `<div class="tidy-actions">` +
+      `<button type="button" class="btn ghost" id="tidyCancel">取消</button>` +
+      `<button type="button" class="btn primary" id="tidyConfirm">确认整理</button>` +
+      `</div>`;
+    $('tidyCancel').onclick = closeTidy;
+    $('tidyConfirm').onclick = async () => {
+      const btn = $('tidyConfirm');
+      btn.disabled = true;
+      btn.textContent = '应用中…';
+      const apply = await api('/api/assets/vocab/' + encodeURIComponent(entry.id) + '/tidy_apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senses: res.suggestion }),
+      });
+      if (apply.ok === false) {
+        btn.disabled = false;
+        btn.textContent = '确认整理';
+        setHint(apply.error || '应用失败', true);
+        return;
+      }
+      closeTidy();
+      setHint(`「${entry.word}」整理完成`);
+      renderDetail(apply.entry);
+      await refreshList();
+    };
   }
 
   function renderDetail(entry) {
@@ -597,9 +781,13 @@
       phrasesHtml +
       relatedCircleHtml(entry) +
       `<div class="vocab-detail-actions">` +
+      `<button type="button" class="btn ghost" id="vocabDetailTidy">AI 整理</button>` +
       `<button type="button" class="btn ghost" id="vocabDetailClose">收起</button>` +
       `<button type="button" class="btn ghost danger" id="vocabDetailDelete">删除</button>` +
       `</div>`;
+
+    const tidyBtn = $('vocabDetailTidy');
+    if (tidyBtn) tidyBtn.onclick = () => runTidy(entry);
 
     const closeBtn = $('vocabDetailClose');
     const delBtn = $('vocabDetailDelete');
@@ -694,6 +882,11 @@
       return;
     }
     const senses = collectSenses();
+    if (!fixedPhrase && !senses.length) {
+      setHint('请至少点选一个词性（或勾选固定短语）', true);
+      return;
+    }
+    attachPendingExample(senses);
     const phrases = collectPhrases();
     const btn = $('vocabSubmit');
     if (btn) btn.disabled = true;
@@ -719,18 +912,21 @@
         return;
       }
       const entry = res.entry;
+      rememberSource(senses);
       const n = (entry.senses || []).length;
       const linked = pendingLinkFrom && (entry.co_sents || []).length;
+      const synced = Number(res.synced_examples || 0);
+      const syncedNote = synced > 0 ? `，自动同步 ${synced} 条库内相关例句` : '';
       if (res.created) {
         setHint(
           linked
-            ? `已收入「${entry.word}」并标记同句`
-            : (n > 1 ? `已收入「${entry.word}」· ${n} 个义项` : `已收入「${entry.word}」`)
+            ? `已收入「${entry.word}」并标记同句${syncedNote}`
+            : (n > 1 ? `已收入「${entry.word}」· ${n} 个义项${syncedNote}` : `已收入「${entry.word}」${syncedNote}`)
         );
       } else if (entry.show_count) {
-        setHint(`「${entry.word}」记忆加深 · 记过 ${entry.record_count} 次`);
+        setHint(`「${entry.word}」记忆加深 · 记过 ${entry.record_count} 次${syncedNote}`);
       } else {
-        setHint(linked ? `「${entry.word}」已更新并标记同句` : `「${entry.word}」已更新`);
+        setHint(linked ? `「${entry.word}」已更新并标记同句${syncedNote}` : `「${entry.word}」已更新${syncedNote}`);
       }
       $('vocabWord').value = '';
       relatedDraft = [];
@@ -738,6 +934,11 @@
       phraseDraft = [];
       renderPhraseBlocks();
       resetSenseDraft();
+      const fixedToggle = $('fixedPhraseToggle');
+      if (fixedToggle && fixedToggle.checked) {
+        fixedToggle.checked = false;
+        setFixedPhrase(false);
+      }
       clearPendingLink();
       const phrasePanel = $('phrasePanel');
       const phraseToggle = $('phraseToggleBtn');
@@ -792,6 +993,21 @@
       if (!phraseDraft.length) addPhraseDraft();
     });
     bindMetaToggle('relatedToggleBtn', 'relatedPanel', '添加旁系', '收起旁系');
+
+    const fixedToggle = $('fixedPhraseToggle');
+    if (fixedToggle) {
+      fixedToggle.addEventListener('change', () => {
+        setFixedPhrase(fixedToggle.checked);
+      });
+    }
+
+    const coCancel = $('coSentCancel');
+    if (coCancel) {
+      coCancel.addEventListener('click', () => {
+        clearPendingLink();
+        setHint('已取消同句再录。');
+      });
+    }
 
     const addBtn = $('relatedAddBtn');
     if (addBtn) addBtn.addEventListener('click', addRelatedDraft);

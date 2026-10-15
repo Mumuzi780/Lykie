@@ -135,15 +135,18 @@ def _new_id(prefix: str = "") -> str:
 
 def _parse_examples(raw, default_source: str = "") -> list[dict]:
     """Accept list of dicts, list of strings, or multiline text with optional ||.
-    Each example may carry source; string lines inherit default_source.
+    In text, a single newline is a soft wrap inside one example (PDF paste
+    often carries hard wraps); a blank line separates examples.
+    Each example may carry source; string blocks inherit default_source.
     """
     out: list[dict] = []
     src_default = str(default_source or "").strip()
     if raw is None:
         return out
     if isinstance(raw, str):
-        lines = [ln.strip() for ln in raw.replace("\r\n", "\n").split("\n") if ln.strip()]
-        items = lines
+        blocks = re.split(r"\n\s*\n", raw.replace("\r\n", "\n"))
+        items = [re.sub(r"\s+", " ", b).strip() for b in blocks]
+        items = [b for b in items if b]
     elif isinstance(raw, list):
         items = raw
     else:
@@ -780,6 +783,120 @@ def _merge_phrases(existing: dict, incoming: list[dict]) -> bool:
     return changed
 
 
+def _sync_examples_from_lib(data: dict, entry: dict, word: str) -> int:
+    """Pull examples containing this word from other entries (local, deterministic).
+
+    When recording a word, scan the user's own library for examples whose
+    English text contains the word (word-boundary, case-insensitive) and merge
+    them into this entry's first sense. Dedup via _merge_examples.
+    """
+    if not word:
+        return 0
+    try:
+        pattern = re.compile(r"(?<!\w)" + re.escape(word) + r"(?!\w)", re.IGNORECASE)
+    except re.error:
+        return 0
+
+    def iter_examples(owner: dict):
+        for s in owner.get("senses") or []:
+            for ex in s.get("examples") or []:
+                if isinstance(ex, dict) and str(ex.get("en") or "").strip():
+                    yield ex
+        for p in owner.get("phrases") or []:
+            if not isinstance(p, dict):
+                continue
+            for ex in p.get("examples") or []:
+                if isinstance(ex, dict) and str(ex.get("en") or "").strip():
+                    yield ex
+
+    hits: list[dict] = []
+    for other in data.get("vocab") or []:
+        if other is entry or not isinstance(other, dict) or _is_stub(other):
+            continue
+        for ex in iter_examples(other):
+            if pattern.search(str(ex.get("en") or "")):
+                hits.append({
+                    "en": str(ex.get("en") or "").strip(),
+                    "zh": str(ex.get("zh") or "").strip(),
+                    "source": str(ex.get("source") or "").strip(),
+                })
+
+    if not hits:
+        return 0
+    senses = entry.setdefault("senses", [])
+    if not senses:
+        senses.append({
+            "id": _new_id("s"),
+            "pos": "other",
+            "meaning": "",
+            "examples": [],
+        })
+    target = senses[0]
+    added = 0
+    for ex in hits:
+        before = len(target.get("examples") or [])
+        target["examples"] = _merge_examples(target.get("examples") or [], [ex])
+        if len(target["examples"]) > before:
+            added += 1
+    return added
+
+
+def _push_examples_to_lib(data: dict, entry: dict, stamp: str) -> int:
+    """Push this entry's examples to other entries whose word appears in them.
+
+    Bidirectional counterpart of _sync_examples_from_lib: examples on this
+    entry get merged into other non-stub entries whose word head appears in
+    the example text (word-boundary, case-insensitive). Merged into the
+    target's first sense; dedup via _merge_examples.
+    """
+    own: list[dict] = []
+    for s in entry.get("senses") or []:
+        for ex in s.get("examples") or []:
+            if isinstance(ex, dict) and str(ex.get("en") or "").strip():
+                own.append(ex)
+    for p in entry.get("phrases") or []:
+        if not isinstance(p, dict):
+            continue
+        for ex in p.get("examples") or []:
+            if isinstance(ex, dict) and str(ex.get("en") or "").strip():
+                own.append(ex)
+    if not own:
+        return 0
+
+    pushed = 0
+    for target in data.get("vocab") or []:
+        if target is entry or not isinstance(target, dict) or _is_stub(target):
+            continue
+        word = str(target.get("word") or "").strip()
+        if not word:
+            continue
+        try:
+            pattern = re.compile(r"(?<!\w)" + re.escape(word) + r"(?!\w)", re.IGNORECASE)
+        except re.error:
+            continue
+        senses = target.get("senses") or []
+        if not senses:
+            continue
+        target_sense = senses[0]
+        changed = False
+        for ex in own:
+            if not pattern.search(str(ex.get("en") or "")):
+                continue
+            item = {
+                "en": str(ex.get("en") or "").strip(),
+                "zh": str(ex.get("zh") or "").strip(),
+                "source": str(ex.get("source") or "").strip(),
+            }
+            before = len(target_sense.get("examples") or [])
+            target_sense["examples"] = _merge_examples(target_sense.get("examples") or [], [item])
+            if len(target_sense["examples"]) > before:
+                pushed += 1
+                changed = True
+        if changed:
+            target["updated_at"] = stamp
+    return pushed
+
+
 def record_vocab(
     username: str,
     *,
@@ -903,8 +1020,16 @@ def record_vocab(
             sense_list=sense_list,
         )
 
+    synced = 0
+    if not _is_stub(existing):
+        pulled = _sync_examples_from_lib(data, existing, w)
+        pushed = _push_examples_to_lib(data, existing, stamp)
+        synced = pulled + pushed
+        if pulled:
+            existing["updated_at"] = stamp
+
     save_assets(username, data)
-    return public_entry(existing, data), "", created
+    return public_entry(existing, data), "", created, synced
 
 
 def list_vocab(
@@ -980,3 +1105,73 @@ def ensure_assets_file(username: str) -> None:
     path = assets_path(username)
     if not os.path.exists(path):
         save_assets(username, _empty())
+
+
+def flatten_examples(entry: dict) -> list[dict]:
+    """展平词条例句，附全局编号：[{id, sense_index, example}]（id = 下标）。"""
+    flat = []
+    for si, s in enumerate(entry.get("senses") or []):
+        for ex in (s.get("examples") or []):
+            if isinstance(ex, dict):
+                flat.append({"id": len(flat), "sense_index": si, "example": ex})
+    return flat
+
+
+def tidy_vocab(username: str, entry_id: str, senses_payload: list) -> tuple[dict | None, str]:
+    """按 AI 整理建议重组词条义项（用户过目确认后调用）。
+
+    senses_payload: [{pos, meaning, example_ids: [全局编号]}]
+    - 原例句只按白名单保留，未列出的删除（用户已确认）
+    - 原 senses 深拷贝备份到 _tidy_backup（后悔药，仅保留最近一次）
+    - record_count / related / phrases / co_sents 不动
+    """
+    data = load_assets(username)
+    entry = None
+    for it in data.get("vocab") or []:
+        if str(it.get("id")) == str(entry_id):
+            entry = it
+            break
+    if entry is None:
+        return None, "未找到词条"
+    if _is_stub(entry):
+        return None, "空壳词头无需整理"
+
+    flat = flatten_examples(entry)
+    total = len(flat)
+
+    new_senses = []
+    seen_ids = set()
+    for item in senses_payload or []:
+        if not isinstance(item, dict):
+            return None, "整理数据格式错误"
+        meaning = str(item.get("meaning") or "").strip()
+        if not meaning:
+            return None, "整理后的义项释义不能为空"
+        pos = normalize_pos(item.get("pos") or "")
+        ids = []
+        for e in item.get("example_ids") or []:
+            try:
+                eid = int(e)
+            except (TypeError, ValueError):
+                return None, "例句编号异常"
+            if eid < 0 or eid >= total:
+                return None, "例句编号越界"
+            if eid in seen_ids:
+                return None, "同一例句不能保留在多个义项"
+            seen_ids.add(eid)
+            ids.append(eid)
+        examples = [flat[i]["example"] for i in ids]
+        new_senses.append({"pos": pos, "meaning": meaning, "examples": examples})
+
+    if not new_senses:
+        return None, "整理结果为空"
+
+    import copy as _copy
+    entry["_tidy_backup"] = {
+        "senses": _copy.deepcopy(entry.get("senses") or []),
+        "at": now_str(),
+    }
+    entry["senses"] = new_senses
+    entry["updated_at"] = now_str()
+    save_assets(username, data)
+    return entry, ""
