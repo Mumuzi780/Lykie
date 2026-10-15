@@ -2475,6 +2475,78 @@ if ($('releaseModal')) {
     if (e.target === $('releaseModal')) closeReleaseModal();
   });
 }
+
+// ==================== 管理员建号（仅 LiZF 有入口） ====================
+function openAdminAccModal() {
+  const modal = $('adminAccModal');
+  if (!modal) return;
+  ['adminAccName', 'adminAccPwd', 'adminAccPwd2'].forEach(id => { $(id).value = ''; });
+  const err = $('adminAccErr');
+  err.hidden = true;
+  err.textContent = '';
+  modal.hidden = false;
+  $('adminAccName').focus();
+}
+
+function closeAdminAccModal() {
+  const modal = $('adminAccModal');
+  if (!modal) return;
+  modal.hidden = true;
+  ['adminAccName', 'adminAccPwd', 'adminAccPwd2'].forEach(id => { $(id).value = ''; });
+  const err = $('adminAccErr');
+  err.hidden = true;
+  err.textContent = '';
+}
+
+function showAdminAccErr(msg) {
+  const err = $('adminAccErr');
+  if (!err) return;
+  err.textContent = msg;
+  err.hidden = false;
+}
+
+async function submitAdminAcc() {
+  const name = $('adminAccName').value.trim();
+  const pwd = $('adminAccPwd').value;
+  const pwd2 = $('adminAccPwd2').value;
+  if (!name) { showAdminAccErr('请填用户名'); return; }
+  if (!pwd) { showAdminAccErr('请填密码'); return; }
+  if (pwd !== pwd2) { showAdminAccErr('两次密码不一致'); return; }
+  const submitBtn = $('adminAccSubmit');
+  submitBtn.disabled = true;
+  try {
+    const data = await api('/api/admin/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: name, password: pwd }),
+    });
+    if (!data.ok) {
+      showAdminAccErr(data.error || '创建失败');
+      return;
+    }
+    closeAdminAccModal();
+    await uiAlert('已创建账号：' + data.created);
+  } catch (e) {
+    showAdminAccErr('网络异常，请重试');
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+if ($('adminAccBtn')) $('adminAccBtn').onclick = () => openAdminAccModal();
+if ($('adminAccClose')) $('adminAccClose').onclick = () => closeAdminAccModal();
+if ($('adminAccCancel')) $('adminAccCancel').onclick = () => closeAdminAccModal();
+if ($('adminAccSubmit')) $('adminAccSubmit').onclick = () => submitAdminAcc();
+if ($('adminAccModal')) {
+  $('adminAccModal').addEventListener('click', (e) => {
+    if (e.target === $('adminAccModal')) closeAdminAccModal();
+  });
+  ['adminAccName', 'adminAccPwd', 'adminAccPwd2'].forEach(id => {
+    $(id).addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitAdminAcc();
+    });
+  });
+}
 if ($('notifList')) {
   $('notifList').addEventListener('click', (e) => {
     const btn = e.target.closest('.notif-item[data-nid]');

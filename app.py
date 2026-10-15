@@ -482,6 +482,24 @@ def logout():
     return resp
 
 
+# ==================== 管理员建号 ====================
+# 只有这里的账号能在站内创建新账号（邀请制入口）
+ADMIN_CREATORS = {"LiZF"}
+
+
+@app.route("/api/admin/accounts", methods=["POST"])
+def api_admin_create_account():
+    if g.store.username not in ADMIN_CREATORS:
+        return jsonify({"ok": False, "error": "只有管理员可以建号"}), 403
+    data = request.get_json(force=True) or {}
+    try:
+        info = lykie_accounts.add_user(data.get("username") or "", data.get("password") or "")
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    # 注意：jsonify_user 会用当前登录者覆盖 username，新账号名放 created
+    return jsonify_user({"ok": True, "created": info["username"]})
+
+
 @app.route("/assets")
 def assets_page():
     return render_template("assets.html", username=g.store.username)
