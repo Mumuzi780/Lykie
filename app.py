@@ -952,6 +952,7 @@ def api_reading_lookup():
             [{"role": "user", "content": prompt}],
             temperature=0.3,
             json_mode=True,
+            disable_thinking=True,  # 查词/翻译是轻任务：关思考，秒级返回
         )
     except Exception as exc:  # Key 失效/断网等：降级为手动填写，不阻塞录入
         return jsonify({"ok": False, "error": f"查询失败：{exc}，可手动填写"})

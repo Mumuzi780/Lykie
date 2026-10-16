@@ -271,7 +271,7 @@
       <div class="rd-card-actions">
         <span class="reading-hint" id="rdCardHint"></span>
         <button type="button" class="btn ghost" id="rdCardCancel">取消</button>
-        <button type="button" class="btn" id="rdCardSave">存入资产库</button>
+        <button type="button" class="btn rd-btn-primary" id="rdCardSave">存入资产库</button>
       </div>
     `;
     document.body.appendChild(card);
