@@ -89,8 +89,6 @@ body {
 
 .app {
   display: flex;
-  max-width: 1480px;
-  margin: 0 auto;
   min-height: 100vh;
   min-height: 100dvh;
   height: 100vh;
@@ -450,6 +448,7 @@ body {
 .bank-progress { font-size: 12px; color: var(--red); margin-top: 5px; line-height: 1.4; }
 
 /* ==================== 主区域 ==================== */
+/* 贴边三栏（DeepSeek 式）：两侧栏贴视口边缘，中间内容独立限宽居中 */
 .main {
   flex: 1;
   display: flex;
@@ -457,6 +456,26 @@ body {
   padding: 0 28px;
   min-width: 0;
   min-height: 0;
+  align-items: center;
+}
+/* 贴边三栏（DeepSeek 式）：两侧栏贴视口边缘，中间内容独立限宽居中。
+   card-area 保持全宽——天体/连击漂浮在 study-stage 开阔区；
+   真正的内容块（题卡宿主/空态/阅读区）在此各自限宽居中。 */
+.main > header,
+.main > .card-area,
+.main > footer {
+  width: 100%;
+}
+.main > header,
+.main > footer {
+  max-width: 720px;
+}
+.card-area > .study-host,
+.card-area > .empty {
+  width: 100%;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 header {
@@ -476,7 +495,8 @@ header h1 { font-size: 22px; text-align: center; }
 .celestial-btn {
   position: absolute;
   top: 8%;
-  left: 6%;
+  /* 锚定内容列左肩（50% - 360列半宽 - 72图标 - 24间距）：列居中，天体跟随 */
+  left: max(16px, calc(50% - 456px));
   padding: 0;
   margin: 0;
   border: none;
@@ -506,11 +526,11 @@ header h1 { font-size: 22px; text-align: center; }
 .celestial-btn:active .celestial-icon {
   transform: scale(0.96);
 }
-/* 与左上天体对称：题卡上方右侧连击位 */
 .combo-badge {
   position: absolute;
   top: 8%;
-  right: 6%;
+  /* 与左上天体对称：锚定内容列右肩 */
+  right: max(16px, calc(50% - 456px));
   width: min(14vw, 72px);
   min-height: min(14vw, 72px);
   display: flex;
@@ -2552,25 +2572,11 @@ button.lykie-send:active { transform: scale(.94); }
   display: none;
 }
 
-/* 桌面：收起后主区铺满；题卡/斩收窄居中；天体与连击保持原视口大致位置 */
+/* 桌面：收起侧栏后主区铺满。内容列与天体/连击都锚定 stage 中线（50% 跟随），
+   收起时相对位置自动保持，无需逐项补偿。 */
 @media (min-width: 721px) {
   body.bank-sidebar-collapsed .sidebar {
     display: none;
-  }
-  body.bank-sidebar-collapsed .study-host,
-  body.bank-sidebar-collapsed .empty,
-  body.bank-sidebar-collapsed .controls {
-    max-width: min(640px, 100%);
-    width: 100%;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  /* 侧栏宽 460px：收起后补偿，避免月亮/连击跟着主区左缘外飘 */
-  body.bank-sidebar-collapsed .celestial-btn {
-    left: calc(460px + (100% - 460px) * 0.06);
-  }
-  body.bank-sidebar-collapsed .combo-badge {
-    right: calc(460px + (100% - 460px) * 0.06);
   }
 }
 

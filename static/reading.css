@@ -322,7 +322,7 @@
 }
 
 .reading-workspace {
-  max-width: 720px;
+  max-width: 880px; /* 阅读列比刷题列（720）宽：文章行长 + 题目面板 */
   margin: 0 auto;
 }
 
