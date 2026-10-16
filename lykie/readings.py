@@ -651,11 +651,10 @@ def find_cached_lookup(username: str, text_id: str, mode: str,
     """缓存命中查询：同文章内查过的内容直接复用，不再调模型。
 
     - translate：找 sentence 相同的任一记录（词查词时顺带存的整句译同样可复用）
-    - lookup：找 selection + sentence 都相同的词查记录"""
+    - lookup：找 selection + sentence 都相同的词查记录
+      （词库/选项查词 sentence 为空串：同词二查直接命中，不再调模型）"""
     sel = str(selection or "").strip()
     sent = str(sentence or "").strip()
-    if not sent and mode != "translate":
-        return None
     data = load_readings(username)
     for l in reversed(data["lookups"]):
         if not isinstance(l, dict) or l.get("text_id") != text_id:
@@ -674,21 +673,27 @@ def find_cached_lookup(username: str, text_id: str, mode: str,
 
 def get_lookup_marks(username: str, text_id: str) -> list[dict]:
     """聚合该文章全部查词记录 → 已查词标记表：
-    [{selection, gloss, imported}]，按 selection 去重（后查覆盖先查）。"""
+    [{selection, gloss, imported, ...}]，去重键=词小写+区域（q_num 编码：
+    正文''/题号/bank:词键/opt:题号:选项键）——同词跨区域各自保留，同区域后查覆盖
+    （与前端 addMark 口径一致）；imported 是词级事实，跨区域一起升级不降级。"""
     data = load_readings(username)
+    rows = [l for l in data["lookups"]
+            if isinstance(l, dict) and l.get("text_id") == text_id and l.get("mode") == "lookup"]
+    imported_words = {str(l.get("selection") or "").strip().lower()
+                      for l in rows if l.get("imported")}
     marks: dict[str, dict] = {}
-    for l in data["lookups"]:
-        if not isinstance(l, dict) or l.get("text_id") != text_id or l.get("mode") != "lookup":
-            continue
+    for l in rows:
         sel = str(l.get("selection") or "").strip()
         if not sel:
             continue
         res = l.get("result") or {}
-        marks[sel] = {
+        key = sel.lower() + "@" + str(l.get("q_num") or "")
+        prev = marks.get(key)
+        marks[key] = {
             "selection": sel,
             "head": str(l.get("head") or "").strip().lower(),
             "gloss": str(res.get("meaning") or "")[:200],
-            "imported": bool(l.get("imported")),
+            "imported": bool(l.get("imported")) or (sel.lower() in imported_words) or bool(prev and prev.get("imported")),
             "para_index": l.get("para_index") if isinstance(l.get("para_index"), int) else None,
             "occur_index": l.get("occur_index") if isinstance(l.get("occur_index"), int) else None,
             "q_num": str(l.get("q_num") or "").strip(),

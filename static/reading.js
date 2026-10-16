@@ -37,7 +37,7 @@
   let bubble = null;
   let card = null;
   let seq = 0;             // 请求序号：只认最后一次
-  let savedRange = null;   // 气泡打开时的选区，存词后用于加下划线
+  let savedRect = null;    // 划词时选区的视口矩形（查词后 DOM 会被标记重写，Range 会失效，rect 当场缓存）
 
   // ---- 多视图：正文渲染（顺序与后端 para_index 定位严格一致） ----
   function renderArticle(allSections) {
@@ -89,7 +89,7 @@
 
   function paragraphOf(node) {
     const el = node && (node.nodeType === 1 ? node : node.parentElement);
-    return el ? el.closest('.reading-p, .rd-q-p') : null;
+    return el ? el.closest('.reading-p, .rd-q-p, .rd-match-stem, .rd-bank-item, .rd-opt') : null;
   }
 
   /** 句界规则：默认句点（.）结尾为完整一句，问号/叹号兜底；向两侧扩展到句界或段落边界。 */
@@ -175,9 +175,21 @@
   async function runLookup(mode, info) {
     const mySeq = ++seq;
     bubbleLoading(mode);
-    const sentence = extractSentence(info.text);
-    savedRange = info.sel.getRangeAt(0).cloneRange();
     const pos = mode === 'lookup' ? positionOfSelection(info.sel, info.text) : null;
+    savedRect = info.sel.getRangeAt(0).getBoundingClientRect();
+    // 词库/选项区不是原文语料（"A embrace" 这类条目文本无句子上下文），查词不带例句
+    const noCtx = !!(pos && (pos.area === 'bank' || pos.area === 'opt'));
+    const sentence = noCtx ? '' : extractSentence(info.text);
+    if (mode === 'translate' && noCtx) {
+      // 翻译需要整句；词库/选项没有句子上下文，引导走查词
+      bubbleLoaded();
+      bubbleTranslateResult('', true, '此处无整句可译，请用「查词」');
+      return;
+    }
+    if (mode === 'lookup') {
+      lastSelText = info.text;
+      lastPos = pos;
+    }
     try {
       const res = await api('/api/reading/lookup', {
         method: 'POST',
@@ -189,8 +201,8 @@
           mode,
           para_index: pos && pos.area === 'body' ? pos.paraIndex : null,
           occur_index: pos ? pos.occurIndex : null,
-          q_num: pos && pos.area === 'q' ? pos.qNum : '',
-          q_para_index: pos && pos.area === 'q' ? pos.qParaIndex : null,
+          q_num: posToQNum(pos),
+          q_para_index: pos ? (pos.area === 'q' ? pos.qParaIndex : 0) : null,
         }),
       });
       if (mySeq !== seq) return; // 已有更新的查询，丢弃旧响应
@@ -206,10 +218,9 @@
       lookupId = res.ok ? (res.lookup_id || null) : null;
       const draft = res.ok ? (res.draft || {}) : {};
       if (res.ok) {
-        // 查词成功即标记查词时的那一处，释义悬浮可看
-        lastSelText = info.text;
+        // 查词成功即记录该处位置，按记录全量重放标记（释义悬浮可看）
         addMark(info.text, draft.meaning || '', false, pos);
-        if (pos && pos.area === 'q') markLookuped($('rdQCardBody')); else markBodyMarks();
+        rebuildMarks();
       }
       openCard(info, sentence, draft, res.ok ? '' : (res.error || ''));
     } catch (err) {
@@ -227,6 +238,8 @@
   function openCard(info, sentence, draft, errMsg) {
     dismissBubble();
     dismissCard();
+    // 没有真实句子上下文的查词（如词库列表里的单词）不渲染例句区
+    const hasExample = !!sentence && sentence.trim() !== String(info.text || '').trim();
     card = document.createElement('div');
     card.className = 'rd-card';
     card.innerHTML = `
@@ -243,14 +256,14 @@
         <label class="reading-label" for="rdMeaning">语境义 <span class="opt">此句中的意思，可改</span></label>
         <input id="rdMeaning" type="text" maxlength="300" value="${escapeHtml(draft.meaning || '')}">
       </div>
-      <div class="rd-card-row">
+      ${hasExample ? `<div class="rd-card-row">
         <label class="reading-label" for="rdExEn">例句 <span class="opt">来自原文，可改</span></label>
         <textarea id="rdExEn" rows="3">${escapeHtml(sentence)}</textarea>
       </div>
       <div class="rd-card-row">
         <label class="reading-label" for="rdExZh">例句翻译</label>
         <textarea id="rdExZh" rows="2">${escapeHtml(draft.example_zh || '')}</textarea>
-      </div>
+      </div>` : ''}
       <div class="rd-card-row">
         <label class="reading-label">来源</label>
         <input type="text" class="rd-source" value="${escapeHtml(source)}" readonly>
@@ -266,8 +279,8 @@
     const posSel = card.querySelector('#rdPos');
     if (POS_OPTIONS.indexOf(pos) >= 0) posSel.value = pos;
 
-    // 定位：选区下方，视口边缘收敛
-    const rect = savedRange ? savedRange.getBoundingClientRect() : { left: 40, top: 80, width: 0, bottom: 80 };
+    // 定位：划词时缓存的选区矩形（查词标记会重写 DOM，实时 Range 不可靠），视口边缘收敛
+    const rect = savedRect || { left: 40, top: 80, width: 0, bottom: 80 };
     let left = Math.max(8, Math.min(rect.left, window.innerWidth - card.offsetWidth - 8));
     let top = rect.bottom + 10;
     if (top + card.offsetHeight > window.innerHeight - 8) {
@@ -301,13 +314,16 @@
 
   let lookupId = null; // 最近一次查词的记录 id，存词成功后回写 imported
   let lastSelText = ''; // 最近一次查词的原始选中文本（存词后标记用）
+  let lastPos = null;   // 最近一次查词的定位（body/q）；查词失败后存词也能落标记
 
   async function saveCard() {
     const word = card.querySelector('#rdWord').value.trim();
     const pos = card.querySelector('#rdPos').value;
     const meaning = card.querySelector('#rdMeaning').value.trim();
-    const exEn = card.querySelector('#rdExEn').value.trim();
-    const exZh = card.querySelector('#rdExZh').value.trim();
+    const exEnEl = card.querySelector('#rdExEn');
+    const exZhEl = card.querySelector('#rdExZh');
+    const exEn = exEnEl ? exEnEl.value.trim() : '';
+    const exZh = exZhEl ? exZhEl.value.trim() : '';
     const hint = card.querySelector('#rdCardHint');
     if (!word) {
       hint.textContent = '词头必填';
@@ -339,15 +355,9 @@
       if (lookupId) {
         api(`/api/reading/lookup/${encodeURIComponent(lookupId)}/imported`, { method: 'POST' }).catch(() => {});
       }
-      decorateSaved();
-      // 标记升级为已入库（保存时的释义悬浮可看）；不再全文重复标注
-      addMark(lastSelText, meaning, true);
-      const savedEls = document.querySelectorAll('span.rd-saved');
-      const savedEl = savedEls[savedEls.length - 1];
-      if (savedEl) {
-        savedEl.classList.add('rd-mark', 'rd-mark-imported');
-        if (meaning) savedEl.setAttribute('data-gloss', meaning);
-      }
+      // 记录升级为已入库 + 按记录全量重放：虚线当场变实线、释义可悬浮，不依赖选区现场包裹
+      addMark(lastSelText, meaning, true, lastPos || undefined);
+      rebuildMarks();
       dismissCard();
     } catch (err) {
       hint.textContent = err.message || '网络错误';
@@ -356,29 +366,21 @@
     }
   }
 
-  function decorateSaved() {
-    if (!savedRange) return;
-    try {
-      const span = document.createElement('span');
-      span.className = 'rd-saved';
-      savedRange.surroundContents(span);
-    } catch (e) { /* 跨节点选区，跳过装饰 */
-    } finally {
-      savedRange = null;
-    }
-  }
-
-  // ---- 已查词持久标记：只标记查词时的那一处（按 lookup 记录的位置信息） ----
+  // ---- 已查词持久标记：一词一位置一区域（同词跨区域各自保留，同区域后查覆盖） ----
   function addMark(selection, gloss, imported, pos) {
     const sel = String(selection || '').trim();
     if (!sel) return;
     const marks = window.RD_MARKS || (window.RD_MARKS = []);
-    const found = marks.find((m) => String(m.selection || '').trim().toLowerCase() === sel.toLowerCase());
+    const low = sel.toLowerCase();
+    // 入库是词级事实：同词所有记录（正文/题干/词库/选项）一起升级实线
+    if (imported) marks.forEach((m) => { if (String(m.selection || '').trim().toLowerCase() === low) m.imported = true; });
+    const key = low + '@' + posToQNum(pos);
+    const found = marks.find((m) => String(m.selection || '').trim().toLowerCase() + '@' + String(m.q_num || '') === key);
     const fields = pos ? {
       para_index: (pos.area === 'body') ? pos.paraIndex : null,
       occur_index: pos ? pos.occurIndex : null,
-      q_num: (pos.area === 'q') ? pos.qNum : '',
-      q_para_index: (pos.area === 'q') ? pos.qParaIndex : null,
+      q_num: posToQNum(pos),
+      q_para_index: (pos.area === 'q') ? pos.qParaIndex : (pos.area === 'bank' || pos.area === 'opt') ? 0 : null,
     } : {};
     if (found) {
       if (gloss) found.gloss = gloss;
@@ -394,6 +396,15 @@
 
   /** 计算选区位置：正文 {area:'body', paraIndex, occurIndex}
    *  题目 {area:'q', qNum, qParaIndex, occurIndex}；无法定位返回 null。 */
+  /** 位置 → q_num 编码（落库/去重共用）：题干=题号；词库=bank:词键；选项=opt:题号:选项键；正文='' */
+  function posToQNum(pos) {
+    if (!pos) return '';
+    if (pos.area === 'q') return pos.qNum;
+    if (pos.area === 'bank') return 'bank:' + pos.bankKey;
+    if (pos.area === 'opt') return 'opt:' + pos.qNum + ':' + pos.optKey;
+    return '';
+  }
+
   function positionOfSelection(sel, selText) {
     try {
       const para = paragraphOf(sel.anchorNode);
@@ -421,6 +432,26 @@
         if (qParaIndex < 0) return null;
         return { area: 'q', qNum, qParaIndex, occurIndex };
       }
+      if (para.classList.contains('rd-match-stem')) {
+        // 段落匹配候选题干：锚 .rd-match-q[data-num]，题干唯一 → q_para_index 恒 0
+        const section = para.closest('.rd-match-q');
+        const qNum = String((section && section.getAttribute('data-num')) || '').trim();
+        if (!qNum) return null;
+        return { area: 'q', qNum, qParaIndex: 0, occurIndex };
+      }
+      if (para.classList.contains('rd-bank-item')) {
+        // 选词填空词库候选词：锚 .rd-bank-item[data-key]
+        const key = String(para.getAttribute('data-key') || '').trim();
+        if (!key) return null;
+        return { area: 'bank', bankKey: key, occurIndex };
+      }
+      if (para.classList.contains('rd-opt')) {
+        // 选择题选项：锚 .rd-opt[data-num][data-key]
+        const qNum = String(para.getAttribute('data-num') || '').trim();
+        const optKey = String(para.getAttribute('data-key') || '').trim();
+        if (!qNum || !optKey) return null;
+        return { area: 'opt', qNum, optKey, occurIndex };
+      }
       if (!readAreas.some((a) => a.contains(para))) return null;
       // 多篇阅读区：para_index 按全文档 .reading-p 顺序（服务端渲染顺序，稳定）
       const allParas = document.querySelectorAll('.rd-pass .reading-p');
@@ -432,24 +463,23 @@
     }
   }
 
-  /** 在段落内把第 occurIndex 次出现（0 起，大小写不敏感）包进标记 span。 */
+  /** 在段落内把第 occurIndex 次出现（0 起，大小写不敏感）包进标记 span。
+   *  计数包含已标记文本（与 positionOfSelection 的 Range 口径一致）；
+   *  目标处已标记则幂等跳过，杜绝重放时计数错位标到别的同词上。 */
   function wrapOccurrence(para, selText, occurIndex, imported, gloss) {
     const texts = [];
-    const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => {
-        const p = n.parentElement;
-        if (!p || p.closest('.rd-mark, .rd-saved')) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    });
-    while (walker.nextNode()) texts.push(walker.currentNode);
+    const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+    let tn;
+    while ((tn = walker.nextNode())) texts.push(tn);
     const needle = selText.toLowerCase();
     let remaining = occurIndex;
     for (const node of texts) {
+      const inMark = !!(node.parentElement && node.parentElement.closest('.rd-mark'));
       const hay = node.nodeValue.toLowerCase();
       let idx = 0;
       while ((idx = hay.indexOf(needle, idx)) !== -1) {
         if (remaining === 0) {
+          if (inMark) return true; // 该处已是标记：不重复包，计数已含它
           const span = document.createElement('span');
           span.className = 'rd-mark' + (imported ? ' rd-mark-imported' : '');
           if (gloss) span.setAttribute('data-gloss', gloss);
@@ -479,18 +509,53 @@
     }
   }
 
-  /** 题目区标记重放：按题号+题内段序号定位（球面板/弹层渲染后调用）。 */
+  /** 题目区标记重放：按 q_num 前缀路由——bank:词库 / opt:题号:选项键 / 其余=.rd-q+.rd-match-q */
   function markLookuped(root) {
     const marks = window.RD_MARKS || [];
     if (!marks.length || !root) return;
     for (const m of marks) {
-      if (typeof m.q_para_index !== 'number' || typeof m.occur_index !== 'number' || !m.q_num) continue;
-      const sec = root.querySelector(`.rd-q[data-num="${CSS.escape(String(m.q_num))}"]`);
+      if (typeof m.q_para_index !== 'number' || typeof m.occur_index !== 'number') continue;
+      const qn = String(m.q_num || '');
+      const selText = String(m.selection || '').trim();
+      const imported = !!m.imported;
+      const gloss = String(m.gloss || '');
+      if (qn.startsWith('bank:')) {
+        const item = root.querySelector(`.rd-bank-item[data-key="${CSS.escape(qn.slice(5))}"]`);
+        if (item) wrapOccurrence(item, selText, m.occur_index, imported, gloss);
+        continue;
+      }
+      if (qn.startsWith('opt:')) {
+        const rest = qn.slice(4);
+        const i = rest.indexOf(':');
+        if (i > 0) {
+          const opt = root.querySelector(`.rd-opt[data-num="${CSS.escape(rest.slice(0, i))}"][data-key="${CSS.escape(rest.slice(i + 1))}"]`);
+          if (opt) wrapOccurrence(opt, selText, m.occur_index, imported, gloss);
+        }
+        continue;
+      }
+      if (!qn) continue;
+      const sec = root.querySelector(`.rd-q[data-num="${CSS.escape(qn)}"], .rd-match-q[data-num="${CSS.escape(qn)}"]`);
       if (!sec) continue;
-      const para = sec.querySelectorAll('.rd-q-p')[m.q_para_index];
-      if (para) wrapOccurrence(para, String(m.selection || '').trim(),
-                               m.occur_index, !!m.imported, String(m.gloss || ''));
+      const para = sec.querySelectorAll('.rd-q-p')[m.q_para_index]
+        || (m.q_para_index === 0 ? sec.querySelector('.rd-match-stem') : null);
+      if (para) wrapOccurrence(para, selText, m.occur_index, imported, gloss);
     }
+  }
+
+  /** 标记全量重放：先拆掉全部现存标记 span（保留文本），再按 RD_MARKS 记录重放。
+   *  记录是唯一事实源——查词、存词、判分重写后都走这里，杜绝新旧位置叠加与嵌套 span。 */
+  function rebuildMarks() {
+    document.querySelectorAll('.rd-pass .reading-p span.rd-mark, .rd-qcard-body span.rd-mark')
+      .forEach((span) => {
+        const parent = span.parentNode;
+        if (!parent) return;
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        parent.removeChild(span);
+        parent.normalize();
+      });
+    markBodyMarks();
+    const qBody = $('rdQCardBody');
+    if (qBody) markLookuped(qBody);
   }
 
 
@@ -646,7 +711,7 @@
           if (used.some((n) => isRevealed(n) || (isJudged(n) && answerState.judged[n]))) cls += ' is-correct';
           else if (used.some((n) => isJudged(n))) cls += ' is-wrong';
         }
-        html += `<div class="${cls}"><span class="rd-opt-key">${escapeHtml(o.key)}</span> <span>${escapeHtml(o.text)}</span>` +
+        html += `<div class="${cls}" data-key="${escapeHtml(o.key)}"><span class="rd-opt-key">${escapeHtml(o.key)}</span> <span>${escapeHtml(o.text)}</span>` +
           (used ? `<span class="rd-bank-used">→ 第 ${used.join('、')} 空</span>` : '') + '</div>';
       });
       return html + '</div>';
@@ -823,6 +888,8 @@
       const opt = ev.target.closest('.rd-opt');
       if (opt) {
         if (opt.classList.contains('is-locked')) return;
+        // 划选选项文本查词时不切换选项（拖动选词会触发 click，选区非空即视为选词）
+        if (String(window.getSelection() || '').trim()) return;
         try {
           await post(`/api/reading/${textId}/answer`, { num: opt.dataset.num, key: opt.dataset.key });
           answerState.answers[opt.dataset.num] = opt.dataset.key;

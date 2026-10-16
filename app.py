@@ -834,6 +834,18 @@ _LOOKUP_PROMPT = (
     "选中：{selection}"
 )
 
+_LOOKUP_PROMPT_NOCTX = (
+    "你是英语词汇助手。下面给你一个独立的英文单词或短语，没有句子语境"
+    "（来自题目的词库列表或选项文本）。\n"
+    "给出该词最常用的义项，不虚构语境。输出严格 JSON：\n"
+    "{{\n"
+    '  "head": "词典词头原形，小写；若是短语则保持原样",\n'
+    '  "pos": "词性缩写，从 n./v./adj./adv./n.&v./prep./conj./phr. 中选最贴切的一个",\n'
+    '  "meaning": "该词最常用义项的中文释义，简明，只给这一个义项"\n'
+    "}}\n"
+    "选中：{selection}"
+)
+
 _TRANSLATE_PROMPT = (
     "你是英语翻译助手。把下面这个英文句子翻译成通顺的中文。"
     "只依据句面作答，不虚构、不补充。输出严格 JSON：\n"
@@ -872,8 +884,10 @@ def api_reading_lookup():
     selection = str(data.get("selection") or "").strip()
     sentence = str(data.get("sentence") or "").strip()
     mode = "translate" if str(data.get("mode") or "") == "translate" else "lookup"
-    if not selection or not sentence:
-        return jsonify({"ok": False, "error": "缺少选中文本或所在句"}), 400
+    if not selection:
+        return jsonify({"ok": False, "error": "缺少选中文本"}), 400
+    if mode == "translate" and not sentence:
+        return jsonify({"ok": False, "error": "缺少所在句"}), 400
 
     def to_index(v):
         try:
@@ -914,7 +928,7 @@ def api_reading_lookup():
 
     # 句子级翻译缓存：查新词时复用已译过的整句，不让模型二次翻译
     shared_zh = ""
-    if mode == "lookup":
+    if mode == "lookup" and sentence:
         sent_hit = lykie_readings.find_cached_lookup(
             g.store.username, text_id, "translate", selection, sentence)
         if sent_hit:
@@ -922,6 +936,9 @@ def api_reading_lookup():
 
     if mode == "translate":
         prompt = _TRANSLATE_PROMPT.format(sentence=sentence)
+    elif not sentence:
+        # 词库/选项查词：无句子上下文 → 走词典义提示词，不索取整句翻译
+        prompt = _LOOKUP_PROMPT_NOCTX.format(selection=selection)
     elif shared_zh:
         prompt = _LOOKUP_PROMPT.format(sentence=sentence, selection=selection) + (
             f"\n整句翻译已提供：{shared_zh}\n"

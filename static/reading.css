@@ -439,8 +439,7 @@ body.mode-reading #brandSub {
   border-bottom: 1px solid var(--accent, #7c6ff0);
 }
 
-.rd-mark:hover::after,
-.rd-saved:hover::after {
+.rd-mark:hover::after {
   content: attr(data-gloss);
   position: absolute;
   left: 50%;
@@ -512,16 +511,6 @@ body.mode-reading #brandSub {
   color: var(--muted);
   opacity: 0.85;
   margin-top: 4px;
-}
-
-/* 已存入资产库的词：轻量下划线标记 */
-.rd-saved {
-  text-decoration: underline;
-  text-decoration-color: var(--primary);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-  position: relative;
-  cursor: help;
 }
 
 /* ---------- 划词气泡 ---------- */
@@ -700,6 +689,7 @@ body.mode-reading #brandSub {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card);
+  user-select: text; /* 选项文本可划选查词（点击切换行为由 JS 选区守卫区分） */
   color: var(--text);
   font: inherit;
   font-size: 0.86rem;
