@@ -260,6 +260,12 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 右下角拖拽调整大小（原生手柄）；尺寸 JS 持久化 localStorage */
+  resize: both;
+  min-width: 320px;
+  min-height: 220px;
+  max-width: min(720px, calc(100vw - 24px));
+  max-height: 85vh;
 }
 
 /* 全部展开态：就地变高变宽，纵向滚动 */
@@ -311,6 +317,8 @@
 .rd-qcard-body {
   overflow-y: auto;
   padding: 14px 16px 18px;
+  /* 滚到头不穿透到底层页面（滚动链隔离） */
+  overscroll-behavior: contain;
 }
 
 .reading-workspace {
@@ -352,6 +360,47 @@
   animation: rd-spin 0.8s linear infinite;
   margin-right: 6px;
   vertical-align: -2px;
+}
+
+/* ---------- 试卷入库 toast（导入页跳转携带 ?paper=，4 秒自动消失） ---------- */
+/* ---------- 主界面阅读视图宿主（body.mode-reading：card-area 变可滚动文章区） ---------- */
+body.mode-reading .card-area {
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding: 12px 16px 32px;
+}
+
+/* 刷题 DOM 只在阅读模式视觉压制（显隐仍由 script.js 各自的态管理，退出阅读即原样恢复） */
+body.mode-reading .study-stage,
+body.mode-reading .study-host,
+body.mode-reading .empty {
+  display: none !important;
+}
+
+body.mode-reading footer {
+  display: none; /* 斩题进度控件与阅读无关 */
+}
+
+body.mode-reading #stats,
+body.mode-reading #saStats,
+body.mode-reading #mockTimerWrap,
+body.mode-reading #brandSub {
+  display: none; /* 题库统计与阅读无关，阅读视图自带标题区 */
+}
+
+.rd-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 10px 18px;
+  font-size: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
 }
 
 /* 查词卡片拖动手柄 */
@@ -619,4 +668,537 @@
     padding: 22px 20px;
     font-size: 1.05rem;
   }
+}
+
+/* ---------- PDF 上传行（导入表单） ---------- */
+
+.reading-pdf-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.reading-pdf-row .reading-hint {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+/* ---------- 站内作答：选项 / 判分态 ---------- */
+
+.rd-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.rd-opt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.rd-opt:hover {
+  border-color: var(--primary);
+}
+
+.rd-opt-key {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.rd-opt.is-picked {
+  border-color: var(--primary);
+  background: var(--tag-primary-bg);
+}
+
+.rd-opt.is-picked .rd-opt-key {
+  color: var(--primary);
+}
+
+.rd-opt.is-locked {
+  cursor: default;
+  pointer-events: none;
+}
+
+.rd-opt.is-correct {
+  border-color: #3a9d5d;
+  background: rgba(58, 157, 93, 0.12);
+}
+
+.rd-opt.is-correct .rd-opt-key {
+  color: #2e7d4a;
+}
+
+.rd-opt.is-wrong {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.10);
+}
+
+.rd-opt.is-wrong .rd-opt-key {
+  color: #a93226;
+}
+
+.rd-q-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rd-qall-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.rd-qall-count {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.rd-key-ai-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+/* ---------- 导入答案弹层 ---------- */
+
+.rd-key-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.rd-key-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: min(520px, 100%);
+  padding: 18px 20px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+}
+
+.rd-key-panel h3 {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+.rd-key-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0 0 10px;
+  line-height: 1.55;
+}
+
+.rd-key-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.rd-key-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.rd-key-err {
+  font-size: 0.82rem;
+  color: #c0392b;
+  margin: 8px 0 0;
+}
+
+.rd-key-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+@media (max-width: 560px) {
+  .rd-opts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- v11：分篇阅读区 / tab 面板 / 阅读区作答 ---------- */
+
+.rd-pass {
+  margin-bottom: 26px;
+}
+
+.rd-pass-title {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.rd-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 14px 8px;
+  flex-shrink: 0;
+}
+
+.rd-tab {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.rd-tab:hover {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.rd-tab.is-active {
+  background: var(--tag-primary-bg);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.rd-tab-h {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 10px 2px 6px;
+  letter-spacing: 0.05em;
+}
+
+/* A 节挖空块（正文内） */
+
+.rd-blank {
+  display: inline-block;
+  min-width: 2.4em;
+  text-align: center;
+  border: 1px dashed var(--primary);
+  border-radius: 8px;
+  background: var(--tag-primary-bg);
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  padding: 0 8px;
+  margin: 0 2px;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.rd-blank:hover {
+  border-style: solid;
+}
+
+.rd-blank.is-picked {
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+  background: var(--tag-primary-bg);
+  font-weight: 700;
+}
+
+.rd-blank.is-correct {
+  border-color: #3a9d5d;
+  background: rgba(58, 157, 93, 0.12);
+  color: #2e7d4a;
+  cursor: default;
+}
+
+.rd-blank.is-wrong {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.10);
+  color: #a93226;
+}
+
+/* 主动查看的答案：虚线绿边区分自己答对的 */
+.rd-blank.is-revealed {
+  border-style: dashed;
+  border-color: #3a9d5d;
+  background: rgba(58, 157, 93, 0.10);
+  color: #2e7d4a;
+  cursor: default;
+}
+
+/* B 节段落徽章（阅读区段首 + 左侧题号） */
+
+.rd-para-marks {
+  float: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: -44px;
+  margin-right: 8px;
+}
+
+.rd-para-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: var(--tag-primary-bg);
+  color: var(--primary);
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: help;
+}
+
+/* 自绘 tooltip：即时响应（无原生 title 的 1s 延迟）+ 卡片包装 */
+.rd-para-mark::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px 12px;
+  width: max-content;
+  max-width: 300px;
+  white-space: normal;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.1s ease;
+  pointer-events: none;
+  z-index: 80;
+}
+
+.rd-para-mark:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.rd-para-mark.is-correct {
+  border-color: #3a9d5d;
+  background: rgba(58, 157, 93, 0.14);
+  color: #2e7d4a;
+}
+
+.rd-para-mark.is-wrong {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.12);
+  color: #a93226;
+}
+
+.rd-para-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  margin-right: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.rd-para-letter:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 词库总览卡 */
+
+.rd-bank {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.rd-bank-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.rd-bank-item.is-used {
+  border-color: var(--primary);
+  background: var(--tag-primary-bg);
+}
+
+.rd-bank-item.is-correct {
+  border-color: #3a9d5d;
+  background: rgba(58, 157, 93, 0.12);
+}
+
+.rd-bank-item.is-wrong {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.10);
+}
+
+.rd-bank-used {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* B tab：段落对照 + 题目行 */
+
+.rd-match-paras {
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.rd-match-paras .rd-q-p {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.rd-match-q {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+
+.rd-match-q.is-correct {
+  border-color: #3a9d5d;
+  background: rgba(58, 157, 93, 0.10);
+}
+
+.rd-match-q.is-wrong {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.08);
+}
+
+.rd-match-num {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.rd-match-stem {
+  flex: 1;
+  min-width: 0;
+}
+
+.rd-match-pick {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* 作答选择弹层（A 选词 / B 选题共用） */
+
+.rd-picker-panel {
+  width: min(560px, 100%);
+}
+
+.rd-picker-list {
+  max-height: 56vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rd-picker-list.rd-picker-bank {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.rd-pick-q {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.rd-pick-q:hover {
+  border-color: var(--primary);
+}
+
+.rd-pick-q.is-picked {
+  border-color: var(--primary);
+  background: var(--tag-primary-bg);
+}
+
+.rd-pick-q.is-locked {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.rd-pick-cur {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
 }

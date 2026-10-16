@@ -3100,6 +3100,20 @@ button.lykie-send:active { transform: scale(.94); }
 
 /* bank-item-nested 已废弃：嵌套层级由左栏导航承担 */
 
+/* ---- 试卷影子条目（阅读卷入口投影，数据在 readings.json） ---- */
+.paper-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  padding: 0 5px;
+  margin-right: 6px;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+
 /* ---- 归档抽屉已废弃（归档=左栏预设项），归档题库弱化样式保留 ---- */
 .bank-item-archived {
   opacity: 0.62;

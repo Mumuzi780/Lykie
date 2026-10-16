@@ -282,6 +282,7 @@ async function refreshBanks() {
   const data = await api('/api/banks');
   currentBankId = data.current_bank_id;
   foldersCache = data.folders || [];
+  papersCache = data.papers || [];
   if (window.LykieMock) LykieMock.onBanksPayload(data);
   renderBankList(data.banks || []);
   renderFolderNav();
@@ -294,6 +295,7 @@ async function refreshBanks() {
 const FOLDER_NAV_KEY = 'lykieCurrentFolder';
 let currentFolderId = localStorage.getItem(FOLDER_NAV_KEY) || 'uncategorized'; // 'uncategorized' | 'archive' | folderId
 let lastBanksPayload = [];
+let papersCache = []; // 阅读条目（试卷+普通文章），影子条目入侧栏
 let folderNavDragState = null; // 左栏文件夹拖拽（与题库拖拽状态分离）
 
 function saveCurrentFolder() {
@@ -301,12 +303,19 @@ function saveCurrentFolder() {
 }
 
 function folderBankCount(fid) {
-  // 用户文件夹：该 folder_id 的活跃题库数；预设：uncategorized=根区活跃数，archive=归档数
+  // 用户文件夹：该 folder_id 的活跃题库数 + 试卷数（一卷计 1）；预设：uncategorized=根区，archive=归档
   const banks = lastBanksPayload || [];
-  if (fid === 'archive') return banks.filter((b) => b.archived).length;
+  const papers = papersCache || [];
   const folderIds = new Set((foldersCache || []).map((f) => String(f.id)));
-  if (fid === 'uncategorized') return banks.filter((b) => !b.archived && (!b.folder_id || !folderIds.has(String(b.folder_id)))).length;
-  return banks.filter((b) => !b.archived && String(b.folder_id || '') === String(fid)).length;
+  if (fid === 'archive') {
+    return banks.filter((b) => b.archived).length + papers.filter((p) => p.archived).length;
+  }
+  if (fid === 'uncategorized') {
+    return banks.filter((b) => !b.archived && (!b.folder_id || !folderIds.has(String(b.folder_id)))).length
+      + papers.filter((p) => !p.archived && (!p.folder_id || !folderIds.has(String(p.folder_id)))).length;
+  }
+  return banks.filter((b) => !b.archived && String(b.folder_id || '') === String(fid)).length
+    + papers.filter((p) => !p.archived && String(p.folder_id || '') === String(fid)).length;
 }
 
 function renderFolderNav() {
@@ -408,8 +417,12 @@ function renderBankList(allBanks) {
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .forEach((b) => appendBankItem(list, b, { nested: false }));
 
+  // 当前上下文的阅读条目（试卷影子条目 + 普通文章），追加在题库之后
+  const shownPapers = contextPapers(cur, folderIds);
+  shownPapers.forEach((p) => appendPaperItem(list, p, cur));
+
   // 空态提示（模考分区由 mock.js 在其后追加）
-  if (!shown.length) {
+  if (!shown.length && !shownPapers.length) {
     const empty = document.createElement('li');
     empty.className = 'bank-empty-hint';
     empty.textContent = cur === 'archive' ? '抽屉是空的' : '这里还没有题库，导入或从其他文件夹拖入';
@@ -417,7 +430,142 @@ function renderBankList(allBanks) {
   }
 }
 
-// ---- 归档/未分类已改为左栏预设项，抽屉交互废弃 ----
+// ---- 试卷影子条目：一卷多节入口投影（数据在 readings.json，不进题库管道） ----
+
+function contextPapers(cur, folderIds) {
+  const papers = papersCache || [];
+  if (cur === 'archive') return papers.filter((p) => p.archived);
+  if (cur === 'uncategorized') return papers.filter((p) => !p.archived && (!p.folder_id || !folderIds.has(String(p.folder_id))));
+  return papers.filter((p) => !p.archived && String(p.folder_id || '') === cur);
+}
+
+// 节条目显示名（与球内 tab 命名统一）
+function paperSectionName(s) {
+  if (s.kind === 'bank') return '选词填空';
+  if (s.kind === 'match') return '段落匹配';
+  const cn = ['一', '二', '三', '四', '五'];
+  const m = /^C(\d+)$/.exec(String(s.key || ''));
+  if (m) return `仔细阅读${cn[Number(m[1]) - 1] || m[1]}`;
+  return s.label || '仔细阅读';
+}
+
+function appendPaperItem(listEl, p, ctx) {
+  if (p.is_paper) {
+    // 试卷：归档视图=整卷单条目；文件夹/未分类=展开节条目
+    if (ctx === 'archive') {
+      listEl.appendChild(makePaperLi(p, {
+        name: p.title,
+        badge: '卷',
+        meta: `${(p.sections || []).reduce((n, s) => n + (s.count || 0), 0)} 题`,
+        archived: true,
+      }));
+      return;
+    }
+    (p.sections || []).forEach((s) => {
+      listEl.appendChild(makePaperLi(p, {
+        name: paperSectionName(s),
+        badge: '卷',
+        meta: s.kind === 'bank' ? `${s.count} 空` : `${s.count} 题`,
+        sec: s.key,
+        archived: false,
+      }));
+    });
+    return;
+  }
+  // 普通文章：单条目，仅入口（不可拖拽）
+  listEl.appendChild(makePaperLi(p, {
+    name: p.title,
+    badge: '',
+    meta: '阅读',
+    archived: false,
+  }));
+}
+
+function makePaperLi(p, opts) {
+  const li = document.createElement('li');
+  li.className = 'bank-item paper-item' + (opts.archived ? ' bank-item-archived' : '');
+  li.dataset.textId = String(p.id);
+  li.innerHTML =
+    `<div class="bank-name">${opts.badge ? `<span class="paper-badge">${escapeHtml(opts.badge)}</span>` : ''}${escapeHtml(opts.name)}</div>` +
+    `<div class="bank-meta">${escapeHtml(opts.meta)}</div>`;
+  li.onclick = () => {
+    // 主界面多视图：原地切阅读视图（pushState 免整页刷新），不再跳 /reading
+    openReadingView(String(p.id), opts.sec || '');
+  };
+  // 试卷可拖（活跃卷：移动/归档；归档卷：拖出恢复）；普通文章仅入口不可拖
+  if (p.is_paper) {
+    li.style.cursor = 'grab';
+    li.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) return;
+      startBankDrag(e, li, {
+        id: String(p.id),
+        archived: !!p.archived,
+        folder_id: p.folder_id || null,
+        name: opts.name,
+        __paper: true,
+      });
+    });
+  }
+  return li;
+}
+
+// ---- 主界面多视图：题库 ↔ 阅读原地切换（规格：阅读并入主界面） ----
+
+function buildReadUrl(textId, sec) {
+  let u = `/?read=${encodeURIComponent(textId)}`;
+  if (sec) u += `&sec=${encodeURIComponent(sec)}`;
+  return u;
+}
+
+async function applyReadingView(textId, sec, paper) {
+  const res = await api(`/api/reading/view/${encodeURIComponent(textId)}`);
+  if (!res || res.ok === false) {
+    await uiAlert(res && res.error ? res.error : '试卷不存在或已被删除');
+    showStudyView();
+    return;
+  }
+  document.body.classList.add('mode-reading');
+  const rv = $('readView');
+  if (rv) rv.hidden = false;
+  document.querySelectorAll('.rd-bubble, .rd-toast').forEach((el) => el.remove());
+  if (window.RD) window.RD.init(res, { sec: sec || '', paper: paper || '' });
+  const assetsLink = $('assetsLink');
+  if (assetsLink) assetsLink.href = '/assets?back=' + encodeURIComponent(`/?read=${textId}`);
+}
+
+async function openReadingView(textId, sec) {
+  try { history.pushState({ read: textId }, '', buildReadUrl(textId, sec)); } catch (e) { /* ignore */ }
+  await applyReadingView(textId, sec, '');
+}
+
+function showStudyView() {
+  // 退出阅读：宿主隐藏即可，刷题 DOM 的显隐本就由各自的态管理（CSS 只在 mode-reading 下压掉它们）
+  document.body.classList.remove('mode-reading');
+  const rv = $('readView');
+  if (rv) rv.hidden = true;
+  document.querySelectorAll('.rd-toolbar-only').forEach((b) => { b.hidden = true; });
+  ['rdQBall', 'rdQCard'].forEach((id) => { const el = $(id); if (el) el.hidden = true; });
+  document.querySelectorAll('.rd-bubble, .rd-picker-panel, .rd-toast').forEach((el) => el.remove());
+  const assetsLink = $('assetsLink');
+  if (assetsLink) assetsLink.href = '/assets';
+}
+
+window.addEventListener('popstate', () => {
+  const params = new URLSearchParams(location.search);
+  const readId = params.get('read');
+  if (readId) applyReadingView(readId, params.get('sec') || '', params.get('paper') || '');
+  else showStudyView();
+});
+
+// 阅读态下点题库/模考条目：退出阅读回刷题（试卷条目除外——它们本来就是进阅读）
+$('bankList').addEventListener('click', (ev) => {
+  const li = ev.target.closest('li');
+  if (!li || li.classList.contains('paper-item')) return;
+  if (document.body.classList.contains('mode-reading')) {
+    showStudyView();
+    try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
+  }
+});
 
 function clearDropHover() {
   document.querySelectorAll('.drop-hover').forEach((el) => el.classList.remove('drop-hover'));
@@ -436,6 +584,7 @@ function startBankDrag(e, li, b) {
     archived: !!b.archived,
     folderId: b.folder_id || null,
     bankName: String(b.name || ''),
+    __paper: !!b.__paper, // 试卷影子条目：落点走 reading 专属 API，无右栏排序
     el: li,
     placeholder: null,
     startY: e.clientY,
@@ -462,11 +611,12 @@ function bankDragBeginVisual() {
   el.parentNode.insertBefore(ph, el);
   // 原卡片原地隐藏（不移动，DOM 位置保留），占位符占据其视觉槽位
   el.style.display = 'none';
-  // 球体徽章：图标 + 截断名（6 字），跟随鼠标右下偏移
+  // 球体徽章：图标 + 截断名（6 字），跟随鼠标右下偏移（试卷用 📜 与题库区分）
   const name = (st.bankName || '').trim() || '题库';
   const chip = document.createElement('div');
   chip.className = 'bank-drag-chip';
-  chip.textContent = (st.archived ? '🗄 ' : '📚 ') + (name.length > 6 ? name.slice(0, 6) + '…' : name);
+  const icon = st.__paper ? '📜 ' : (st.archived ? '🗄 ' : '📚 ');
+  chip.textContent = icon + (name.length > 6 ? name.slice(0, 6) + '…' : name);
   document.body.appendChild(chip);
   st.chip = chip;
   document.body.classList.add('is-bank-dragging');
@@ -591,6 +741,44 @@ async function onBankDragEnd(e) {
   // 销毁球体徽章 + 原卡片恢复可见（本体未移动过，仅需取消隐藏）
   if (chip) chip.remove();
   el.style.display = '';
+
+  // ---- 试卷分支：整卷移动/归档/恢复（影子条目，走 reading 专属 API；无右栏排序语义） ----
+  if (st.__paper) {
+    if (placeholder && placeholder.parentElement) placeholder.parentElement.removeChild(placeholder);
+    st.parent.insertBefore(el, st.nextSibling);
+    if (!navTargetId) return; // 右栏内松手：无排序语义，放回原位
+    if (navTargetId === 'archive') {
+      if (archived) return; // 归档视图内拖到归档：无操作
+      const res = await api('/api/reading/paper/archive', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text_id: id }),
+      });
+      if (res.ok === false) { await uiAlert(res.error || '归档失败'); return; }
+      await refreshBanks();
+      return;
+    }
+    if (archived) {
+      // 归档卷拖出 = 整卷恢复（回原 folder_id，与题库「恢复+移入」不同：试卷恢复固定回原处）
+      const res = await api('/api/reading/paper/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text_id: id }),
+      });
+      if (res.ok === false) { await uiAlert(res.error || '恢复失败'); await refreshBanks(); return; }
+      await refreshBanks();
+      return;
+    }
+    // 活跃卷：移入文件夹/移出
+    const targetFolderId = navTargetId === 'uncategorized' ? null : navTargetId;
+    if (String(folderId || '') !== String(targetFolderId || '')) {
+      const res = await api('/api/reading/paper/move', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text_id: id, folder_id: targetFolderId }),
+      });
+      if (res.ok === false) { await uiAlert(res.error || '移动失败'); return; }
+      await refreshBanks();
+    }
+    return;
+  }
 
   // ---- 落点 A：左栏导航目标（移入文件夹 / 归档 / 回未分类） ----
   if (navTargetId) {
@@ -4083,6 +4271,15 @@ function refreshCelestial() {
   } else {
     const s = await refreshStatus();
     await syncStudyMode(s);
+  }
+
+  // 主界面多视图直链：/?read=<id> 服务端注入 RD_BOOT——阅读宿主就位（内容由 reading.js 自举渲染）
+  if (window.RD_BOOT && window.RD_BOOT.text && window.RD_BOOT.text.id) {
+    document.body.classList.add('mode-reading');
+    const rv = $('readView');
+    if (rv) rv.hidden = false;
+    const a = $('assetsLink');
+    if (a) a.href = '/assets?back=' + encodeURIComponent(`/?read=${window.RD_BOOT.text.id}`);
   }
 
   const replay = $('lykieReplayStoryBtn');

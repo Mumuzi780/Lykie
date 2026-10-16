@@ -10,8 +10,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m95">
+  <link rel="stylesheet" href="/static/style.css?v=m96">
   <link rel="stylesheet" href="/static/sa.css?v=m5">
+  <link rel="stylesheet" href="/static/reading.css?v=17">
 </head>
 <body class="mode-kill" data-username="{{ username }}">
   <div class="bank-drawer-backdrop" id="bankDrawerBackdrop"></div>
@@ -39,8 +40,10 @@
         <div class="stats mock-timer-wrap" id="mockTimerWrap" hidden>用时 <span id="mockTimer">0:00</span></div>
         <div class="actions" id="headerActions">
           <button type="button" id="bankDrawerBtn" class="btn ghost bank-drawer-btn">题库</button>
-          <a class="btn ghost" href="/assets" title="把学会的变成自己的">资产</a>
-          <a class="btn ghost" href="/reading" title="在哪里不会点哪里">阅读</a>
+          <a class="btn ghost" id="assetsLink" href="/assets" title="把学会的变成自己的">资产</a>
+          <button type="button" class="btn ghost rd-toolbar-only" id="rdKeyImportBtn" hidden title="粘贴标准答案，如 36-45 FBAID">导入答案</button>
+          <button type="button" class="btn ghost rd-toolbar-only" id="rdKeyAiBtn" hidden title="DeepSeek 生成答案，仅供参考">AI 出答案</button>
+          <button type="button" class="btn ghost rd-toolbar-only" id="rdRedoBtn" hidden title="清空全部作答与判分">重做</button>
           <button type="button" id="wrongBookBtn" class="btn ghost">错题本</button>
           <button id="saEditKwBtn" class="btn ghost mode-sa-only" type="button" hidden disabled>编辑关键词</button>
           <button id="resetBtn" class="btn ghost mode-kill-only">重置进度</button>
@@ -117,6 +120,17 @@
               <div class="sa-feedback" id="saFeedback" hidden></div>
             </div>
           </div>
+        </div>
+
+        <!-- 阅读视图（多视图架构：?read=<id> 时由 RD.init 填充并显示） -->
+        <div class="reading-workspace" id="readView" hidden>
+          <header class="reading-article-head">
+            <h1 class="reading-article-title" id="rdTitle"></h1>
+            <p class="reading-article-source" id="rdSourceTag"></p>
+          </header>
+          <div id="rdPassHost"></div>
+          <p class="reading-hint reading-view-hint" id="readingHint"></p>
+          <p class="reading-tip">划选词或短语 → 查词；划选长句 → 翻译。查词卡片可改可删，确认后存入资产库。</p>
         </div>
       </main>
 
@@ -461,12 +475,32 @@
     </div>
   </div>
 
+  <!-- 阅读视图悬浮题目：球 + 卡片（固定定位，仅阅读视图激活时可见） -->
+  <button type="button" class="rd-qball" id="rdQBall" title="题目" hidden>
+    <span class="rd-qball-num" id="rdQBallNum">0</span>
+    <span class="rd-qball-label">题</span>
+  </button>
+  <div class="rd-qcard" id="rdQCard" hidden>
+    <header class="rd-qcard-head">
+      <span class="rd-qcard-pos" id="rdQPos"></span>
+      <div class="rd-qcard-nav">
+        <button type="button" class="btn ghost" id="rdQClose" title="收起">✕</button>
+      </div>
+    </header>
+    <nav class="rd-tabs" id="rdTabs" hidden></nav>
+    <div class="rd-qcard-body" id="rdQCardBody"></div>
+  </div>
+
   <script src="/static/dialog.js?v=1"></script>
   <script src="/static/sa.js?v=sa25"></script>
   <script src="/static/sfx.js?v=11"></script>
   <script src="/static/fx.js?v=10"></script>
-  <script src="/static/script.js?v=m96"></script>
+  {% if rd_payload %}
+  <script>window.RD_BOOT = {{ rd_payload|tojson }};</script>
+  {% endif %}
+  <script src="/static/script.js?v=m99"></script>
   <script src="/static/mock.js?v=8"></script>
   <script src="/static/story.js?v=m6"></script>
+  <script src="/static/reading.js?v=18"></script>
 </body>
 </html>

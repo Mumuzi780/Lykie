@@ -659,18 +659,13 @@ def api_assets_vocab_tidy_apply(entry_id):
 
 # ==================== 阅读视图：划词查词/翻译 ====================
 
-@app.route("/reading")
-def reading_page():
-    return render_template("reading.html", username=g.store.username)
-
-
-@app.route("/reading/<text_id>")
-def reading_view_page(text_id):
+def _reading_view_payload(text_id):
+    """阅读视图数据组装（/ 直链渲染与 view API 共用）。找不到返回 None。"""
     text = lykie_readings.get_text(g.store.username, text_id)
     if not text:
-        return redirect(url_for("reading_page"))
+        return None
     paragraphs = [p for p in str(text.get("content") or "").split("\n\n") if p.strip()]
-    article_paras, questions = lykie_readings.split_questions(paragraphs)
+    sections = lykie_readings.build_sections(paragraphs)
     # 已查词标记表：imported 的词 gloss 以资产库释义为准（用户存词时可能改过）
     marks = lykie_readings.get_lookup_marks(g.store.username, text_id)
     vocab = lykie_assets.load_assets(g.store.username).get("vocab") or []
@@ -689,14 +684,41 @@ def reading_view_page(text_id):
             senses = v.get("senses") or []
             if senses and str((senses[0] or {}).get("meaning") or "").strip():
                 m["gloss"] = str(senses[0].get("meaning")).strip()[:200]
-    return render_template(
-        "reading_view.html",
-        username=g.store.username,
-        text=text,
-        paragraphs=article_paras,
-        questions=questions,
-        lookup_marks=marks,
-    )
+    return {
+        "text": lykie_readings._public_text(text),
+        "sections": sections,
+        "has_questions": any(s.get("questions") for s in sections),
+        "lookup_marks": marks,
+        "answer_state": lykie_readings.get_answer_state(g.store.username, text_id),
+    }
+
+
+@app.route("/reading")
+def reading_page():
+    # 列表页废弃：试卷导入新家在 /import（规格：阅读并入主界面）
+    return redirect(url_for("import_page"), code=301)
+
+
+@app.route("/reading/<text_id>")
+def reading_view_page(text_id):
+    # 阅读并入主界面：旧链接 301 到 /?read=<id>（携带 sec/paper 参数）
+    if not lykie_readings.get_text(g.store.username, text_id):
+        return redirect(url_for("index"), code=301)
+    args = {"read": text_id}
+    if request.args.get("sec"):
+        args["sec"] = request.args.get("sec")
+    if request.args.get("paper"):
+        args["paper"] = request.args.get("paper")
+    return redirect(url_for("index", **args), code=301)
+
+
+@app.route("/api/reading/view/<text_id>")
+def api_reading_view(text_id):
+    """主界面阅读视图数据（侧栏 pushState 切换用，免整页刷新）。"""
+    payload = _reading_view_payload(text_id)
+    if not payload:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True, **payload})
 
 
 @app.route("/api/reading/texts", methods=["GET"])
@@ -720,7 +742,16 @@ def api_reading_texts_create():
     if err:
         return jsonify({"ok": False, "error": err}), 400
     item = lykie_readings.create_text(g.store.username, title, source, content)
-    return jsonify_user({"ok": True, "item": item})
+    # 卷检测钩子：识别为试卷 → 自动建夹（同名复用）并挂 folder_id；普通文章跳过
+    folder_name = ""
+    is_paper = lykie_readings.detect_paper(item.get("content") or "")
+    if is_paper:
+        folder, _ferr = lykie_folders.ensure_folder(g.store, title)
+        if folder:
+            lykie_readings.mark_paper(g.store.username, item["id"], folder.get("id"))
+            folder_name = folder.get("name") or ""
+        g.store.save()
+    return jsonify_user({"ok": True, "item": item, "is_paper": is_paper, "folder": folder_name})
 
 
 @app.route("/api/reading/preview", methods=["POST"])
@@ -744,6 +775,42 @@ def api_reading_texts_get(text_id):
 def api_reading_texts_delete(text_id):
     ok = lykie_readings.delete_text(g.store.username, text_id)
     if not ok:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/reading/paper/move", methods=["POST"])
+def api_reading_paper_move():
+    """整卷移动（影子条目拖拽）：folder_id 为空 = 移回未分类。"""
+    data = request.get_json(force=True) or {}
+    text_id = str(data.get("text_id") or "")
+    folder_id = data.get("folder_id")
+    if folder_id not in (None, "") and not lykie_folders.find_folder(g.store, str(folder_id)):
+        return jsonify({"ok": False, "error": "文件夹不存在"}), 400
+    t = lykie_readings.get_text(g.store.username, text_id)
+    if not t:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    if t.get("archived"):
+        return jsonify({"ok": False, "error": "先恢复再移动"}), 400
+    if not lykie_readings.set_paper_folder(g.store.username, text_id, folder_id):
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/reading/paper/archive", methods=["POST"])
+def api_reading_paper_archive():
+    """整卷归档（拖任一节条目入抽屉 = 卷原子归档）。"""
+    data = request.get_json(force=True) or {}
+    if not lykie_readings.archive_paper(g.store.username, str(data.get("text_id") or "")):
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/reading/paper/restore", methods=["POST"])
+def api_reading_paper_restore():
+    """整卷恢复（回原 folder_id）。"""
+    data = request.get_json(force=True) or {}
+    if not lykie_readings.restore_paper(g.store.username, str(data.get("text_id") or "")):
         return jsonify({"ok": False, "error": "未找到"}), 404
     return jsonify({"ok": True})
 
@@ -910,6 +977,125 @@ def api_reading_lookup():
     })
 
 
+# ==================== 阅读全题型：PDF 导入 + 站内作答 ====================
+
+@app.route("/api/reading/pdf", methods=["POST"])
+def api_reading_pdf():
+    """整卷 PDF 上传→提取→裁出阅读部分→回填导入框（不落库，走既有预览管道）。"""
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "请选择 PDF 文件"}), 400
+    try:
+        raw = lykie_readings.extract_pdf(f)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    content, sliced = lykie_readings.slice_reading_part(raw)
+    return jsonify_user({"ok": True, "content": content, "sliced": sliced})
+
+
+@app.route("/api/reading/<text_id>/answer", methods=["POST"])
+def api_reading_answer(text_id):
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_readings.save_answer(
+        g.store.username, text_id,
+        str(data.get("num") or ""), str(data.get("key") or ""))
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/reading/<text_id>/judge", methods=["POST"])
+def api_reading_judge(text_id):
+    data = request.get_json(force=True) or {}
+    raw_nums = data.get("nums")
+    result = lykie_readings.judge_answers(
+        g.store.username, text_id,
+        str(data.get("num") or ""),
+        nums=raw_nums if isinstance(raw_nums, list) else None)
+    if result is None:
+        return jsonify({"ok": False, "error": "还没有标准答案，先导入答案或让 AI 出答案"}), 400
+    return jsonify_user({"ok": True, "result": result})
+
+
+@app.route("/api/reading/<text_id>/answer_key/import", methods=["POST"])
+def api_reading_answer_key_import(text_id):
+    data = request.get_json(force=True) or {}
+    try:
+        key = lykie_readings.parse_answer_key(data.get("key") or "")
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    if not lykie_readings.set_answer_key(g.store.username, text_id, key, "user"):
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True, "count": len(key), "key": key, "source": "user"})
+
+
+_ANSWER_KEY_PROMPT = (
+    "你是大学英语四级阅卷老师。下面给你一篇阅读题的正文和题目列表。\n"
+    "为每道题选出正确答案。选词填空从词库中选对应字母；"
+    "段落匹配选出处段落的字母；仔细阅读选最佳选项字母。\n"
+    "只依据文本本身作答，不确定时选最可能的。输出严格 JSON：\n"
+    '{{"answers": {{"26": "N", "36": "F", "46": "B"}}}}\n'
+    "键是题号字符串，值是单个大写字母。\n"
+    "正文：\n{article}\n\n题目：\n{questions}"
+)
+
+
+@app.route("/api/reading/<text_id>/answer_key/ai", methods=["POST"])
+def api_reading_answer_key_ai(text_id):
+    text = lykie_readings.get_text(g.store.username, text_id)
+    if not text:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    paragraphs = [p for p in str(text.get("content") or "").split("\n\n") if p.strip()]
+    sections = lykie_readings.build_sections(paragraphs)
+    questions = [q for s in sections for q in s.get("questions") or []]
+    if not questions:
+        return jsonify({"ok": False, "error": "这篇没有解析出题目，无法出答案"}), 400
+
+    def q_brief(q):
+        opts = " ".join(f"{o['key']}) {o['text']}" for o in q.get("options") or [])
+        return f"{q.get('num')}. {q.get('stem') or ''}\n选项：{opts}".strip()
+
+    q_text = "\n".join(q_brief(q) for q in questions)
+    article_paras = [p for s in sections for p in s.get("articles") or []]
+    prompt = _ANSWER_KEY_PROMPT.format(article="\n".join(article_paras), questions=q_text)
+    try:
+        raw = lykie_llm.chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.0,
+            json_mode=True,
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"AI 出答案失败：{exc}"})
+    obj = _parse_llm_json(raw)
+    answers = (obj or {}).get("answers") if isinstance(obj, dict) else None
+    if not isinstance(answers, dict) or not answers:
+        return jsonify({"ok": False, "error": "模型返回异常，请稍后重试或手动导入答案"})
+    key = {str(k).strip(): str(v).strip().upper()[:1]
+           for k, v in answers.items() if str(k).strip().isdigit() and str(v).strip()}
+    if not key:
+        return jsonify({"ok": False, "error": "模型没给出有效答案，请稍后重试或手动导入"})
+    lykie_readings.set_answer_key(g.store.username, text_id, key, "ai")
+    return jsonify_user({"ok": True, "count": len(key), "key": key, "source": "ai"})
+
+
+@app.route("/api/reading/<text_id>/reveal", methods=["POST"])
+def api_reading_reveal(text_id):
+    """主动查看单题正确答案（选词填空判错后的兜底）：置 revealed 锁定。"""
+    data = request.get_json(force=True) or {}
+    ok, err = lykie_readings.reveal_answer(
+        g.store.username, text_id, str(data.get("num") or ""))
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/reading/<text_id>/reset", methods=["POST"])
+def api_reading_reset(text_id):
+    if not lykie_readings.reset_answers(g.store.username, text_id):
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify({"ok": True})
+
+
 def find_question(bank, qid):
     return next((q for q in bank["questions"] if q["id"] == qid), None)
 
@@ -968,7 +1154,19 @@ def render_question(q, bank=None):
 # ==================== 路由 ====================
 @app.route("/")
 def index():
-    return render_template("index.html", username=g.store.username)
+    # 主界面多视图：?read=<id> 时服务端预注入阅读数据（直链/刷新可用）
+    read_id = str(request.args.get("read") or "")
+    rd_payload = None
+    if read_id:
+        rd_payload = _reading_view_payload(read_id)
+        if rd_payload:
+            rd_payload["sec"] = str(request.args.get("sec") or "")
+            rd_payload["paper"] = str(request.args.get("paper") or "")
+    return render_template(
+        "index.html",
+        username=g.store.username,
+        rd_payload=rd_payload,
+    )
 
 
 @app.route("/import")
@@ -1571,6 +1769,7 @@ def api_banks():
         })
     return jsonify_user({
         "banks": result,
+        "papers": lykie_readings.list_papers(g.store.username),
         "current_bank_id": g.store.current_bank_id,
         "folders": lykie_folders.list_folders(g.store),
         "collections": lykie_mock.list_collections(g.store),
@@ -1685,10 +1884,13 @@ def api_folders_rename():
 @app.route("/api/folders/delete", methods=["POST"])
 def api_folders_delete():
     data = request.get_json(force=True) or {}
-    ok, err = lykie_folders.delete_folder(g.store, str(data.get("id") or ""))
+    fid = str(data.get("id") or "")
+    ok, err = lykie_folders.delete_folder(g.store, fid)
     if not ok:
         return jsonify({"ok": False, "error": err}), 400
     g.store.save()
+    # 文件夹没了，挂在其下的试卷引用一并清（回未分类）
+    lykie_readings.clear_folder_refs(g.store.username, fid)
     return jsonify_user({
         "ok": True,
         "folders": lykie_folders.list_folders(g.store),

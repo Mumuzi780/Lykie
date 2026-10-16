@@ -24,156 +24,35 @@
     return data;
   }
 
-  /* ==================== 列表页 ==================== */
-
-  if (document.body.classList.contains('reading-page')) {
-    const listEl = $('readingTextList');
-
-    function setNewHint(msg, isErr) {
-      const el = $('newTextHint');
-      if (!el) return;
-      el.textContent = msg || '';
-      el.classList.toggle('is-err', !!isErr);
-    }
-
-    async function loadTexts() {
-      listEl.textContent = '加载中…';
-      try {
-        const res = await api('/api/reading/texts');
-        if (!res.ok) {
-          listEl.textContent = res.error || '加载失败';
-          return;
-        }
-        const items = res.items || [];
-        if (!items.length) {
-          listEl.innerHTML = '<p class="reading-empty">还没有文章。点右上「新建文章」，粘贴一篇真题阅读开始。</p>';
-          return;
-        }
-        listEl.innerHTML = items.map((t) => (
-          `<div class="reading-text-item" data-id="${escapeHtml(t.id)}">
-            <div class="reading-text-main">
-              <a class="reading-text-title" href="/reading/${encodeURIComponent(t.id)}">${escapeHtml(t.title || '无标题')}</a>
-              <span class="reading-text-source">${escapeHtml(t.source || '')}</span>
-              <span class="reading-text-time">${escapeHtml(t.created_at || '')}</span>
-            </div>
-            <div class="reading-text-actions">
-              <a class="btn ghost" href="/reading/${encodeURIComponent(t.id)}">阅读</a>
-              <button type="button" class="btn ghost reading-text-del">删除</button>
-            </div>
-          </div>`
-        )).join('');
-      } catch (err) {
-        listEl.textContent = '网络错误';
-      }
-    }
-
-    listEl.addEventListener('click', async (ev) => {
-      const btn = ev.target.closest('.reading-text-del');
-      if (!btn) return;
-      const item = btn.closest('.reading-text-item');
-      if (!item || !window.confirm('删除这篇文章？相关查词记录会一并清除。')) return;
-      btn.disabled = true;
-      try {
-        const res = await api(`/api/reading/texts/${encodeURIComponent(item.dataset.id)}/delete`, { method: 'POST' });
-        if (!res.ok) {
-          window.alert(res.error || '删除失败');
-          btn.disabled = false;
-          return;
-        }
-        await loadTexts();
-      } catch (err) {
-        btn.disabled = false;
-      }
-    });
-
-    $('newTextBtn').addEventListener('click', () => {
-      const panel = $('newTextPanel');
-      panel.hidden = !panel.hidden;
-      if (!panel.hidden) $('newTitle').focus();
-    });
-    $('newTextCancel').addEventListener('click', () => {
-      $('newTextPanel').hidden = true;
-      setNewHint('');
-    });
-
-    $('newTextForm').addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      setNewHint('');
-      const btn = $('newTextSubmit');
-      btn.disabled = true;
-      try {
-        const res = await api('/api/reading/texts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: $('newTitle').value,
-            source: $('newSource').value,
-            content: $('newContent').value,
-          }),
-        });
-        if (!res.ok) {
-          setNewHint(res.error || '保存失败', true);
-          return;
-        }
-        window.location.href = `/reading/${encodeURIComponent(res.item.id)}`;
-      } catch (err) {
-        setNewHint(err.message || '网络错误', true);
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    // ---- 导入实时分段预览（所见即所得，与保存走同一后端分段器） ----
-    const previewBox = $('newTextPreview');
-    const previewBody = $('newTextPreviewBody');
-    const previewCount = $('newTextPreviewCount');
-    let previewTimer = null;
-    let previewSeq = 0;
-
-    async function runPreview() {
-      const my = ++previewSeq;
-      try {
-        const res = await api('/api/reading/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: $('newContent').value }),
-        });
-        if (my !== previewSeq || !res.ok) return;
-        const ps = res.paragraphs || [];
-        previewCount.textContent = ps.length ? `共 ${ps.length} 段` : '正文为空';
-        previewBody.innerHTML = ps.map((p) => `<p class="reading-p">${escapeHtml(p)}</p>`).join('');
-        previewBox.hidden = false;
-      } catch (err) { /* 预览失败静默，不阻塞录入 */ }
-    }
-
-    $('newContent').addEventListener('input', () => {
-      clearTimeout(previewTimer);
-      if (!$('newContent').value.trim()) {
-        previewBox.hidden = true;
-        return;
-      }
-      previewTimer = setTimeout(runPreview, 400);
-    });
-
-    loadTexts();
-    return;
-  }
+  // 列表页已废弃（规格：阅读并入主界面）：试卷导入迁至 /import，阅读入口在 index 侧栏。
 
   /* ==================== 阅读页：划词查词 ==================== */
 
   const POS_OPTIONS = ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'phr.', 'other'];
-  const article = $('readingArticle');
+  let readAreas = [];      // 多视图：文章可换，init 时按当前正文重查
   const body = document.body;
-  const textId = body.dataset.textId || '';
-  const source = body.dataset.source || '';
+  let textId = '';         // 多视图：由 RD.init 注入
+  let source = '';
 
   let bubble = null;
   let card = null;
   let seq = 0;             // 请求序号：只认最后一次
   let savedRange = null;   // 气泡打开时的选区，存词后用于加下划线
 
-  // 进入页面即恢复已查词标记（后端注入 window.RD_MARKS，持久于刷新）
-  markLookuped(article);
+  // ---- 多视图：正文渲染（顺序与后端 para_index 定位严格一致） ----
+  function renderArticle(allSections) {
+    const host = $('rdPassHost');
+    if (!host) return;
+    host.innerHTML = (allSections || []).map((s) => (
+      `<section class="rd-pass" data-key="${escapeHtml(s.key || '')}" data-kind="${escapeHtml(s.kind || '')}">
+        ${s.label ? `<h2 class="rd-pass-title">${escapeHtml(s.label)}</h2>` : ''}
+        <article class="reading-article" aria-label="正文">
+          ${(s.articles || []).map((p) => `<p class="reading-p">${escapeHtml(p)}</p>`).join('')}
+        </article>
+      </section>`
+    )).join('');
+    readAreas = Array.from(document.querySelectorAll('.reading-article'));
+  }
 
   function setHint(msg, isErr) {
     const el = $('readingHint');
@@ -190,11 +69,12 @@
     if (card) { card.remove(); card = null; }
   }
 
-  /** 划词有效区：正文 + 题目卡片/全部题目列表（做题时也能查题干生词）。 */
+  /** 划词有效区：正文（多篇阅读区）+ 题目面板/弹层（做题时也能查题干生词）。 */
   function inReadArea(node) {
     if (!node) return false;
-    return article.contains(node)
-      || !!(node.nodeType === 1 ? node : node.parentElement)?.closest?.('.rd-qcard-body, .rd-qall-body');
+    if (readAreas.some((a) => a.contains(node))) return true;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    return !!(el && el.closest && el.closest('.rd-qcard-body, .rd-qall-body, .rd-picker-panel'));
   }
 
   function getSelectionInfo() {
@@ -329,7 +209,7 @@
         // 查词成功即标记查词时的那一处，释义悬浮可看
         lastSelText = info.text;
         addMark(info.text, draft.meaning || '', false, pos);
-        markLookuped(pos && pos.area === 'q' ? $('rdQCardBody') : article);
+        if (pos && pos.area === 'q') markLookuped($('rdQCardBody')); else markBodyMarks();
       }
       openCard(info, sentence, draft, res.ok ? '' : (res.error || ''));
     } catch (err) {
@@ -462,7 +342,8 @@
       decorateSaved();
       // 标记升级为已入库（保存时的释义悬浮可看）；不再全文重复标注
       addMark(lastSelText, meaning, true);
-      const savedEl = article.querySelector('.rd-saved:last-of-type');
+      const savedEls = document.querySelectorAll('span.rd-saved');
+      const savedEl = savedEls[savedEls.length - 1];
       if (savedEl) {
         savedEl.classList.add('rd-mark', 'rd-mark-imported');
         if (meaning) savedEl.setAttribute('data-gloss', meaning);
@@ -540,8 +421,10 @@
         if (qParaIndex < 0) return null;
         return { area: 'q', qNum, qParaIndex, occurIndex };
       }
-      if (!article.contains(para)) return null;
-      const paraIndex = Array.prototype.indexOf.call(article.children, para);
+      if (!readAreas.some((a) => a.contains(para))) return null;
+      // 多篇阅读区：para_index 按全文档 .reading-p 顺序（服务端渲染顺序，稳定）
+      const allParas = document.querySelectorAll('.rd-pass .reading-p');
+      const paraIndex = Array.prototype.indexOf.call(allParas, para);
       if (paraIndex < 0) return null;
       return { area: 'body', paraIndex, occurIndex };
     } catch (e) {
@@ -583,20 +466,23 @@
     return false;
   }
 
+  /** 正文标记重放：多篇阅读区按全文档 .reading-p 顺序定位（与 positionOfSelection 一致）。 */
+  function markBodyMarks() {
+    const marks = window.RD_MARKS || [];
+    if (!marks.length) return;
+    const paras = document.querySelectorAll('.rd-pass .reading-p');
+    for (const m of marks) {
+      if (typeof m.para_index !== 'number' || typeof m.occur_index !== 'number') continue;
+      const para = paras[m.para_index];
+      if (para) wrapOccurrence(para, String(m.selection || '').trim(),
+                               m.occur_index, !!m.imported, String(m.gloss || ''));
+    }
+  }
+
+  /** 题目区标记重放：按题号+题内段序号定位（球面板/弹层渲染后调用）。 */
   function markLookuped(root) {
     const marks = window.RD_MARKS || [];
     if (!marks.length || !root) return;
-    if (root === article) {
-      // 正文：按段序号定位
-      for (const m of marks) {
-        if (typeof m.para_index !== 'number' || typeof m.occur_index !== 'number') continue;
-        const para = article.children[m.para_index];
-        if (para) wrapOccurrence(para, String(m.selection || '').trim(),
-                                 m.occur_index, !!m.imported, String(m.gloss || ''));
-      }
-      return;
-    }
-    // 题目区（卡片/全部）：按题号+题内段序号定位
     for (const m of marks) {
       if (typeof m.q_para_index !== 'number' || typeof m.occur_index !== 'number' || !m.q_num) continue;
       const sec = root.querySelector(`.rd-q[data-num="${CSS.escape(String(m.q_num))}"]`);
@@ -620,11 +506,34 @@
   const qCard = $('rdQCard');
 
   if (qBall && qCard) {
-    const qs = window.RD_QUESTIONS || [];
-    let qi = 0;
-    let qMode = 'single'; // single | all
-
     const BALL_POS_KEY = 'rd-qball-pos';
+
+    // ---- 卡片尺寸：右下角原生 resize 手柄拖拽，pointerup 时持久化 ----
+    const CARD_SIZE_KEY = 'rd-qcard-size';
+    try {
+      const sz = JSON.parse(localStorage.getItem(CARD_SIZE_KEY) || 'null');
+      if (sz && typeof sz.w === 'number' && typeof sz.h === 'number') {
+        qCard.style.width = `${sz.w}px`;
+        qCard.style.height = `${sz.h}px`;
+      }
+    } catch (e) { /* ignore */ }
+    qCard.addEventListener('pointerup', () => {
+      try {
+        localStorage.setItem(CARD_SIZE_KEY, JSON.stringify({ w: qCard.offsetWidth, h: qCard.offsetHeight }));
+      } catch (e) { /* ignore */ }
+    });
+
+    // ---- 滚轮重定向：鼠标在卡片上滚动永远滚卡片内容，不穿透到底层页面 ----
+    // body 内：原生滚动 + overscroll-behavior: contain 挡住到头穿透
+    // 头部/tab 等非滚动区：原生会去滚页面，手动转给 body
+    qCard.addEventListener('wheel', (ev) => {
+      if (!qBody0().contains(ev.target)) {
+        ev.preventDefault();
+        const b = qBody0();
+        b.scrollTop += ev.deltaY;
+      }
+    }, { passive: false });
+    function qBody0() { return $('rdQCardBody'); }
 
     const clampBall = (left, top) => {
       const w = qBall.offsetWidth || 58;
@@ -635,61 +544,308 @@
       };
     };
 
-    const setBallPos = (left, top, save) => {
+    // 贴边停靠：拖到左右边缘 → 半隐藏；点击露出的半边 → 弹回内侧（呼出）
+    let ballDocked = null; // 'left' | 'right' | null
+
+    const setBallPos = (left, top, save, docked = null) => {
+      qBall.style.right = 'auto';
+      qBall.style.bottom = 'auto';
+      if (docked) {
+        const w = qBall.offsetWidth || 58;
+        const t = Math.max(4, Math.min(top, window.innerHeight - w - 4));
+        const leftNum = docked === 'left' ? -Math.floor(w / 2) : window.innerWidth - Math.ceil(w / 2);
+        qBall.style.left = `${leftNum}px`;
+        qBall.style.top = `${t}px`;
+        ballDocked = docked;
+        if (save) {
+          try { localStorage.setItem(BALL_POS_KEY, JSON.stringify({ left: leftNum, top: t, docked })); } catch (e) { /* ignore */ }
+        }
+        return;
+      }
+      ballDocked = null;
       const p = clampBall(left, top);
       qBall.style.left = `${p.left}px`;
       qBall.style.top = `${p.top}px`;
-      qBall.style.right = 'auto';
-      qBall.style.bottom = 'auto';
       if (save) {
         try { localStorage.setItem(BALL_POS_KEY, JSON.stringify(p)); } catch (e) { /* ignore */ }
       }
     };
 
-    // 恢复上次位置
+    // 恢复上次位置（含贴边停靠态）
     try {
       const saved = JSON.parse(localStorage.getItem(BALL_POS_KEY) || 'null');
-      if (saved && typeof saved.left === 'number') setBallPos(saved.left, saved.top, false);
+      if (saved && typeof saved.left === 'number') setBallPos(saved.left, saved.top, false, saved.docked || null);
     } catch (e) { /* ignore */ }
 
-    // ---- 卡片渲染 ----
+    // ---- 题目面板：分篇 tab（v11 重构；v17 多视图：状态由 RD.init 注入） ----
     const qBody = $('rdQCardBody');
     const qPos = $('rdQPos');
+    const tabsEl = $('rdTabs');
+    let sections = [];  // 面板节（有题目/词库的节），init 注入
+    let activeTab = 0;
 
-    const renderQ = () => {
-      qMode = 'single';
-      qi = Math.max(0, Math.min(qi, qs.length - 1));
-      const q = qs[qi];
-      qPos.textContent = `${q.num} · ${qi + 1}/${qs.length}`;
-      qBody.innerHTML = `<section class="rd-q" data-num="${escapeHtml(q.num)}">` +
-        q.paras.map((p, i) =>
-          `<p class="rd-q-p${i === 0 ? ' rd-q-stem' : ''}">${escapeHtml(p)}</p>`).join('') +
-        '</section>';
-      $('rdQPrev').hidden = false;
-      $('rdQNext').hidden = false;
-      $('rdQAllBtn').hidden = false;
-      $('rdQSingleBtn').hidden = true;
-      $('rdQPrev').disabled = qi === 0;
-      $('rdQNext').disabled = qi === qs.length - 1;
-      qCard.classList.remove('rd-qcard-all');
+    // 作答状态（init 注入；作答/判分后本地同步，刷新不丢——后端持久化）
+    const answerState = { answer_key: {}, answer_key_source: '', answers: {}, judged: {}, revealed: {} };
+    const hasAnswerKey = () => Object.keys(answerState.answer_key).length > 0;
+    const isJudged = (n) => Object.prototype.hasOwnProperty.call(answerState.judged, String(n));
+    const isRevealed = (n) => Object.prototype.hasOwnProperty.call(answerState.revealed, String(n));
+
+    const secOf = (kind) => sections.find((s) => s.kind === kind);
+    const bankWord = (key) => {
+      const sec = secOf('bank');
+      const o = sec && (sec.bank || []).find((x) => x.key === key);
+      return o ? o.text : '';
+    };
+
+    const shortLabel = (s) => {
+      if (s.kind === 'bank') return '选词填空';
+      if (s.kind === 'match') return '段落匹配';
+      if (s.kind === 'legacy') return '题目';
+      const m = /Passage (\w+)$/.exec(s.label || '');
+      const cn = { One: '一', Two: '二', Three: '三', Four: '四', Five: '五' };
+      return m ? `仔细阅读${cn[m[1]] || m[1]}` : '仔细阅读';
+    };
+
+    // ---- 各篇 tab 内容 ----
+    const renderChoiceQ = (q) => {
+      const picked = answerState.answers[q.num];
+      const judged = isJudged(q.num);
+      const correct = answerState.answer_key[q.num];
+      let html = `<p class="rd-q-p rd-q-stem">${escapeHtml(q.stem || '')}</p><div class="rd-opts" data-num="${escapeHtml(q.num)}">`;
+      q.options.forEach((o) => {
+        let cls = 'rd-opt';
+        if (picked === o.key) cls += ' is-picked';
+        if (judged) {
+          cls += ' is-locked';
+          if (o.key === correct) cls += ' is-correct';
+          else if (o.key === picked) cls += ' is-wrong';
+        }
+        html += `<button type="button" class="${cls}" data-num="${escapeHtml(q.num)}" data-key="${escapeHtml(o.key)}">` +
+          `<span class="rd-opt-key">${escapeHtml(o.key)}</span><span class="rd-opt-text">${escapeHtml(o.text)}</span></button>`;
+      });
+      html += '</div>';
+      if (hasAnswerKey()) {
+        html += `<div class="rd-q-actions"><button type="button" class="btn ghost rd-judge-btn" data-num="${escapeHtml(q.num)}"${picked && !judged ? '' : ' disabled'}>对答案</button></div>`;
+      }
+      return html;
+    };
+
+    const renderBankTab = (s) => {
+      // 词库总览：只读；标注每个词被哪空使用，判分红绿
+      const usedBy = {};
+      (s.questions || []).forEach((q) => {
+        const a = answerState.answers[q.num];
+        if (a) (usedBy[a] = usedBy[a] || []).push(q.num);
+      });
+      let html = '<div class="rd-bank">';
+      (s.bank || []).forEach((o) => {
+        const used = usedBy[o.key];
+        let cls = 'rd-bank-item';
+        if (used) {
+          cls += ' is-used';
+          if (used.some((n) => isRevealed(n) || (isJudged(n) && answerState.judged[n]))) cls += ' is-correct';
+          else if (used.some((n) => isJudged(n))) cls += ' is-wrong';
+        }
+        html += `<div class="${cls}"><span class="rd-opt-key">${escapeHtml(o.key)}</span> <span>${escapeHtml(o.text)}</span>` +
+          (used ? `<span class="rd-bank-used">→ 第 ${used.join('、')} 空</span>` : '') + '</div>';
+      });
+      return html + '</div>';
+    };
+
+    const renderMatchTab = (s) => {
+      // 候选题目（段落已在阅读区展示，不重复；作答在阅读区点段首字母）
+      let html = '<h4 class="rd-tab-h">候选题目 · 到阅读区点段首字母作答</h4>';
+      html += (s.questions || []).map((q) => {
+        const picked = answerState.answers[q.num];
+        const judged = isJudged(q.num);
+        const correct = answerState.answer_key[q.num];
+        let cls = 'rd-match-q';
+        if (judged) cls += answerState.judged[q.num] ? ' is-correct' : ' is-wrong';
+        let verdict = picked ? `选 ${escapeHtml(picked)}` : '未选';
+        if (judged) verdict += answerState.judged[q.num] ? ' ✓' : ` ✗ 正确 ${escapeHtml(correct || '?')}`;
+        return `<div class="${cls}" data-num="${escapeHtml(q.num)}"><span class="rd-match-num">${escapeHtml(q.num)}.</span>` +
+          `<span class="rd-match-stem">${escapeHtml(q.stem || '')}</span><span class="rd-match-pick">${verdict}</span>` +
+          (hasAnswerKey() ? `<button type="button" class="btn ghost rd-judge-btn" data-num="${escapeHtml(q.num)}"${picked && !judged ? '' : ' disabled'}>对答案</button>` : '') +
+          '</div>';
+      }).join('');
+      return html;
+    };
+
+    const renderActive = () => {
+      const s = sections[activeTab];
+      if (!s) { qBody.innerHTML = ''; return; }
+      qPos.textContent = s.label || '题目';
+      const qs = s.questions || [];
+      const answered = qs.filter((q) => answerState.answers[q.num]).length;
+      let html = '';
+      if (hasAnswerKey() && qs.length) {
+        const aiNote = answerState.answer_key_source === 'ai' ? '<span class="rd-key-ai-note">AI 生成，仅供参考</span>' : '';
+        html += `<div class="rd-qall-tools"><span class="rd-qall-count">已作答 ${answered}/${qs.length}${aiNote}</span>` +
+          `<button type="button" class="btn ghost rd-judgeall-btn"${answered ? '' : ' disabled'}>统一对答案</button></div>`;
+      }
+      if (s.kind === 'bank') html += renderBankTab(s);
+      else if (s.kind === 'match') html += renderMatchTab(s);
+      else if (s.kind === 'legacy') {
+        html += qs.map((q) => `<section class="rd-q" data-num="${escapeHtml(q.num)}">` +
+          (q.paras || []).map((p) => `<p class="rd-q-p">${escapeHtml(p)}</p>`).join('') + '</section>').join('');
+      } else {
+        html += qs.map((q) => `<section class="rd-q" data-num="${escapeHtml(q.num)}">${renderChoiceQ(q)}</section>`).join('');
+      }
+      qBody.innerHTML = html;
       markLookuped(qBody); // 题目区历史标记
     };
 
-    const renderAll = () => {
-      qMode = 'all';
-      qPos.textContent = `全部 · ${qs.length} 题`;
-      qBody.innerHTML = qs.map((q) =>
-        `<section class="rd-q" data-num="${escapeHtml(q.num)}">` +
-        q.paras.map((p, i) =>
-          `<p class="rd-q-p${i === 0 ? ' rd-q-stem' : ''}">${escapeHtml(p)}</p>`).join('') +
-        '</section>').join('');
-      $('rdQPrev').hidden = true;
-      $('rdQNext').hidden = true;
-      $('rdQAllBtn').hidden = true;
-      $('rdQSingleBtn').hidden = false;
-      qCard.classList.add('rd-qcard-all');
-      markLookuped(qBody); // 题目区历史标记
+    const renderTabs = () => {
+      if (sections.length <= 1) { tabsEl.hidden = true; return; }
+      tabsEl.hidden = false;
+      tabsEl.innerHTML = sections.map((s, i) =>
+        `<button type="button" class="rd-tab${i === activeTab ? ' is-active' : ''}" data-i="${i}">${escapeHtml(shortLabel(s))}</button>`).join('');
     };
+
+    const renderPanel = () => { renderTabs(); renderActive(); };
+
+    // tab 在 #rdTabs（qBody 之外），点击处理必须绑在 tabsEl 上
+    tabsEl.addEventListener('click', (ev) => {
+      const tab = ev.target.closest('.rd-tab');
+      if (tab) { activeTab = Number(tab.dataset.i) || 0; renderPanel(); }
+    });
+
+    // ---- 阅读区作答渲染：A 挖空块 + B 段落徽章 ----
+    const blankSpanHtml = (n) => {
+      // 状态优先级：已看答案 > 已判 > 已选 > 未选；判错不亮答案、可重选
+      const picked = answerState.answers[n];
+      const correct = answerState.answer_key[n];
+      let cls = 'rd-blank';
+      let label = n;
+      let title = `第 ${n} 空，点击选词`;
+      if (isRevealed(n)) {
+        cls += ' is-revealed';
+        label = `${correct}. ${bankWord(correct)}`;
+        title = `已查看答案${picked ? `（你选 ${picked}. ${bankWord(picked)}）` : ''}`;
+      } else if (isJudged(n)) {
+        if (answerState.judged[n]) {
+          cls += ' is-correct';
+          label = `${picked}. ${bankWord(picked)}`;
+          title = '答对了';
+        } else {
+          cls += ' is-wrong';
+          label = `${picked}. ${bankWord(picked)}`;
+          title = '选错了，点击重选；或点开弹层查看正确答案';
+        }
+      } else if (picked) {
+        cls += ' is-picked';
+        label = `${picked}. ${bankWord(picked)}`;
+        title = `${picked}. ${bankWord(picked)}，点击改选`;
+      }
+      return `<button type="button" class="${cls}" data-num="${escapeHtml(n)}" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+    };
+
+    const renderBlanks = () => {
+      const passA = document.querySelector('.rd-pass[data-kind="bank"]');
+      const sec = secOf('bank');
+      if (!passA || !sec) return;
+      const nums = (sec.questions || []).map((q) => q.num);
+      passA.querySelectorAll('.reading-p').forEach((p) => {
+        // 原文存 data-orig，每次从原文重建（改选/判分后即时更新；重写 innerHTML 会毁掉查词标记，由 markBodyMarks 补放）
+        if (!p.dataset.orig) p.dataset.orig = p.textContent;
+        let html = escapeHtml(p.dataset.orig);
+        let hit = false;
+        nums.forEach((n) => {
+          // 两种卷面形式：___26___（下划线包裹）与 ` 26 `（空格包裹）
+          const before = html;
+          html = html.replace(new RegExp(`_{2,}\\s?${n}\\s?_{2,}`, 'g'), `\u00abBLANK:${n}\u00bb`);
+          html = html.replace(new RegExp(`(?<=\\s)${n}(?=[\\s,\\.])`, 'g'), `\u00abBLANK:${n}\u00bb`);
+          if (html !== before) hit = true;
+        });
+        if (hit) {
+          p.innerHTML = html.replace(/\u00abBLANK:(\d+)\u00bb/g, (_, m) => blankSpanHtml(m));
+        }
+      });
+    };
+
+    const renderParaBadges = () => {
+      const passB = document.querySelector('.rd-pass[data-kind="match"]');
+      const sec = secOf('match');
+      if (!passB || !sec) return;
+      const byPara = {};
+      const stems = {};
+      (sec.questions || []).forEach((q) => {
+        stems[q.num] = q.stem || '';
+        const a = answerState.answers[q.num];
+        if (a) (byPara[a] = byPara[a] || []).push(q.num);
+      });
+      passB.querySelectorAll('.reading-p').forEach((p) => {
+        // 原文存 data-orig，每次从原文重建（选题后徽章即时更新；重写 innerHTML 毁掉的查词标记由 markBodyMarks 补放）
+        if (!p.dataset.orig) p.dataset.orig = p.textContent;
+        const orig = p.dataset.orig;
+        const m = /^([A-O])\)/.exec(orig.trim());
+        if (!m) return;
+        const letter = m[1];
+        const nums = byPara[letter] || [];
+        const marks = nums.map((n) => {
+          let cls = 'rd-para-mark';
+          if (isJudged(n)) cls += answerState.judged[n] ? ' is-correct' : ' is-wrong';
+          // data-tip 自绘 tooltip（即时响应+卡片样式），不用原生 title（有 1 秒延迟且不美化）
+          return `<span class="${cls}" data-tip="${escapeHtml(stems[n] || '')}">${escapeHtml(n)}</span>`;
+        }).join('');
+        let html = escapeHtml(orig);
+        html = html.replace(/^(\s*)([A-O])\)/, '$1<span class="rd-para-letter" data-letter="$2">$2)</span>');
+        p.innerHTML = `<span class="rd-para-marks">${marks}</span>` + html;
+      });
+    };
+
+    // ---- 作答 / 判分交互 ----
+    const post = async (url, body) => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || '请求失败');
+      return data;
+    };
+
+    const rerender = () => {
+      renderBlanks();
+      renderParaBadges();
+      markBodyMarks();
+      renderPanel();
+    };
+
+    const doJudge = async (payload) => {
+      const data = await post(`/api/reading/${textId}/judge`, payload);
+      Object.assign(answerState.judged, data.result || {});
+      rerender();
+    };
+
+    qBody.addEventListener('click', async (ev) => {
+      const opt = ev.target.closest('.rd-opt');
+      if (opt) {
+        if (opt.classList.contains('is-locked')) return;
+        try {
+          await post(`/api/reading/${textId}/answer`, { num: opt.dataset.num, key: opt.dataset.key });
+          answerState.answers[opt.dataset.num] = opt.dataset.key;
+          rerender();
+        } catch (e) { alert(e.message); }
+        return;
+      }
+      const judgeBtn = ev.target.closest('.rd-judge-btn');
+      if (judgeBtn && !judgeBtn.disabled) {
+        try { await doJudge({ num: judgeBtn.dataset.num }); } catch (e) { alert(e.message); }
+        return;
+      }
+      const judgeAllBtn = ev.target.closest('.rd-judgeall-btn');
+      if (judgeAllBtn && !judgeAllBtn.disabled) {
+        // 统一对答案只判当前篇已作答题（跳过已判/已看答案）
+        const s = sections[activeTab];
+        const nums = (s && s.questions || [])
+          .filter((q) => answerState.answers[q.num] && !isJudged(q.num) && !isRevealed(q.num))
+          .map((q) => q.num);
+        if (!nums.length) return;
+        try { await doJudge({ nums }); } catch (e) { alert(e.message); }
+      }
+    });
 
     // ---- 卡片开合：开=球隐藏；关=球出现在卡片当前位置并记忆 ----
     // 展开/收起统一锚点：卡片位置持久化（rd-qcard-pos），展开时原路恢复；
@@ -739,7 +895,7 @@
       qBall.style.display = 'none';
       qCard.hidden = false;
       placeCard();
-      if (qMode === 'all') renderAll(); else renderQ();
+      renderPanel();
     };
 
     const closeCard = () => {
@@ -773,7 +929,15 @@
       if (!ballDrag) return;
       if (ballDrag.moved) {
         const rect = qBall.getBoundingClientRect();
-        setBallPos(rect.left, rect.top, true);
+        // 贴边判定：松手时距左右屏缘 ≤20px → 停靠半隐藏
+        const EDGE = 20;
+        if (rect.left <= EDGE) setBallPos(rect.left, rect.top, true, 'left');
+        else if (window.innerWidth - rect.right <= EDGE) setBallPos(rect.left, rect.top, true, 'right');
+        else setBallPos(rect.left, rect.top, true);
+      } else if (ballDocked) {
+        // 停靠中点击 = 呼出：弹回内侧，不开卡
+        const rect = qBall.getBoundingClientRect();
+        setBallPos(ballDocked === 'left' ? 10 : window.innerWidth - rect.width - 10, rect.top, true);
       } else {
         if (qCard.hidden) openCard(); else closeCard();
       }
@@ -802,19 +966,266 @@
     cardHead.addEventListener('pointerup', endCardDrag);
     cardHead.addEventListener('pointercancel', endCardDrag);
 
-    $('rdQPrev').addEventListener('click', () => { qi--; renderQ(); });
-    $('rdQNext').addEventListener('click', () => { qi++; renderQ(); });
-    $('rdQAllBtn').addEventListener('click', renderAll);
-    $('rdQSingleBtn').addEventListener('click', renderQ);
     $('rdQClose').addEventListener('click', closeCard);
     window.__rdCloseCard = closeCard;
+
+    // ---- 阅读区作答：A 挖空选词 / B 段落选题（弹层） ----
+    let picker = null;
+    const closePicker = () => { if (picker) { picker.remove(); picker = null; } };
+    const openPicker = (inner) => {
+      closePicker();
+      picker = document.createElement('div');
+      picker.className = 'rd-key-overlay rd-picker-overlay';
+      picker.innerHTML = inner;
+      picker.addEventListener('click', (ev) => { if (ev.target === picker) closePicker(); });
+      // 滚轮隔离：列表区原生滚（contain 挡穿透）；面板其余区不滚页面
+      picker.addEventListener('wheel', (ev) => {
+        const list = picker.querySelector('.rd-picker-list');
+        if (!list || !list.contains(ev.target)) ev.preventDefault();
+      }, { passive: false });
+      document.body.appendChild(picker);
+    };
+
+    // A：点空块 → 15 词选择（判错的空带「查看正确答案」）
+    const openBankPicker = (n) => {
+      const sec = secOf('bank');
+      if (!sec) return;
+      const items = (sec.bank || []).map((o) => {
+        const picked = answerState.answers[n] === o.key;
+        return `<button type="button" class="rd-pick-q${picked ? ' is-picked' : ''}" data-key="${escapeHtml(o.key)}" data-num="${escapeHtml(n)}">` +
+          `<span class="rd-opt-key">${escapeHtml(o.key)}</span> <span>${escapeHtml(o.text)}</span></button>`;
+      }).join('');
+      const wrongPicked = isJudged(n) && !answerState.judged[n] && !isRevealed(n);
+      const revealBtn = (wrongPicked && hasAnswerKey())
+        ? `<button type="button" class="btn ghost rd-reveal-btn" data-num="${escapeHtml(n)}">查看正确答案</button>` : '';
+      openPicker(`<div class="rd-key-panel rd-picker-panel"><h3>第 ${escapeHtml(n)} 空 · 选词</h3>` +
+        `<div class="rd-picker-list rd-picker-bank">${items}</div>` +
+        `<div class="rd-key-actions">${revealBtn}<button type="button" class="btn ghost rd-key-cancel">关闭</button></div></div>`);
+    };
+
+    // B：点段首字母 → 题目列表选题
+    const openMatchPicker = (letter) => {
+      const sec = secOf('match');
+      if (!sec) return;
+      const items = (sec.questions || []).map((q) => {
+        const picked = answerState.answers[q.num];
+        const judged = isJudged(q.num);
+        let cls = 'rd-pick-q';
+        if (picked === letter) cls += ' is-picked';
+        if (judged) cls += ' is-locked';
+        return `<button type="button" class="${cls}" data-num="${escapeHtml(q.num)}" data-letter="${escapeHtml(letter)}"${judged ? ' disabled' : ''}>` +
+          `<span class="rd-match-num">${escapeHtml(q.num)}.</span> <span>${escapeHtml(q.stem || '')}</span>` +
+          (picked ? `<span class="rd-pick-cur">当前选 ${escapeHtml(picked)}</span>` : '') + '</button>';
+      }).join('');
+      openPicker(`<div class="rd-key-panel rd-picker-panel"><h3>段落 ${escapeHtml(letter)} · 选择对应题目</h3>` +
+        `<div class="rd-picker-list">${items}</div>` +
+        `<div class="rd-key-actions"><button type="button" class="btn ghost rd-key-cancel">关闭</button></div></div>`);
+    };
+
+    document.addEventListener('click', async (ev) => {
+      const cancel = ev.target.closest('.rd-key-cancel');
+      if (cancel) { closePicker(); return; }
+      if (picker) {
+        const reveal = ev.target.closest('.rd-reveal-btn');
+        if (reveal) {
+          try {
+            await post(`/api/reading/${textId}/reveal`, { num: reveal.dataset.num });
+            answerState.revealed[reveal.dataset.num] = true;
+            closePicker();
+            rerender();
+          } catch (e) { alert(e.message); }
+          return;
+        }
+        const pick = ev.target.closest('.rd-pick-q');
+        if (pick && !pick.disabled) {
+          try {
+            const body = pick.dataset.letter
+              ? { num: pick.dataset.num, key: pick.dataset.letter }
+              : { num: pick.dataset.num, key: pick.dataset.key };
+            await post(`/api/reading/${textId}/answer`, body);
+            answerState.answers[body.num] = body.key;
+            delete answerState.judged[body.num]; // 判错重选：清判分态（后端同款），等再次对答案
+            closePicker();
+            rerender();
+          } catch (e) { alert(e.message); }
+          return;
+        }
+      }
+      const blank = ev.target.closest('.rd-blank');
+      if (blank) {
+        const n = blank.dataset.num;
+        // 锁定条件：已看答案 / 判对；判错解锁重选
+        const locked = isRevealed(n) || (isJudged(n) && answerState.judged[n]);
+        if (!locked) { openBankPicker(n); return; }
+      }
+      const letter = ev.target.closest('.rd-para-letter');
+      if (letter) { openMatchPicker(letter.dataset.letter); return; }
+    });
+
+    // ---- 多视图初始化：script.js 侧栏切换或 RD_BOOT 直链调用，文章可反复切换 ----
+    function init(payload, opts) {
+      opts = opts || {};
+      const text = (payload && payload.text) || {};
+      textId = String(text.id || '');
+      source = String(text.source || '');
+      window.RD_MARKS = payload.lookup_marks || [];
+
+      const all = payload.sections || [];
+      sections = all.filter((s) => (s.questions || []).length || (s.bank || []).length);
+
+      const st = payload.answer_state || {};
+      answerState.answer_key = st.answer_key || {};
+      answerState.answers = st.answers || {};
+      answerState.judged = st.judged || {};
+      answerState.revealed = st.revealed || {};
+      answerState.answer_key_source = st.answer_key_source || '';
+
+      // 标题 / 来源 / 正文（顺序与后端 para_index 定位一致）
+      $('rdTitle').textContent = text.title || '';
+      const srcEl = $('rdSourceTag');
+      srcEl.textContent = text.source ? `来源 · ${text.source}` : '';
+      srcEl.style.display = text.source ? '' : 'none';
+      renderArticle(all);
+
+      // 旧交互清理：气泡 / 弹层 / 选题层 / 题卡归位
+      dismissBubble();
+      dismissCard();
+      closePicker();
+      qCard.hidden = true;
+      qCard.style.left = '';
+      qCard.style.top = '';
+      document.querySelectorAll('.rd-bubble, .rd-toast').forEach((el) => el.remove());
+
+      // 悬浮球与顶栏工具条：有题才出现（正文卡片自带隐藏态）
+      const totalQs = sections.reduce((n, s) => n + (s.questions || []).length, 0);
+      const hasQ = totalQs > 0;
+      qBall.hidden = !hasQ;
+      $('rdQBallNum').textContent = String(totalQs);
+      document.querySelectorAll('.rd-toolbar-only').forEach((b) => { b.hidden = !hasQ; });
+
+      // 渲染：空块 / 段落徽章 / 查词标记重放 / 面板
+      activeTab = 0;
+      renderBlanks();
+      renderParaBadges();
+      markBodyMarks();
+      renderPanel();
+
+      // 侧栏入口定位：sec → 滚动到对应篇 + 预选对应 tab（不自动弹题卡，球保持收起态）
+      const sec = String(opts.sec || '');
+      if (sec) {
+        const idx = sections.findIndex((s) => String(s.key || '') === sec);
+        if (idx >= 0) {
+          const pass = document.querySelector(`.rd-pass[data-key="${CSS.escape(sec)}"]`);
+          if (pass) pass.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          activeTab = idx;
+        }
+      }
+
+      // 试卷入库提示（导入页跳转携带；看完即清 paper 参数，保留 read 定位）
+      if (opts.paper) {
+        const toast = document.createElement('div');
+        toast.className = 'rd-toast';
+        toast.textContent = `试卷已入库：文件夹《${opts.paper}》`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+        try {
+          const u = new URL(location.href);
+          u.searchParams.delete('paper');
+          history.replaceState(null, '', u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : ''));
+        } catch (e) { /* ignore */ }
+      }
+      setHint('');
+    }
+    window.RD = { init };
+
+    // ---- 顶栏答案入口（有题才有这些按钮） ----
+    const keyImportBtn = $('rdKeyImportBtn');
+    const keyAiBtn = $('rdKeyAiBtn');
+    const redoBtn = $('rdRedoBtn');
+
+    if (keyImportBtn) {
+      // 导入答案弹层：textarea 多行粘贴（36-45 FBAID / 逐行 36. F 都认）
+      let overlay = null;
+      const openKeyImport = () => {
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.className = 'rd-key-overlay';
+          overlay.innerHTML =
+            '<div class="rd-key-panel">' +
+            '<h3>导入标准答案</h3>' +
+            '<p class="rd-key-note">支持连写（36-45 FBAID）、逐行（36. F）或混排。导入后覆盖 AI 答案。</p>' +
+            '<textarea class="rd-key-textarea" rows="8" placeholder="例如：&#10;26-35 NKAMEDGJOF&#10;36-45 FBAIDGHJECB&#10;46-55 ABDCA BDCAB"></textarea>' +
+            '<p class="rd-key-err" hidden></p>' +
+            '<div class="rd-key-actions">' +
+            '<button type="button" class="btn ghost rd-key-cancel">取消</button>' +
+            '<button type="button" class="btn primary rd-key-save">保存</button>' +
+            '</div></div>';
+          overlay.addEventListener('click', (ev) => { if (ev.target === overlay) overlay.style.display = 'none'; });
+          overlay.querySelector('.rd-key-cancel').addEventListener('click', () => { overlay.style.display = 'none'; });
+          overlay.querySelector('.rd-key-save').addEventListener('click', async () => {
+            const val = overlay.querySelector('.rd-key-textarea').value;
+            const errEl = overlay.querySelector('.rd-key-err');
+            errEl.hidden = true;
+            try {
+              const data = await post(`/api/reading/${textId}/answer_key/import`, { key: val });
+              if (data.key) answerState.answer_key = data.key;
+              answerState.answer_key_source = 'user';
+              overlay.style.display = 'none';
+              rerender();
+              alert(`已导入 ${data.count} 题答案`);
+            } catch (e) {
+              errEl.textContent = e.message;
+              errEl.hidden = false;
+            }
+          });
+          document.body.appendChild(overlay);
+        }
+        overlay.style.display = '';
+        overlay.querySelector('.rd-key-textarea').value = '';
+        overlay.querySelector('.rd-key-err').hidden = true;
+      };
+      keyImportBtn.addEventListener('click', openKeyImport);
+    }
+
+    if (keyAiBtn) {
+      keyAiBtn.addEventListener('click', async () => {
+        if (!confirm('让 DeepSeek 生成本篇答案？仅供参考，可随时被导入答案覆盖。')) return;
+        keyAiBtn.disabled = true;
+        keyAiBtn.textContent = '生成中…';
+        try {
+          const data = await post(`/api/reading/${textId}/answer_key/ai`, {});
+          if (data.key) answerState.answer_key = data.key;
+          answerState.answer_key_source = 'ai';
+          rerender();
+          alert(`AI 已生成 ${data.count} 题答案，仅供参考`);
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          keyAiBtn.disabled = false;
+          keyAiBtn.textContent = 'AI 出答案';
+        }
+      });
+    }
+
+    if (redoBtn) {
+      redoBtn.addEventListener('click', async () => {
+        if (!confirm('清空全部作答与判分？（答案键保留）')) return;
+        try {
+          await post(`/api/reading/${textId}/reset`, {});
+          answerState.answers = {};
+          answerState.judged = {};
+          answerState.revealed = {};
+          rerender();
+        } catch (e) { alert(e.message); }
+      });
+    }
   }
 
   document.addEventListener('mousedown', (ev) => {
     if (bubble && bubble.contains(ev.target)) return;
     if (card && card.contains(ev.target)) return;
-    // 点空白处收起气泡与卡片（点卡片内部除外）
-    if (card && !article.contains(ev.target)) dismissCard();
+    // 点空白处收起气泡与卡片（点阅读区/题目卡/悬浮球/弹层内部除外）
+    if (card && !ev.target.closest('.reading-article, .rd-qcard, .rd-qball, .rd-picker-panel')) dismissCard();
     dismissBubble();
   });
 
@@ -825,4 +1236,9 @@
       if (window.__rdCloseCard) window.__rdCloseCard();
     }
   });
+
+  // 主界面直链：/?read=<id> 服务端注入 RD_BOOT，加载即渲染阅读视图（宿主显隐由 script.js 负责）
+  if (window.RD_BOOT && window.RD) {
+    window.RD.init(window.RD_BOOT, { sec: window.RD_BOOT.sec || '', paper: window.RD_BOOT.paper || '' });
+  }
 })();

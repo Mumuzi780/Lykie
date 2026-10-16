@@ -7,7 +7,8 @@
     if (!el) return;
     try {
       const back = new URLSearchParams(location.search).get('back') || '';
-      if (back.startsWith('/reading/')) {
+      // 多视图架构：主界面阅读态回链 /?read=<id>；旧 /reading/<id> 已 301 兼容
+      if (back.startsWith('/?read=') || back.startsWith('/reading/')) {
         el.href = back;
         el.hidden = false;
       }

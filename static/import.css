@@ -1,4 +1,44 @@
 /* 独立导入页（主题色跟随 style.css 的 data-theme） */
+
+/* ---- 导入类型切换：题库向导 ↔ 试卷导入（规格：阅读并入主界面） ---- */
+.import-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.import-switch-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 8px 18px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.import-switch-btn.is-active {
+  color: var(--text);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+/* 试卷分段预览（所见即所得，与保存走同一后端分段器） */
+.paper-preview {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.paper-preview p {
+  margin: 0 0 10px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
 .import-page {
   min-height: 100vh;
   min-height: 100dvh;

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=m63">
-  <link rel="stylesheet" href="/static/import.css?v=11">
+  <link rel="stylesheet" href="/static/import.css?v=12">
 </head>
 <body class="import-page">
   <div class="import-shell">
@@ -30,6 +30,12 @@
       </div>
     </header>
 
+    <nav class="import-switch" aria-label="导入类型">
+      <button type="button" class="import-switch-btn is-active" id="switchBankBtn">导入题库</button>
+      <button type="button" class="import-switch-btn" id="switchPaperBtn">导入试卷</button>
+    </nav>
+
+    <div id="bankImportWrap">
     <nav class="import-steps" aria-label="导入步骤">
       <button type="button" class="import-step is-active" data-step="1" id="stepTab1">1 输入</button>
       <button type="button" class="import-step" data-step="2" id="stepTab2" disabled>2 题型</button>
@@ -189,7 +195,159 @@
         </div>
       </section>
     </main>
+    </div>
+
+    <!-- 试卷导入（规格：阅读并入主界面——整卷 PDF/粘贴，自动建夹，进侧栏） -->
+    <main class="import-main" id="paperImportWrap" hidden>
+      <section class="import-panel">
+        <h2 class="import-heading">导入英语试卷</h2>
+        <p class="import-lead">上传整卷 PDF 或粘贴阅读部分。系统自动裁出阅读三节、拆题建卡，并以标题为名建文件夹进侧栏。</p>
+
+        <div class="form-field">
+          <label for="paperTitle">试卷名称（=侧栏文件夹名）</label>
+          <input id="paperTitle" type="text" placeholder="例如：2026-6 第三套" autocomplete="off">
+        </div>
+
+        <div class="import-source-row">
+          <label class="import-file-btn btn ghost">
+            上传整卷 PDF
+            <input type="file" id="paperPdfFile" accept="application/pdf" hidden>
+          </label>
+          <span class="hint" id="paperPdfHint">也可直接在下方粘贴阅读部分文本</span>
+        </div>
+
+        <div class="form-field">
+          <label for="paperContent">试卷文本</label>
+          <textarea id="paperContent" rows="14" placeholder="粘贴整卷或阅读部分；PDF 上传后自动回填"></textarea>
+        </div>
+
+        <div class="paper-preview" id="paperPreview" hidden>
+          <div class="import-callout-head">
+            <strong>分段预览</strong>
+            <span class="hint" id="paperPreviewCount"></span>
+          </div>
+          <div id="paperPreviewBody"></div>
+          <p class="hint">漏分段的地方回到上方文本里补一个空行即可。</p>
+        </div>
+
+        <p class="hint" id="paperHint"></p>
+
+        <div class="import-actions">
+          <a class="btn ghost" href="/">取消</a>
+          <button type="button" class="btn primary" id="paperSubmitBtn">导入试卷</button>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <script>
+    // 试卷导入（独立于题库向导；提交后跳主界面阅读视图并 toast 提示建夹结果）
+    (function () {
+      'use strict';
+      var $ = function (id) { return document.getElementById(id); };
+
+      async function api(path, opts) {
+        var res = await fetch(path, opts);
+        if (res.status === 401) { location.href = '/login'; return null; }
+        return res.json().catch(function () { return {}; });
+      }
+
+      function switchTo(bank) {
+        $('switchBankBtn').classList.toggle('is-active', bank);
+        $('switchPaperBtn').classList.toggle('is-active', !bank);
+        $('bankImportWrap').hidden = !bank;
+        $('paperImportWrap').hidden = bank;
+      }
+      $('switchBankBtn').addEventListener('click', function () { switchTo(true); });
+      $('switchPaperBtn').addEventListener('click', function () { switchTo(false); $('paperTitle').focus(); });
+
+      function setHint(msg, isErr) {
+        var el = $('paperHint');
+        el.textContent = msg || '';
+        el.classList.toggle('is-err', !!isErr);
+      }
+
+      // PDF 上传：提取 → 裁出阅读部分 → 回填文本框（走既有分段预览管道）
+      $('paperPdfFile').addEventListener('change', async function () {
+        var file = $('paperPdfFile').files && $('paperPdfFile').files[0];
+        if (!file) return;
+        var hint = $('paperPdfHint');
+        hint.textContent = '解析中…';
+        try {
+          var fd = new FormData();
+          fd.append('file', file);
+          var res = await fetch('/api/reading/pdf', { method: 'POST', body: fd });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.error || '解析失败');
+          $('paperContent').value = data.content || '';
+          hint.textContent = data.sliced ? '已自动裁出阅读部分' : '没找到 Reading 标记，全文填入，可手动删减';
+          runPreview();
+        } catch (err) {
+          hint.textContent = err.message || '解析失败';
+        } finally {
+          $('paperPdfFile').value = '';
+        }
+      });
+
+      // 实时分段预览（与保存走同一后端分段器，所见即所得）
+      var previewTimer = null;
+      var previewSeq = 0;
+      async function runPreview() {
+        var my = ++previewSeq;
+        try {
+          var res = await api('/api/reading/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: $('paperContent').value }),
+          });
+          if (my !== previewSeq || !res.ok) return;
+          var ps = res.paragraphs || [];
+          $('paperPreviewCount').textContent = ps.length ? '共 ' + ps.length + ' 段' : '正文为空';
+          $('paperPreviewBody').innerHTML = ps.map(function (p) {
+            return '<p>' + String(p).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</p>';
+          }).join('');
+          $('paperPreview').hidden = false;
+        } catch (err) { /* 预览失败静默，不阻塞录入 */ }
+      }
+      $('paperContent').addEventListener('input', function () {
+        clearTimeout(previewTimer);
+        if (!$('paperContent').value.trim()) {
+          $('paperPreview').hidden = true;
+          return;
+        }
+        previewTimer = setTimeout(runPreview, 400);
+      });
+
+      // 提交：入库 → 主界面阅读视图 + toast
+      $('paperSubmitBtn').addEventListener('click', async function () {
+        setHint('');
+        var title = $('paperTitle').value.trim();
+        var content = $('paperContent').value;
+        if (!title) { setHint('请填写试卷名称（导入后即侧栏文件夹名）', true); return; }
+        if (!content.trim()) { setHint('正文为空：上传 PDF 或粘贴文本', true); return; }
+        var btn = $('paperSubmitBtn');
+        btn.disabled = true;
+        try {
+          var res = await api('/api/reading/texts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: title, source: title, content: content }),
+          });
+          if (!res.ok) {
+            setHint(res.error || '保存失败', true);
+            return;
+          }
+          var u = '/?read=' + encodeURIComponent(res.item.id);
+          if (res.is_paper) u += '&paper=' + encodeURIComponent(res.folder || res.item.title || '');
+          location.href = u;
+        } catch (err) {
+          setHint(err.message || '网络错误', true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    })();
+  </script>
 
   <script src="/static/dialog.js?v=2"></script>
   <script src="/static/import.js?v=13"></script>

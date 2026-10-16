@@ -78,6 +78,18 @@ def create_folder(store, name: str) -> tuple[dict | None, str]:
     return folder, ""
 
 
+def ensure_folder(store, name: str) -> tuple[dict | None, str]:
+    """按名找，无则建（试卷导入自动建夹：重名复用）。"""
+    ensure_folders(store)
+    name = str(name or "").strip()
+    if not name:
+        return None, "名称不能为空"
+    for f in store.folders:
+        if str(f.get("name") or "").strip() == name:
+            return f, ""
+    return create_folder(store, name)
+
+
 def rename_folder(store, fid: str, name: str) -> tuple[bool, str]:
     ensure_folders(store)
     f = find_folder(store, fid)
