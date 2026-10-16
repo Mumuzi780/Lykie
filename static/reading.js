@@ -33,6 +33,7 @@
   const body = document.body;
   let textId = '';         // 多视图：由 RD.init 注入
   let source = '';
+  let answerKeyNow = {};   // 当前答案键（面板侧同步；词库查词答案键反查用。answerState 在面板嵌套作用域，外层不可见）
 
   let bubble = null;
   let card = null;
@@ -89,31 +90,104 @@
 
   function paragraphOf(node) {
     const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    // 注意：.rd-blank（挖空 button）不要加进来——它嵌在 .reading-p 内，
+    // closest 自然冒泡到整段；若短路到 button 会让例句截断、定位失效。
     return el ? el.closest('.reading-p, .rd-q-p, .rd-match-stem, .rd-bank-item, .rd-opt') : null;
   }
 
-  /** 句界规则：默认句点（.）结尾为完整一句，问号/叹号兜底；向两侧扩展到句界或段落边界。 */
+  /** 句界规则：默认句点（.）结尾为完整一句，问号/叹号兜底；向两侧扩展到句界或段落边界。
+   *  例外：A. / 26. 这类选项/题号后的句点是序号标记不是句界，不在此断句。 */
+  /** 在 paraText 内从 idx 起的词向两侧扩到句界，返回完整句（序号句点感知）。 */
+  function sentenceAround(paraText, idx, len) {
+    // 序号句点模式：句点前是单个大写字母或 1-3 位数字（词首大写缩写如 U.S. 不常见于题干，先不豁免）
+    const isOrdinalDot = (i) => i > 0 && (/[A-Z]/.test(paraText[i - 1]) && (i < 2 || !/[A-Za-z]/.test(paraText[i - 2]))) || /^\d{1,3}$/.test(paraText.slice(Math.max(0, i - 3), i));
+    let s = idx;
+    while (s > 0) {
+      const ch = paraText[s - 1];
+      if (ch === '.' || ch === '?' || ch === '!') {
+        if (ch === '.' && isOrdinalDot(s - 1)) { s--; continue; } // 序号句点：跨过继续找
+        break;
+      }
+      s--;
+    }
+    while (s < idx && /\s/.test(paraText[s])) s++;
+    let e = idx + len;
+    while (e < paraText.length) {
+      const ch = paraText[e];
+      e++;
+      if (ch === '.' || ch === '?' || ch === '!') {
+        if (ch === '.' && isOrdinalDot(e - 1)) continue; // 序号句点：跨过继续
+        break;
+      }
+    }
+    return paraText.slice(s, e).trim();
+  }
+
+  /** 段落净化文本：已作答回填的挖空 label 形如 "M. shed"，
+   *  例句里只留词本身（去 "M. " 答案键前缀）；未作答挖空是编号，原样保留。
+   *  只影响查词例句提取，标记重放仍走原文本。 */
+  function paraCleanText(p) {
+    let out = '';
+    for (const node of p.childNodes) {
+      if (node.nodeType === 3) { out += node.nodeValue; continue; }
+      if (node.nodeType === 1 && node.classList.contains('rd-blank')) {
+        out += node.textContent.replace(/^[A-O]\.\s+/i, '');
+      } else {
+        out += node.textContent;
+      }
+    }
+    return out;
+  }
+
   function extractSentence(selText) {
     const sel = window.getSelection();
     const para = paragraphOf(sel.anchorNode);
     if (!para) return selText;
-    const paraText = para.textContent;
+    const paraText = paraCleanText(para);
     const idx = paraText.indexOf(selText);
     if (idx < 0) return paraText.trim();
-    let s = idx;
-    while (s > 0) {
-      const ch = paraText[s - 1];
-      if (ch === '.' || ch === '?' || ch === '!') break;
-      s--;
+    return sentenceAround(paraText, idx, selText.length);
+  }
+
+  /** 词库候选词的语境句（三层回退）：
+   *  ① 已作答/判分：挖空回填成 "M. shed"，正文直接匹配到词 → 取其所在句；
+   *  ② 未作答但有答案键：候选键（如 M）反查到空号，取挖空（编号占位）所在句，
+   *     句中编号即词位，模型可据此推出搭配（如 shed light on）；
+   *  ③ 都没有（干扰项/无答案键）→ 空串，走无语境多义项提示词。
+   *  选项文本（fruit 等）不是正文词，不走此函数。 */
+  function findArticleSentence(word, bankKey) {
+    const w = String(word || '').trim();
+    if (!w) return '';
+    const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    for (const area of readAreas) {
+      for (const p of area.querySelectorAll('.reading-p')) {
+        const t = paraCleanText(p); // 净化：回填挖空的 "M. " 前缀不入例句
+        const m = t.match(re);
+        if (m) return sentenceAround(t, m.index, m[0].length);
+      }
     }
-    while (s < idx && /\s/.test(paraText[s])) s++;
-    let e = idx + selText.length;
-    while (e < paraText.length) {
-      const ch = paraText[e];
-      e++;
-      if (ch === '.' || ch === '?' || ch === '!') break;
+    // ② 答案键反查：候选键 → 空号 → 挖空所在句
+    if (bankKey) {
+      for (const [num, key] of Object.entries(answerKeyNow || {})) {
+        if (String(key) !== String(bankKey)) continue;
+        for (const area of readAreas) {
+          const blank = area.querySelector(`.rd-blank[data-num="${CSS.escape(num)}"]`);
+          if (!blank) continue;
+          const p = blank.closest('.reading-p');
+          if (!p) continue;
+          // blank 在段落中的字符偏移（遍历兄弟节点累计文本长度）
+          let off = 0;
+          for (const node of p.childNodes) {
+            if (node === blank) break;
+            off += node.textContent.length;
+          }
+          const t = p.textContent;
+          if (off >= t.length) continue;
+          return sentenceAround(t, off, blank.textContent.length);
+        }
+      }
     }
-    return paraText.slice(s, e).trim();
+    return '';
   }
 
   function showBubble(info) {
@@ -177,10 +251,14 @@
     bubbleLoading(mode);
     const pos = mode === 'lookup' ? positionOfSelection(info.sel, info.text) : null;
     savedRect = info.sel.getRangeAt(0).getBoundingClientRect();
-    // 词库/选项区不是原文语料（"A embrace" 这类条目文本无句子上下文），查词不带例句
-    const noCtx = !!(pos && (pos.area === 'bank' || pos.area === 'opt'));
-    const sentence = noCtx ? '' : extractSentence(info.text);
-    if (mode === 'translate' && noCtx) {
+    // 词库候选词无本地句子上下文，但常在正文挖空回填处出现——从正文取语境句，
+    // 让释义贴合原文（如 shed：无语境直查是「棚屋」，原文语境是「揭示」）。
+    // 选项文本（fruit 等）不是正文词，保持无语境词典义。
+    const isBankOrOpt = !!(pos && (pos.area === 'bank' || pos.area === 'opt'));
+    const sentence = (pos && pos.area === 'bank')
+      ? findArticleSentence(info.text, pos.bankKey)
+      : (isBankOrOpt ? '' : extractSentence(info.text));
+    if (mode === 'translate' && isBankOrOpt) {
       // 翻译需要整句；词库/选项没有句子上下文，引导走查词
       bubbleLoaded();
       bubbleTranslateResult('', true, '此处无整句可译，请用「查词」');
@@ -240,6 +318,10 @@
     dismissCard();
     // 没有真实句子上下文的查词（如词库列表里的单词）不渲染例句区
     const hasExample = !!sentence && sentence.trim() !== String(info.text || '').trim();
+    // 例句框行数按内容长度自适应（卡内容列约 48 字符/行），确保完整展示
+    const rowsFor = (text, min) => Math.max(min, Math.ceil(String(text || '').length / 48));
+    const exRows = hasExample ? rowsFor(sentence, 3) : 0;
+    const zhRows = hasExample ? rowsFor(draft.example_zh, 2) : 0;
     card = document.createElement('div');
     card.className = 'rd-card';
     card.innerHTML = `
@@ -253,16 +335,16 @@
         </div>
       </div>
       <div class="rd-card-row">
-        <label class="reading-label" for="rdMeaning">语境义 <span class="opt">此句中的意思，可改</span></label>
-        <input id="rdMeaning" type="text" maxlength="300" value="${escapeHtml(draft.meaning || '')}">
+        <label class="reading-label" for="rdMeaning">语境义 <span class="opt">多义项用『；』分隔，可改</span></label>
+        <textarea id="rdMeaning" rows="${Math.max(1, Math.ceil(String(draft.meaning || '').length / 30))}" maxlength="300">${escapeHtml(draft.meaning || '')}</textarea>
       </div>
       ${hasExample ? `<div class="rd-card-row">
         <label class="reading-label" for="rdExEn">例句 <span class="opt">来自原文，可改</span></label>
-        <textarea id="rdExEn" rows="3">${escapeHtml(sentence)}</textarea>
+        <textarea id="rdExEn" rows="${exRows}">${escapeHtml(sentence)}</textarea>
       </div>
       <div class="rd-card-row">
         <label class="reading-label" for="rdExZh">例句翻译</label>
-        <textarea id="rdExZh" rows="2">${escapeHtml(draft.example_zh || '')}</textarea>
+        <textarea id="rdExZh" rows="${zhRows}">${escapeHtml(draft.example_zh || '')}</textarea>
       </div>` : ''}
       <div class="rd-card-row">
         <label class="reading-label">来源</label>
@@ -1123,7 +1205,8 @@
         const n = blank.dataset.num;
         // 锁定条件：已看答案 / 判对；判错解锁重选
         const locked = isRevealed(n) || (isJudged(n) && answerState.judged[n]);
-        if (!locked) { openBankPicker(n); return; }
+        // 划选挖空里的词查词时不弹选词层（拖选会触发 click，选区非空即视为选词）
+        if (!locked && !String(window.getSelection() || '').trim()) { openBankPicker(n); return; }
       }
       const letter = ev.target.closest('.rd-para-letter');
       if (letter) { openMatchPicker(letter.dataset.letter); return; }
@@ -1142,6 +1225,7 @@
 
       const st = payload.answer_state || {};
       answerState.answer_key = st.answer_key || {};
+      answerKeyNow = answerState.answer_key;
       answerState.answers = st.answers || {};
       answerState.judged = st.judged || {};
       answerState.revealed = st.revealed || {};
@@ -1235,7 +1319,7 @@
             errEl.hidden = true;
             try {
               const data = await post(`/api/reading/${textId}/answer_key/import`, { key: val });
-              if (data.key) answerState.answer_key = data.key;
+              if (data.key) { answerState.answer_key = data.key; answerKeyNow = data.key; }
               answerState.answer_key_source = 'user';
               overlay.style.display = 'none';
               rerender();
@@ -1261,7 +1345,7 @@
         keyAiBtn.textContent = '生成中…';
         try {
           const data = await post(`/api/reading/${textId}/answer_key/ai`, {});
-          if (data.key) answerState.answer_key = data.key;
+          if (data.key) { answerState.answer_key = data.key; answerKeyNow = data.key; }
           answerState.answer_key_source = 'ai';
           rerender();
           alert(`AI 已生成 ${data.count} 题答案，仅供参考`);
