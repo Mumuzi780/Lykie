@@ -3,3 +3,4 @@ python-docx
 openai
 python-dotenv
 waitress
+pypdf
