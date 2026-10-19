@@ -141,7 +141,19 @@ def _split_legacy(paragraphs: list[str], kind: str = "", options_all: bool = Fal
                     m = re.match(r"^([A-F])[\.\)]\s*(.+)$", q["paras"][stem_end - 1].strip(), re.DOTALL)
                     if not m:
                         break
-                    opts.insert(0, {"key": m.group(1), "text": m.group(2).strip()})
+                    # 两栏 PDF 排版：A/C 同行、B/D 同行——行内出现更大的选项标记时切开。
+                    # 条件：标记字母距行首 key ≥2（两栏排版必然跳档；相邻字母如正文里
+                    # "plan B) " 的字面量是 A→B 差 1，不切，防误伤）。
+                    pieces = [(m.group(1), m.group(2).strip())]
+                    while True:
+                        k, t = pieces[-1]
+                        im = re.search(r"\s+([B-F])[\.\)]\s+(\S.*)$", t)
+                        if not im or ord(im.group(1)) - ord(k) < 2:
+                            break
+                        pieces[-1] = (k, t[:im.start()].rstrip())
+                        pieces.append((im.group(1), im.group(2).strip()))
+                    for k, t in reversed(pieces):
+                        opts.insert(0, {"key": k, "text": t})
                     stem_end -= 1
                 raw_stem = " ".join(q["paras"][:stem_end]) if stem_end else q["paras"][0]
                 q["stem"] = re.sub(r"^\s*\d{1,3}[\.\)]\s*", "", raw_stem.strip()) or raw_stem
@@ -383,7 +395,9 @@ def _section_b(paras: list[str]) -> tuple[list[str], list[dict]]:
 
 
 def _section_c_parts(paras: list[str]) -> list[tuple[list[str], list[dict]]]:
-    """仔细阅读按 Passage 标记拆篇（每篇 passage 一道阅读区）。"""
+    """仔细阅读按 Passage 标记拆篇（每篇 passage 一道阅读区）。
+    Passage 标记之前的前导段（Section C / Directions 等结构行）丢弃——
+    否则会形成一个空 part，被调用方 continue 后剩余篇目的硬编码名字整体错位。"""
     parts: list[list[str]] = []
     cur: list[str] | None = None
     for p in paras:
@@ -391,13 +405,18 @@ def _section_c_parts(paras: list[str]) -> list[tuple[list[str], list[dict]]]:
             if cur:
                 parts.append(cur)
             cur = [p]
-        else:
-            if cur is None:
-                cur = []
+        elif cur is not None:
             cur.append(p)
     if cur:
         parts.append(cur)
-    return [_split_legacy(part, kind="choice", options_all=True) for part in parts]
+    if not parts:
+        # 整节无 Passage 标记：整节一篇
+        parts = [list(paras)]
+    out = []
+    for part in parts:
+        arts, qs = _split_legacy(part, kind="choice", options_all=True)
+        out.append((arts, qs, part[0] if part else ""))
+    return out
 
 
 def build_sections(paragraphs: list[str]) -> list[dict]:
@@ -430,12 +449,14 @@ def build_sections(paragraphs: list[str]) -> list[dict]:
                         "articles": arts, "questions": qs})
     if "C" in secs:
         parts = _section_c_parts(secs["C"])
-        names = ["One", "Two", "Three"]
-        for i, (arts, qs) in enumerate(parts):
+        for i, (arts, qs, head) in enumerate(parts):
             arts = _drop_structure_lines(arts)
             if not arts and not qs:
                 continue
-            label = f"Section C · Passage {names[i]}" if len(parts) > 1 and i < 3 else "Section C · 仔细阅读"
+            # 篇名取 part 首段的实际 Passage 标记（不按数组位置硬编码，防错位）
+            m = re.match(r"^Passage\s+(\w+)", (head or "").strip(), re.IGNORECASE)
+            name = (m.group(1).capitalize() if m else "")
+            label = f"Section C · Passage {name}" if len(parts) > 1 and name else "Section C · 仔细阅读"
             out.append({"key": f"C{i + 1}", "label": label, "kind": "choice",
                         "articles": arts, "questions": qs})
     return out
