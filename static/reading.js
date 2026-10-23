@@ -150,20 +150,26 @@
   }
 
   /** 词库候选词的语境句（三层回退）：
-   *  ① 已作答/判分：挖空回填成 "M. shed"，正文直接匹配到词 → 取其所在句；
-   *  ② 未作答但有答案键：候选键（如 M）反查到空号，取挖空（编号占位）所在句，
-   *     句中编号即词位，模型可据此推出搭配（如 shed light on）；
-   *  ③ 都没有（干扰项/无答案键）→ 空串，走无语境多义项提示词。
+   *  ① 无答案键且已作答：挖空回填成 "M. shed"，正文直接匹配到词 → 取其所在句
+   *    （此时系统不知道正确答案，只能以用户选择为准）；
+   *  ② 有答案键：候选键（如 M）反查到空号，取挖空所在句（编号占位或已作答回填，
+   *    净化后无 "M. " 前缀）——用户错填的词反查不到，天然不会污染语境；
+   *  ③ 反查不到（干扰项/错选词）→ 空串，走无语境多义项提示词。
    *  选项文本（fruit 等）不是正文词，不走此函数。 */
   function findArticleSentence(word, bankKey) {
     const w = String(word || '').trim();
     if (!w) return '';
-    const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-    for (const area of readAreas) {
-      for (const p of area.querySelectorAll('.reading-p')) {
-        const t = paraCleanText(p); // 净化：回填挖空的 "M. " 前缀不入例句
-        const m = t.match(re);
-        if (m) return sentenceAround(t, m.index, m[0].length);
+    const hasKey = Object.keys(answerKeyNow || {}).length > 0;
+    // ① 有答案键时跳过正文匹配：用户错误作答回填的词会被当成原文（如把 concerns
+    //    错填到应为 rest 的空，语境句就错了）。有键时一律走 ② 反查。
+    if (!hasKey) {
+      const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      for (const area of readAreas) {
+        for (const p of area.querySelectorAll('.reading-p')) {
+          const t = paraCleanText(p); // 净化：回填挖空的 "M. " 前缀不入例句
+          const m = t.match(re);
+          if (m) return sentenceAround(t, m.index, m[0].length);
+        }
       }
     }
     // ② 答案键反查：候选键 → 空号 → 挖空所在句
@@ -175,15 +181,21 @@
           if (!blank) continue;
           const p = blank.closest('.reading-p');
           if (!p) continue;
-          // blank 在段落中的字符偏移（遍历兄弟节点累计文本长度）
+          // blank 在净化文本中的字符偏移（回填挖空去 "M. " 前缀后累计）
+          const cleanLen = (node) => (node.nodeType === 1 && node.classList.contains('rd-blank')
+            ? node.textContent.replace(/^[A-O]\.\s+/i, '').length
+            : node.textContent.length);
           let off = 0;
           for (const node of p.childNodes) {
             if (node === blank) break;
-            off += node.textContent.length;
+            off += cleanLen(node);
           }
-          const t = p.textContent;
+          const t = paraCleanText(p);
           if (off >= t.length) continue;
-          return sentenceAround(t, off, blank.textContent.length);
+          // 挖空处显示的是用户作答（可能是错选）或未作答编号——语境句里替换成
+          // 正确答案词（反查命中时空 N 的正确答案就是本词），模型看到真实搭配。
+          const fixed = t.slice(0, off) + w + t.slice(off + cleanLen(blank));
+          return sentenceAround(fixed, off, w.length);
         }
       }
     }
@@ -781,7 +793,10 @@
       // 词库总览：只读；标注每个词被哪空使用，判分红绿
       const usedBy = {};
       (s.questions || []).forEach((q) => {
-        const a = answerState.answers[q.num];
+        // reveal 的空已锁定显示正确答案：一律按答案键的正确词标记（错选词不占位，
+        // 不管此前是否作答过——作答错再 reveal 时 answers 里还是错选，不能信）
+        let a = answerState.answers[q.num];
+        if (isRevealed(q.num)) a = answerState.answer_key[q.num];
         if (a) (usedBy[a] = usedBy[a] || []).push(q.num);
       });
       let html = '<div class="rd-bank">';
@@ -1284,6 +1299,35 @@
           u.searchParams.delete('paper');
           history.replaceState(null, '', u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : ''));
         } catch (e) { /* ignore */ }
+      }
+      // 默认自动 AI 出答案（用户拍板：防止查词时不知道原文是什么、错选被当语境）。
+      // 触发条件：有题目 + 无答案键；成功后落库 source='ai'，之后再打开不再触发。
+      // sessionStorage 防重：生成中刷新页面不重复烧调用；失败清除，下次打开重试。
+      // 有标准答案随时可点「导入答案」覆盖。
+      if (hasQ && Object.keys(answerKeyNow || {}).length === 0) {
+        const flag = 'rd_key_ai_' + textId;
+        let pending = false;
+        try { pending = sessionStorage.getItem(flag) === '1'; } catch (e) { /* ignore */ }
+        if (!pending) {
+          try { sessionStorage.setItem(flag, '1'); } catch (e) { /* ignore */ }
+          post(`/api/reading/${textId}/answer_key/ai`, {}).then((data) => {
+            if (data && data.key) {
+              answerState.answer_key = data.key;
+              answerKeyNow = data.key;
+              answerState.answer_key_source = 'ai';
+              rerender();
+              const toast = document.createElement('div');
+              toast.className = 'rd-toast';
+              toast.textContent = `AI 已生成 ${data.count} 题答案（仅供参考，做题不受影响）；有标准答案可点「导入答案」覆盖`;
+              document.body.appendChild(toast);
+              setTimeout(() => toast.remove(), 6000);
+            } else {
+              try { sessionStorage.removeItem(flag); } catch (e) { /* ignore */ }
+            }
+          }).catch(() => {
+            try { sessionStorage.removeItem(flag); } catch (e) { /* ignore */ }
+          });
+        }
       }
       setHint('');
     }
