@@ -33,6 +33,7 @@ from lykie import memory as lykie_memory
 from lykie import opening as lykie_opening
 from lykie import mock as lykie_mock
 from lykie import profile as lykie_profile
+from lykie import qq_gateway as lykie_qq_gateway
 from lykie import settle as lykie_settle
 from lykie import share as lykie_share
 from lykie import releases as lykie_releases
@@ -442,6 +443,9 @@ def jsonify_user(payload):
 @app.before_request
 def require_login():
     if request.endpoint in ("login", "logout", "static"):
+        return None
+    # QQ 网关：AstrBot 无登录态，走自身 Bearer Token 鉴权（见 lykie/qq_gateway.py）
+    if request.endpoint == "api_lykie_openai_compat":
         return None
     username = current_user()
     if username and lykie_accounts.user_exists(username):
@@ -3300,6 +3304,12 @@ def api_lykie_extract_name():
     if not name:
         name = lykie_extract.local_extract_name(text)
     return jsonify({"ok": True, "name": name, "via": "llm" if lykie_llm.is_configured() else "rules"})
+
+
+@app.route("/v1/chat/completions", methods=["POST"])
+def api_lykie_openai_compat():
+    """OpenAI 兼容端点：供 AstrBot 等 QQ 机器人框架接入 Lykie 完整对话系统。"""
+    return lykie_qq_gateway.handle_chat_completions()
 
 
 @app.route("/api/lykie/chat", methods=["POST"])
