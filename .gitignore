@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 data/upload.docx
 data/users.json
+data/qq_lykie.json
 data/users/
 data/secret_key
 .venv/
