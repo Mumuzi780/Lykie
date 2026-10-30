@@ -700,7 +700,9 @@ body.mode-reading #brandSub {
   transition: border-color 0.12s, background 0.12s;
 }
 
-.rd-opt:hover {
+/* 已锁定（判分后）选项不响应悬浮描边：pointer-events 恢复后的视觉守卫，
+   行为与原先 pointer-events:none 时一致（点击拦截由 JS is-locked 守卫负责） */
+.rd-opt:not(.is-locked):hover {
   border-color: var(--primary);
 }
 
@@ -721,7 +723,6 @@ body.mode-reading #brandSub {
 
 .rd-opt.is-locked {
   cursor: default;
-  pointer-events: none;
 }
 
 .rd-opt.is-correct {

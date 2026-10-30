@@ -125,11 +125,13 @@
 
   /** 段落净化文本：已作答回填的挖空 label 形如 "M. shed"，
    *  例句里只留词本身（去 "M. " 答案键前缀）；未作答挖空是编号，原样保留。
+   *  选项/词库的字母标（span.rd-opt-key：A/B/C…）不是正文，跳过不进例句。
    *  只影响查词例句提取，标记重放仍走原文本。 */
   function paraCleanText(p) {
     let out = '';
     for (const node of p.childNodes) {
       if (node.nodeType === 3) { out += node.nodeValue; continue; }
+      if (node.nodeType === 1 && node.classList.contains('rd-opt-key')) continue;
       if (node.nodeType === 1 && node.classList.contains('rd-blank')) {
         out += node.textContent.replace(/^[A-O]\.\s+/i, '');
       } else {
@@ -261,17 +263,19 @@
   async function runLookup(mode, info) {
     const mySeq = ++seq;
     bubbleLoading(mode);
-    const pos = mode === 'lookup' ? positionOfSelection(info.sel, info.text) : null;
+    const pos = positionOfSelection(info.sel, info.text);
     savedRect = info.sel.getRangeAt(0).getBoundingClientRect();
-    // 词库候选词无本地句子上下文，但常在正文挖空回填处出现——从正文取语境句，
-    // 让释义贴合原文（如 shed：无语境直查是「棚屋」，原文语境是「揭示」）。
-    // 选项文本（fruit 等）不是正文词，保持无语境词典义。
-    const isBankOrOpt = !!(pos && (pos.area === 'bank' || pos.area === 'opt'));
-    const sentence = (pos && pos.area === 'bank')
-      ? findArticleSentence(info.text, pos.bankKey)
-      : (isBankOrOpt ? '' : extractSentence(info.text));
-    if (mode === 'translate' && isBankOrOpt) {
-      // 翻译需要整句；词库/选项没有句子上下文，引导走查词
+    // 例句取「查询处所在句」：正文/题干/选项划词，例句就是选区所在的那句；
+    // 词库条目本身只有一个单词无句可取——靠答案键反查正文挖空句作例句，
+    // 反查不到（干扰词/错选词）才无语境走词典义。
+    let sentence;
+    if (pos && pos.area === 'bank') {
+      sentence = findArticleSentence(info.text, pos.bankKey);
+    } else {
+      sentence = extractSentence(info.text);
+    }
+    if (mode === 'translate' && !sentence) {
+      // 翻译需要整句；没取到句子上下文（词库干扰词等），引导走查词
       bubbleLoaded();
       bubbleTranslateResult('', true, '此处无整句可译，请用「查词」');
       return;
