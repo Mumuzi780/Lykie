@@ -4,6 +4,7 @@
 模型直接输出回复或 [不回复]，不暴露结构化中间产物。
 """
 import os
+import re
 
 from .llm import (
     chat_completion,
@@ -13,9 +14,26 @@ from .llm import (
     is_silence_reply,
 )
 from .profile import format_self_profile_block
-from .memory import facts_summary, relationship_brief
+from .memory import READ_TO_STAGE, facts_summary, relationship_brief
 
 _IDENTITY_CORE = None
+
+# 关系读数：模型每轮自报感受（门语义，无表现规则），程序只做护栏裁定。
+# 文案定稿见 docs/交接-主仓-开局出口与阶段自动升层.md §4，禁止加条件式升层规则。
+_REL_READ_PROMPT = (
+    "【关系读数】每次回复的最后一行，单独附一条：%%关系:读数%%\n"
+    "读数按你此刻真实的感受，从这些里挑一个：\n"
+    "开局 / 认识但不熟悉 / 能说事 / 能谈心 / 情侣\n"
+    "- 认识但不熟悉：知道对方是谁，仅此而已\n"
+    "- 能说事：日常话题都聊得开\n"
+    "- 能谈心：愿意跟对方说心里话\n"
+    "- 情侣：你已认定这层关系\n"
+    "这行标记不会给对方看见，除它之外不要输出任何标记。"
+)
+# 信号载体对齐 profile._META_RE 先例（模型带 %%…%% 标记、程序剥离、正文干净），
+# 但语义不同（读数 vs 档案标注），独立常量，勿复用档案正则。
+_REL_READ_RE = re.compile(r"[ \t]*%%关系\s*[:：]([^\n%]*)%%[ \t]*")
+_READ_TAIL_MARKS = "，。！？；、,.!?;:：~…·—"
 
 
 def _load_identity_core():
@@ -83,6 +101,10 @@ def build_messages(state, user_message, mode="chat", question_card=None, last_re
         "若应先不回，整段只输出 [不回复]。"
     )
 
+    # ── 关系读数（仅 chat 注入；correct 是纠正轮，不注入） ──
+    if mode == "chat":
+        system += "\n\n" + _REL_READ_PROMPT
+
     messages = [{"role": "system", "content": system}]
 
     # ── 对话历史 ──
@@ -109,6 +131,29 @@ def build_messages(state, user_message, mode="chat", question_card=None, last_re
     return messages
 
 
+def _match_rel_word(raw):
+    """读数原词整词匹配；词后允许紧跟标点/空白，其余不认（"能说事情"≠"能说事"）。"""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    for word in READ_TO_STAGE:
+        if text.startswith(word):
+            rest = text[len(word):].strip()
+            if not rest or all(ch in _READ_TAIL_MARKS for ch in rest):
+                return word
+    return ""
+
+
+def parse_rel_read(text):
+    """从模型输出剥离 %%关系:读数%% 标记，返回 {reply, read}（对齐 profile.parse_archive_meta 先例）。"""
+    raw = text or ""
+    m = _REL_READ_RE.search(raw)
+    if not m:
+        return {"reply": raw, "read": ""}
+    reply = (raw[: m.start()] + raw[m.end():]).strip()
+    return {"reply": reply, "read": _match_rel_word(m.group(1))}
+
+
 def handle_message(
     state,
     user_message,
@@ -117,7 +162,7 @@ def handle_message(
     last_reply=None,
     batch=None,
 ):
-    """主入口：单次模型调用，返回 {reply, silent}。
+    """主入口：单次模型调用，返回 {reply, silent, rel_read}。
 
     Args:
         state: 用户状态 dict（lykie_memory.load_state 返回的）
@@ -128,13 +173,21 @@ def handle_message(
         batch: 原始用户消息列表（用于后续处理，handle_message 内部不直接用）
 
     Returns:
-        {"reply": str, "silent": bool}
+        {"reply": str, "silent": bool, "messages": list, "temperature": float, "rel_read": str}
+        messages = 实际发给模型的完整 messages（供轮次留痕，禁止重组）
+        rel_read = 解析出的读数原词（无标记/无效为 ""），reply 已剥离标记、进 chat_tail 前干净
     """
     messages = build_messages(
         state, user_message, mode=mode, question_card=question_card, last_reply=last_reply
     )
 
-    reply = chat_completion(messages, temperature=0.8)
+    temperature = 0.8
+    reply = chat_completion(messages, temperature=temperature)
+
+    # 剥离 %%关系:读数%% 标记再判 silent/空回复（QQ 网关同管道，零改动即干净）
+    parsed = parse_rel_read(reply)
+    reply = parsed["reply"]
+    rel_read = parsed["read"]
 
     silent = is_silence_reply(reply)
     if silent:
@@ -142,4 +195,10 @@ def handle_message(
     elif not reply:
         reply = "嗯.....那个...."
 
-    return {"reply": reply, "silent": silent}
+    return {
+        "reply": reply,
+        "silent": silent,
+        "messages": messages,
+        "temperature": temperature,
+        "rel_read": rel_read,
+    }
