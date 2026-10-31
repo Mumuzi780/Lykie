@@ -221,15 +221,6 @@
           <textarea id="paperContent" rows="14" placeholder="粘贴整卷或阅读部分；PDF 上传后自动回填"></textarea>
         </div>
 
-        <div class="paper-preview" id="paperPreview" hidden>
-          <div class="import-callout-head">
-            <strong>分段预览</strong>
-            <span class="hint" id="paperPreviewCount"></span>
-          </div>
-          <div id="paperPreviewBody"></div>
-          <p class="hint">漏分段的地方回到上方文本里补一个空行即可。</p>
-        </div>
-
         <p class="hint" id="paperHint"></p>
 
         <div class="import-actions">
@@ -267,7 +258,11 @@
         el.classList.toggle('is-err', !!isErr);
       }
 
-      // PDF 上传：提取 → 裁出阅读部分 → 回填文本框（走既有分段预览管道）
+      // 名称默认值：未手动编辑过时，PDF 文件名自动带入（去扩展名）
+      var titleDirty = false;
+      $('paperTitle').addEventListener('input', function () { titleDirty = true; });
+
+      // PDF 上传：提取 → 裁出阅读部分 → 回填文本框
       $('paperPdfFile').addEventListener('change', async function () {
         var file = $('paperPdfFile').files && $('paperPdfFile').files[0];
         if (!file) return;
@@ -280,42 +275,13 @@
           var data = await res.json().catch(function () { return {}; });
           if (!res.ok || !data.ok) throw new Error(data.error || '解析失败');
           $('paperContent').value = data.content || '';
+          if (!titleDirty) $('paperTitle').value = file.name.replace(/\.pdf$/i, '');
           hint.textContent = data.sliced ? '已自动裁出阅读部分' : '没找到 Reading 标记，全文填入，可手动删减';
-          runPreview();
         } catch (err) {
           hint.textContent = err.message || '解析失败';
         } finally {
           $('paperPdfFile').value = '';
         }
-      });
-
-      // 实时分段预览（与保存走同一后端分段器，所见即所得）
-      var previewTimer = null;
-      var previewSeq = 0;
-      async function runPreview() {
-        var my = ++previewSeq;
-        try {
-          var res = await api('/api/reading/preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: $('paperContent').value }),
-          });
-          if (my !== previewSeq || !res.ok) return;
-          var ps = res.paragraphs || [];
-          $('paperPreviewCount').textContent = ps.length ? '共 ' + ps.length + ' 段' : '正文为空';
-          $('paperPreviewBody').innerHTML = ps.map(function (p) {
-            return '<p>' + String(p).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</p>';
-          }).join('');
-          $('paperPreview').hidden = false;
-        } catch (err) { /* 预览失败静默，不阻塞录入 */ }
-      }
-      $('paperContent').addEventListener('input', function () {
-        clearTimeout(previewTimer);
-        if (!$('paperContent').value.trim()) {
-          $('paperPreview').hidden = true;
-          return;
-        }
-        previewTimer = setTimeout(runPreview, 400);
       });
 
       // 提交：入库 → 主界面阅读视图 + toast
