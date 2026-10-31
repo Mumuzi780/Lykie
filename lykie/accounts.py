@@ -70,6 +70,16 @@ def lykie_author_log_user_md_path(username):
     return os.path.join(user_dir(username), "lykie_author_log.md")
 
 
+def lykie_turns_dir(username):
+    """轮次留痕：每账号最近 N 轮 prompt 快照（滚动覆盖，供 // 标注锚定）。"""
+    return os.path.join(user_dir(username), "lykie_turns")
+
+
+def lykie_annotations_path(username=None):
+    """对话标注库（// 反馈）：全站共用。username 忽略。"""
+    return os.path.join(DATA_DIR, "lykie_annotations.json")
+
+
 def ensure_secret_key():
     os.makedirs(DATA_DIR, exist_ok=True)
     if os.path.exists(SECRET_FILE):

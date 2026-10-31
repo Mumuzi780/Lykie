@@ -11,11 +11,12 @@ import tempfile
 import threading
 import webbrowser
 from datetime import datetime, timedelta
-from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, session, url_for
 
 from docx import Document
 
 from lykie import accounts as lykie_accounts
+from lykie import annotations as lykie_annotations
 from lykie import atlas as lykie_atlas
 from lykie import author_log as lykie_author_log
 from lykie import converse as lykie_converse
@@ -756,15 +757,6 @@ def api_reading_texts_create():
             folder_name = folder.get("name") or ""
         g.store.save()
     return jsonify_user({"ok": True, "item": item, "is_paper": is_paper, "folder": folder_name})
-
-
-@app.route("/api/reading/preview", methods=["POST"])
-def api_reading_preview():
-    """导入实时分段预览：所见即最终阅读效果（与 create 走同一 normalize_content）。"""
-    data = request.get_json(force=True) or {}
-    content = lykie_readings.normalize_content(data.get("content") or "")
-    paragraphs = [p for p in content.split("\n\n") if p.strip()]
-    return jsonify_user({"ok": True, "paragraphs": paragraphs, "count": len(paragraphs)})
 
 
 @app.route("/api/reading/texts/<text_id>", methods=["GET"])
@@ -2921,6 +2913,8 @@ def api_lykie_state():
         "author_log_count": len(
             (lykie_author_log.load_log(g.store.username).get("items") or [])
         ),
+        "annotation_total": lykie_annotations.counts()["total"],
+        "annotation_pending": lykie_annotations.counts()["pending"],
         "portrait_offense_count": int(
             (state.get("portrait") or {}).get("offense_count") or 0
         ),
@@ -2992,10 +2986,12 @@ def api_lykie_opening_nudge():
 def api_lykie_chat_reset_opening():
     """清 chat_tail / 面板到开场结束；保留 facts、监督、flags。"""
     state = lykie_memory.load_state(g.store.lykie_path)
-    if not (state.get("flags") or {}).get("fragment_01_done"):
+    flags = state.get("flags") or {}
+    if not (flags.get("fragment_01_done") or flags.get("opening_done")):
         return jsonify({"ok": False, "error": "开场尚未完成，无法清到开场后"}), 400
     panel = lykie_memory.reset_chat_to_opening_end(state)
     lykie_memory.save_state(g.store.lykie_path, state)
+    lykie_annotations.clear_turns(g.store.username)
     return jsonify({"ok": True, "panel_log": panel})
 
 
@@ -3005,6 +3001,7 @@ def api_lykie_memory_clear():
     state = lykie_memory.load_state(g.store.lykie_path)
     panel = lykie_memory.wipe_user_memory(state)
     lykie_memory.save_state(g.store.lykie_path, state)
+    lykie_annotations.clear_turns(g.store.username)
     return jsonify({
         "ok": True,
         "panel_log": panel,
@@ -3049,15 +3046,90 @@ def api_lykie_author_log():
     })
 
 
+@app.route("/api/lykie/annotate", methods=["POST"])
+def api_lykie_annotate():
+    """// 反馈：作者在聊天里直达的意见。拦截不进模型、不进对话历史，锚定最近一轮快照。"""
+    data = request.get_json(force=True) or {}
+    text = str(data.get("text") or "")
+    if not lykie_annotations.is_feedback(text):
+        return jsonify({"ok": False, "error": "反馈须以 // 开头"}), 400
+    try:
+        item = lykie_annotations.capture(g.store.username, text)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    # 前端同步面板时一并写（含 note 气泡，重启可还原）
+    if isinstance(data.get("panel_messages"), list):
+        state = lykie_memory.load_state(g.store.lykie_path)
+        lykie_memory.set_panel_log(state, data.get("panel_messages"))
+        lykie_memory.save_state(g.store.lykie_path, state)
+
+    return jsonify({
+        "ok": True,
+        "id": item["id"],
+        "vibe": item["vibe"],
+        "anchor": {
+            "ts": int((item.get("turn") or {}).get("ts") or 0),
+            "reply_preview": item.get("reply_preview") or "",
+        },
+        "annotation_total": lykie_annotations.counts()["total"],
+        "annotation_pending": lykie_annotations.counts()["pending"],
+    })
+
+
+# ==================== 对话标注收件箱（作者工具） ====================
+
+
+@app.route("/annotations")
+def annotations_page():
+    if not _require_author():
+        abort(404)
+    return render_template("annotations.html", username=g.store.username)
+
+
+@app.route("/api/lykie/annotations")
+def api_lykie_annotations_list():
+    if not _require_author():
+        abort(404)
+    return jsonify({"ok": True, "items": lykie_annotations.list_annotations()})
+
+
+@app.route("/api/lykie/annotations/<aid>")
+def api_lykie_annotation_get(aid):
+    if not _require_author():
+        abort(404)
+    item = lykie_annotations.get_annotation(aid)
+    if not item:
+        return jsonify({"ok": False, "error": "标注不存在"}), 404
+    return jsonify({"ok": True, "item": item})
+
+
+@app.route("/api/lykie/annotations/<aid>/status", methods=["POST"])
+def api_lykie_annotation_status(aid):
+    if not _require_author():
+        abort(404)
+    data = request.get_json(force=True) or {}
+    item = lykie_annotations.set_status(aid, data.get("status"))
+    if not item:
+        return jsonify({"ok": False, "error": "标注不存在或状态非法"}), 404
+    return jsonify({"ok": True, "item": lykie_annotations.public_item(item)})
+
+
 @app.route("/api/lykie/relationship", methods=["POST"])
 def api_lykie_relationship():
-    """作者钉感情层。不清 facts / 监督。"""
+    """作者钉感情层。不清 facts / 监督。lock=True 固定该层（停自动升层）；lock=False 从钉的层继续自动。"""
     data = request.get_json(force=True) or {}
     stage = str(data.get("stage") or "").strip()
     if stage not in lykie_memory.RELATIONSHIP_STAGES:
         return jsonify({"ok": False, "error": "未知感情层"}), 400
     state = lykie_memory.load_state(g.store.lykie_path)
     sid = lykie_memory.set_relationship_stage(state, stage)
+    flags = state.setdefault("flags", {})
+    if data.get("lock"):
+        flags["relationship_locked"] = True
+        flags["relationship_auto"] = False
+    else:
+        flags.pop("relationship_locked", None)
     lykie_memory.save_state(g.store.lykie_path, state)
     return jsonify({
         "ok": True,
@@ -3067,6 +3139,7 @@ def api_lykie_relationship():
         "opening": lykie_opening.public_state(state),
         "relationship_stage": sid,
         "relationship_label": lykie_memory.stage_label(sid),
+        "relationship_auto": bool(flags.get("relationship_auto")),
     })
 
 
@@ -3174,69 +3247,6 @@ def api_atlas_publish():
         "prose_stale": meta["prose_stale"],
         "prose_published_at": meta["prose_published_at"],
         "prose": prose,
-    })
-
-
-@app.route("/api/lykie/feedback", methods=["POST"])
-def api_lykie_feedback():
-    """点踩/点赞：保存好范例短句 + 修改点评；点踩默认可回退重问。"""
-    data = request.get_json(force=True) or {}
-    vibe = str(data.get("vibe") or "down").strip().lower()
-    if vibe not in ("down", "up"):
-        vibe = "down"
-
-    user_said = str(data.get("user_said") or "").strip()
-    bad_reply = str(data.get("bad_reply") or data.get("reply") or "").strip()
-    review = str(data.get("review") or "").strip()
-    rollback = bool(data.get("rollback", vibe == "down"))
-    raw_lines = data.get("good_lines")
-    if isinstance(raw_lines, str):
-        good_lines = [ln.strip() for ln in raw_lines.replace("\r", "").split("\n") if ln.strip()]
-    elif isinstance(raw_lines, list):
-        good_lines = [str(x).strip() for x in raw_lines if str(x).strip()]
-    else:
-        good_lines = []
-
-    if vibe == "down" and not good_lines and not review:
-        return jsonify({"ok": False, "error": "请填写好范例短句或修改点评"}), 400
-    if vibe == "up" and not bad_reply and not good_lines:
-        return jsonify({"ok": False, "error": "没有可点赞的回复"}), 400
-
-    state = lykie_memory.load_state(g.store.lykie_path)
-    item = lykie_memory.add_correction(
-        state,
-        user_said=user_said,
-        bad_reply=bad_reply if vibe == "down" else ("" if good_lines else bad_reply),
-        good_lines=good_lines,
-        review=review or ("用户认可这种说法，同类情境可参考。" if vibe == "up" else ""),
-        vibe=vibe,
-    )
-    if not item:
-        return jsonify({"ok": False, "error": "无法保存"}), 400
-
-    removed_users = []
-    replaced = False
-    if vibe == "down" and rollback:
-        removed_users = lykie_memory.rollback_before_user_turn(state, user_said)
-    elif vibe == "down" and item.get("good_lines"):
-        # 兼容：不回退时仍用好范例替换尾迹
-        replaced = lykie_memory.replace_last_assistant(
-            state, "\n".join(item["good_lines"])
-        )
-
-    # 前端会同步 panel；若带了 messages 则一并写
-    if isinstance(data.get("panel_messages"), list):
-        lykie_memory.set_panel_log(state, data.get("panel_messages"))
-
-    lykie_memory.save_state(g.store.lykie_path, state)
-    return jsonify({
-        "ok": True,
-        "correction": item,
-        "replaced_tail": replaced,
-        "rollback": bool(vibe == "down" and rollback),
-        "removed_users": removed_users,
-        "correction_count": len(state.get("corrections") or []),
-        "style_note_count": len(state.get("style_notes") or []),
     })
 
 
@@ -3435,6 +3445,22 @@ def api_lykie_chat():
     if mode == "chat":
         reply = lykie_profile.parse_archive_meta(reply).get("reply") or reply
 
+    # ── 轮次留痕（旁路：她当时看到的完整 prompt 快照，供 // 标注锚定） ──
+    try:
+        lykie_annotations.save_turn(
+            g.store.username,
+            mode=mode,
+            stage=lykie_memory.get_relationship_stage(state),
+            model=lykie_llm.get_config().get("model") if lykie_llm.is_configured() else "",
+            temperature=result.get("temperature"),
+            question_card=active_card,
+            messages=result.get("messages") or [],
+            reply=reply,
+            silent=silent,
+        )
+    except Exception:
+        pass
+
     # ── 写入对话历史 ──
     if mode == "correct":
         for m in batch:
@@ -3449,6 +3475,21 @@ def api_lykie_chat():
     dropped_stage = None
     if mode == "chat" and silent and lykie_memory.is_direct_attack(batch):
         dropped_stage = lykie_memory.drop_relationship_stage(state)
+
+    # ── 自动升层（模型每轮自报读数，程序只做护栏裁定；silent 轮无读数跳过） ──
+    raised_stage = None
+    if mode == "chat" and not silent and result.get("rel_read"):
+        raised_stage = lykie_memory.apply_rel_read(state, result["rel_read"])
+    if raised_stage:
+        log = list(state.get("panel_log") or [])
+        log.append({
+            "role": "system",
+            "text": (
+                f"关系变化：{lykie_memory.stage_label(raised_stage['from'])}"
+                f" → {raised_stage['label']}"
+            ),
+        })
+        lykie_memory.set_panel_log(state, log)
 
     # ── 事实提取（简单记忆，非监督产物） ──
     facts_added = []
@@ -3475,6 +3516,7 @@ def api_lykie_chat():
             lykie_memory.get_relationship_stage(state)
         ),
         "relationship_dropped": dropped_stage,
+        "relationship_raised": raised_stage,
         "opening": lykie_opening.public_state(state),
         "opening_just_realized": just_realized,
     }

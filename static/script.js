@@ -2800,7 +2800,6 @@ if ($('settleDetailModal')) {
 let lykieBusy = false;
 let lykieConfigured = false;
 let lastUserUtterance = '';
-let feedbackTargetEl = null;
 let lykieBurstSeq = 0;
 let panelPersistTimer = null;
 let restoringPanel = false;
@@ -2820,6 +2819,10 @@ function appendLykieBubble(role, text, opts) {
     div.classList.add('silence');
     div.dataset.silence = '1';
   }
+  if (role === 'user' && opts && opts.note) {
+    div.classList.add('note');
+    div.dataset.note = '1';
+  }
 
   if (role === 'assistant' && !restoringPanel && !(opts && opts.noPing)) {
     // 面板收起时才 ping；burst 内仅首条响（后续传 noPing）
@@ -2833,44 +2836,16 @@ function appendLykieBubble(role, text, opts) {
     body.className = 'lykie-bubble-text';
     body.textContent = text;
     div.appendChild(body);
-
-    const storyOn = window.StoryRunner && window.StoryRunner.isActive();
-    // 只在「整次回复」的最后一条气泡上放评价，避免一句一点
-    if (!storyOn && !(opts && opts.noFeedback)) {
-      const actions = document.createElement('div');
-      actions.className = 'lykie-bubble-actions';
-      const up = document.createElement('button');
-      up.type = 'button';
-      up.className = 'lykie-fb-btn';
-      up.title = '整次回复不错（点赞）';
-      up.textContent = '👍';
-      up.onclick = (e) => {
-        e.stopPropagation();
-        submitLykieUpvote(div);
-      };
-      const down = document.createElement('button');
-      down.type = 'button';
-      down.className = 'lykie-fb-btn';
-      down.title = '纠正整次回复并回退重问（点踩）';
-      down.textContent = '👎';
-      down.onclick = (e) => {
-        e.stopPropagation();
-        openLykieFeedback(div);
-      };
-      actions.appendChild(up);
-      actions.appendChild(down);
-      const logBtn = document.createElement('button');
-      logBtn.type = 'button';
-      logBtn.className = 'lykie-fb-btn';
-      logBtn.title = '记给作者（带现场，不进模型）';
-      logBtn.textContent = '记';
-      logBtn.onclick = (e) => {
-        e.stopPropagation();
-        openLykieAuthorLog(div);
-      };
-      actions.appendChild(logBtn);
-      div.appendChild(actions);
-    }
+  } else if (role === 'user' && opts && opts.note) {
+    // // 反馈：直达作者的意见，她不会看到
+    const body = document.createElement('span');
+    body.className = 'lykie-bubble-text';
+    body.textContent = text;
+    div.appendChild(body);
+    const tag = document.createElement('span');
+    tag.className = 'lykie-note-tag';
+    tag.textContent = '已递交作者 · 她不会看到';
+    div.appendChild(tag);
   } else {
     div.textContent = text;
   }
@@ -2897,10 +2872,10 @@ function serializePanelLog() {
     const text = bubbleText(el).trim();
     if (!text) return;
     // 跳过瞬时提示
-    if (role === 'system' && (text === '…等你说完再回' || text.startsWith('已记住'))) return;
+    if (role === 'system' && (text === '…等你说完再回' || text.startsWith('已记住') || text.startsWith('已递交'))) return;
     const item = { role, text };
     if (el.dataset.silence === '1') item.silence = true;
-    if (role === 'assistant' && !el.querySelector('.lykie-fb-btn')) item.no_feedback = true;
+    if (el.dataset.note === '1') item.note = true;
     out.push(item);
   });
   return out;
@@ -2946,34 +2921,20 @@ function restorePanelLog(messages) {
     if (!text) return;
     if (role === 'assistant') {
       const el = appendLykieBubble('assistant', text, {
-        noFeedback: !!m.no_feedback,
         silence: !!m.silence,
       });
       if (el && m.silence) {
         el.classList.add('silence');
         el.dataset.silence = '1';
       }
+    } else if (role === 'user' && m.note) {
+      appendLykieBubble('user', text, { note: true });
     } else {
       appendLykieBubble(role, text);
     }
   });
   restoringPanel = false;
   lastPanelLog = list;
-}
-
-function rollbackPanelBeforeAssistant(assistantEl) {
-  const burst = collectBurstElements(assistantEl);
-  const first = burst[0] || assistantEl;
-  const remove = [...burst];
-  let node = first ? first.previousElementSibling : null;
-  const userTexts = [];
-  while (node && node.classList.contains('user')) {
-    userTexts.unshift((node.textContent || '').replace(/^（问问）/, '').replace(/^（纠正）/, '').trim());
-    remove.unshift(node);
-    node = node.previousElementSibling;
-  }
-  remove.forEach((n) => n.remove());
-  return userTexts.filter(Boolean);
 }
 
 async function wipeLykieMemory() {
@@ -3042,333 +3003,47 @@ function bubbleText(el) {
   return (t ? t.textContent : el.textContent) || '';
 }
 
-/** 同一用户话之后、同一次连发的多条 Lykie 气泡 */
-function collectBurstElements(assistantEl) {
-  if (!assistantEl) return [];
-  const id = assistantEl.dataset.burstId;
-  const box = $('lykieMessages');
-  if (id && box) {
-    return [...box.querySelectorAll(`.lykie-bubble.assistant[data-burst-id="${id}"]`)];
-  }
-  return [assistantEl];
+// ==================== // 反馈（直达作者） ====================
+
+function isAuthorNoteText(text) {
+  return typeof text === 'string' && text.trim().startsWith('//');
 }
 
-function collectBurstText(assistantEl) {
-  if (assistantEl && assistantEl.dataset.silence === '1') return '[不回复]';
-  return collectBurstElements(assistantEl)
-    .map(bubbleText)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join('\n');
-}
-
-function findPrevUserTexts(assistantEl) {
-  const burst = collectBurstElements(assistantEl);
-  const first = burst[0] || assistantEl;
-  const texts = [];
-  let node = first ? first.previousElementSibling : null;
-  while (node) {
-    if (node.classList.contains('user')) {
-      const t = (node.textContent || '')
-        .replace(/^（问问）/, '')
-        .replace(/^（纠正）/, '')
-        .trim();
-      if (t) texts.unshift(t);
-      node = node.previousElementSibling;
-      continue;
-    }
-    // 碰到上一次 Lykie / 系统提示就停：只收「这一轮」连发
-    if (node.classList.contains('assistant') || node.classList.contains('system')) break;
-    node = node.previousElementSibling;
-  }
-  if (texts.length) return texts;
-  return lastUserUtterance ? [lastUserUtterance] : [];
-}
-
-function findPrevUserText(assistantEl) {
-  return findPrevUserTexts(assistantEl).join('\n');
-}
-
-function openLykieFeedback(assistantEl) {
-  feedbackTargetEl = assistantEl;
-  const bad = collectBurstText(assistantEl);
-  const userTexts = findPrevUserTexts(assistantEl);
-  const modal = $('lykieFeedbackModal');
-  if (!modal) return;
-  const userBlock = userTexts.length
-    ? userTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')
-    : '';
-  $('lykieFbUserSaid').textContent = userBlock
-    ? `针对用户这一轮（可连发）：\n${userBlock}\n\n写出 Lykie 整次理想回复（一行一句）。若理想是先不回：好范例留空，或写 [不回复]。`
-    : '请写出 Lykie 整次理想回复（可多行短句）。若先不回：留空或写 [不回复]。';
-  $('lykieFbBad').value = bad;
-  $('lykieFbGood').value = '';
-  $('lykieFbReview').value = '';
-  modal.hidden = false;
-  $('lykieFbGood').focus();
-}
-
-function closeLykieFeedback() {
-  const modal = $('lykieFeedbackModal');
-  if (modal) modal.hidden = true;
-  feedbackTargetEl = null;
-}
-
-let authorLogTargetEl = null;
-let authorLogCandidates = [];
-let authorLogStart = 0;
-let authorLogEnd = 0;
-let authorLogPick = null;
-
-function authorLogTalkRows() {
-  const RESET = /清空到开场|记忆已清空|—— 开场结束 ——/;
-  const rows = [];
-  let sessionFrom = 0;
-  serializePanelLog().forEach((m, i) => {
-    const text = (m.text || '').trim();
-    if (RESET.test(text)) sessionFrom = rows.length;
-    if (m.role !== 'user' && m.role !== 'assistant') return;
-    if (!text) return;
-    if (text.startsWith('已记下现场') || text.startsWith('已记住')) return;
-    rows.push({ role: m.role, text });
-  });
-  return { rows, sessionFrom };
-}
-
-function setAuthorLogRange(start, end) {
-  const n = authorLogCandidates.length;
-  if (!n) {
-    authorLogStart = 0;
-    authorLogEnd = -1;
-    paintAuthorLogRange();
+/** // 开头的消息不进连发队列、不发给模型：锚定最近一轮，递交进作者标注库。 */
+async function submitLykieNote(text) {
+  const body = String(text || '').trim();
+  const noteBody = body.replace(/^\/\//, '');
+  if (!noteBody.trim()) {
+    appendLykieBubble('system', '反馈内容为空：// 后面写点什么');
     return;
   }
-  if (start >= n) {
-    authorLogStart = n;
-    authorLogEnd = n - 1;
-    paintAuthorLogRange();
-    return;
+  const input = $('lykieInput');
+  if (input) {
+    input.value = '';
+    input.style.height = isMobilePortrait() ? '56px' : '100px';
+    input.focus();
   }
-  authorLogStart = Math.max(0, Math.min(start, n - 1));
-  authorLogEnd = Math.max(0, Math.min(end, n - 1));
-  if (authorLogEnd < authorLogStart) {
-    const t = authorLogStart;
-    authorLogStart = authorLogEnd;
-    authorLogEnd = t;
-  }
-  paintAuthorLogRange();
-}
-
-function paintAuthorLogRange() {
-  const host = $('lykieAuthorLogRange');
-  const hint = $('lykieAuthorLogRangeHint');
-  if (!host) return;
-  host.innerHTML = authorLogCandidates.map((m, i) => {
-    const who = m.role === 'user' ? '你' : '她';
-    const cls = [
-      'lykie-log-row',
-      (i >= authorLogStart && i <= authorLogEnd) ? 'is-in' : '',
-      i === authorLogStart ? 'is-start' : '',
-      i === authorLogEnd ? 'is-end' : '',
-    ].filter(Boolean).join(' ');
-    const preview = escapeHtml(m.text.length > 72 ? m.text.slice(0, 72) + '…' : m.text);
-    return `<button type="button" class="${cls}" data-i="${i}"><span class="lykie-log-who">${who}</span>${preview}</button>`;
-  }).join('');
-  host.querySelectorAll('.lykie-log-row').forEach((btn) => {
-    btn.onclick = () => {
-      const i = Number(btn.getAttribute('data-i'));
-      if (authorLogPick == null) {
-        authorLogPick = i;
-        setAuthorLogRange(i, i);
-        if (hint) hint.textContent = '再点一句作为结尾';
-        return;
-      }
-      setAuthorLogRange(authorLogPick, i);
-      authorLogPick = null;
-      if (hint) hint.textContent = `已选 ${authorLogEnd - authorLogStart + 1} 句`;
-    };
-  });
-  if (hint && authorLogPick == null) {
-    const count = authorLogEnd >= authorLogStart ? authorLogEnd - authorLogStart + 1 : 0;
-    hint.textContent = authorLogCandidates.length
-      ? (count ? `已选 ${count} 句（可点两句改范围）` : '未选对话（点两句圈范围，或点本次全部）')
-      : '没有可圈的对话';
-  }
-}
-
-function openLykieAuthorLog(assistantEl) {
-  authorLogTargetEl = assistantEl;
-  authorLogPick = null;
-  const packed = authorLogTalkRows();
-  authorLogCandidates = packed.rows;
-  setAuthorLogRange(packed.sessionFrom, Math.max(0, authorLogCandidates.length - 1));
-  const modal = $('lykieAuthorLogModal');
-  if (!modal) return;
-  const note = $('lykieAuthorLogNote');
-  if (note) note.value = '';
-  modal.hidden = false;
-  if (note) note.focus();
-}
-
-function closeLykieAuthorLog() {
-  const modal = $('lykieAuthorLogModal');
-  if (modal) modal.hidden = true;
-  authorLogTargetEl = null;
-  authorLogPick = null;
-}
-
-function selectedAuthorLogScene() {
-  if (!authorLogCandidates.length || authorLogEnd < authorLogStart) return [];
-  return authorLogCandidates.slice(authorLogStart, authorLogEnd + 1);
-}
-
-async function submitLykieAuthorLog() {
-  const target = authorLogTargetEl;
-  const note = ($('lykieAuthorLogNote') && $('lykieAuthorLogNote').value || '').trim();
-  const btn = $('lykieAuthorLogSubmit');
-  if (btn) btn.disabled = true;
+  appendLykieBubble('user', body, { note: true });
   try {
-    const res = await fetchAuth('/api/lykie/author_log', {
+    const res = await fetchAuth('/api/lykie/annotate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        note,
-        user_said: target ? findPrevUserText(target) : '',
-        focus_text: target ? collectBurstText(target) : '',
-        scene: selectedAuthorLogScene(),
+        text: body,
+        panel_messages: serializePanelLog(),
       }),
     });
     const data = await res.json();
     if (!data.ok) {
-      await uiAlert(data.error || '记下失败');
+      appendLykieBubble('system', data.error || '递交失败');
       return;
     }
-    closeLykieAuthorLog();
-    appendLykieBubble('system', '已记下现场（作者日志，不进模型）');
-    await refreshLykieState();
+    const anchor = data.anchor || {};
+    const vibe = data.vibe === 'up' ? '好评' : '反馈';
+    const prev = anchor.reply_preview ? `｜锚定：${anchor.reply_preview}` : '';
+    appendLykieBubble('system', `已递交作者（${vibe}）${prev}`);
   } catch (e) {
-    await uiAlert('网络错误');
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-function markFeedbackDone(el) {
-  collectBurstElements(el).forEach((node) => {
-    node.querySelectorAll('.lykie-fb-btn').forEach((b) => b.classList.add('done'));
-  });
-}
-
-async function submitLykieUpvote(assistantEl) {
-  const reply = collectBurstText(assistantEl);
-  const isSilence = assistantEl && assistantEl.dataset.silence === '1';
-  if (!reply && !isSilence) return;
-  try {
-    const res = await fetchAuth('/api/lykie/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        vibe: 'up',
-        user_said: findPrevUserText(assistantEl),
-        bad_reply: isSilence ? '[不回复]' : reply,
-        good_lines: isSilence
-          ? ['[不回复]']
-          : reply.split(/\n+/).map((s) => s.trim()).filter(Boolean),
-        review: isSilence
-          ? '用户认可本轮先不回复；同类碎碎念/半截话可先沉默等连发。'
-          : '用户认可这次整段回复的节奏与内容，同类情境可参考。',
-      }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      appendLykieBubble('system', data.error || '点赞失败');
-      return;
-    }
-    markFeedbackDone(assistantEl);
-    appendLykieBubble('system', isSilence ? '已记住：这轮先不回可以' : '已记住：整次这样说可以');
-    await refreshLykieState();
-  } catch (e) {
-    appendLykieBubble('system', '网络错误');
-  }
-}
-
-async function submitLykieFeedback() {
-  const bad = ($('lykieFbBad').value || '').trim();
-  const goodRaw = ($('lykieFbGood').value || '').trim();
-  let good_lines = goodRaw
-    ? goodRaw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-    : [];
-  const review = ($('lykieFbReview').value || '').trim();
-  const user_said = findPrevUserText(feedbackTargetEl);
-
-  const wantSilence =
-    !good_lines.length ||
-    (good_lines.length === 1 && /^\[?不回复\]?$|^【不回复】$/.test(good_lines[0]));
-
-  if (wantSilence && !good_lines.length) {
-    good_lines = ['[不回复]'];
-  }
-
-  if (!good_lines.length && !review) {
-    await uiAlert('请填写好范例，或留空并写点评（表示应先不回）');
-    return;
-  }
-
-  const btn = $('lykieFbSubmit');
-  if (btn) btn.disabled = true;
-  const target = feedbackTargetEl;
-  try {
-    const res = await fetchAuth('/api/lykie/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        vibe: 'down',
-        user_said,
-        bad_reply: bad,
-        good_lines,
-        review: review || (wantSilence ? '本轮应先不回复，等用户再说一句再开口。' : ''),
-        rollback: true,
-      }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      await uiAlert(data.error || '保存失败');
-      return;
-    }
-
-    const rolledUsers = target ? rollbackPanelBeforeAssistant(target) : [];
-    const refill = (
-      (data.removed_users && data.removed_users.length)
-        ? data.removed_users
-        : (rolledUsers.length ? rolledUsers : user_said.split('\n').filter(Boolean))
-    ).join('\n');
-
-    closeLykieFeedback();
-    clearChatBatchTimer();
-    chatBatchQueue = [];
-    chatBatchStartedAt = 0;
-    showChatBatchWaiting(false);
-    clearPendingQuestionCard();
-
-    const input = $('lykieInput');
-    if (input && refill) {
-      input.value = refill;
-      input.style.height = 'auto';
-      input.style.height = Math.min(Math.max(input.scrollHeight, 100), 220) + 'px';
-      input.focus();
-    }
-
-    appendLykieBubble(
-      'system',
-      '已记住点评；已回退到提问前，可改口或原句重发' +
-        (data.correction_count != null ? `（监督 ${data.correction_count}）` : ''),
-    );
-    await persistPanelLog();
-    await refreshLykieState();
-  } catch (e) {
-    await uiAlert('网络错误');
-  } finally {
-    if (btn) btn.disabled = false;
+    appendLykieBubble('system', '网络错误，反馈未递交');
   }
 }
 
@@ -3452,7 +3127,7 @@ async function refreshLykieState() {
         if (beat === 'realized' && by) extraLayer += '·' + by;
       }
       status.textContent =
-        `已连接 · ${data.model || 'model'} · ${archive} · 层·${layer}${extraLayer} · 日常 ${data.fact_count || 0} · 口吻 ${data.style_note_count || 0}（共用） · 监督 ${data.correction_count || 0}（共用） · 日志 ${data.author_log_count || 0}（共用） · 印象 ${Number(data.portrait_offense_count) ? (data.portrait_unapologized ? '有过节·未道歉' : (data.portrait_warned ? '有过节·已警告' : '有过节')) : '无'}`;
+        `已连接 · ${data.model || 'model'} · ${archive} · 层·${layer}${extraLayer} · 日常 ${data.fact_count || 0} · 口吻 ${data.style_note_count || 0}（共用） · 日志 ${data.author_log_count || 0}（共用） · 标注 ${data.annotation_total || 0}·待 ${data.annotation_pending || 0} · 印象 ${Number(data.portrait_offense_count) ? (data.portrait_unapologized ? '有过节·未道歉' : (data.portrait_warned ? '有过节·已警告' : '有过节')) : '无'}`;
     } else {
       status.textContent = '未配置 API Key：复制 .env.example 为 .env 后填入 LYKIE_API_KEY 并重启';
     }
@@ -3477,6 +3152,34 @@ function syncLykieStageSelect(data) {
   }
   const stage = (data && (data.relationship_stage || (data.flags && data.flags.relationship_stage))) || 'acquainted';
   if ([...sel.options].some((o) => o.value === stage)) sel.value = stage;
+  syncLykieStageLock(data);
+}
+
+/** 「锁定」勾选：作者钉层时带上 lock，锁住后模型读数不再自动升层。动态挂进现有钉层区。 */
+function ensureLykieStageLock() {
+  const sel = $('lykieStageSelect');
+  if (!sel || $('lykieStageLock')) return;
+  const wrap = document.createElement('label');
+  wrap.className = 'lykie-stage-wrap';
+  wrap.title = '勾选后钉住该层，读数不再自动升层；不勾只钉层，继续自动';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.id = 'lykieStageLock';
+  box.setAttribute('aria-label', '锁定感情层');
+  const label = document.createElement('span');
+  label.className = 'lykie-stage-label';
+  label.textContent = '锁定';
+  wrap.appendChild(box);
+  wrap.appendChild(label);
+  sel.parentNode.insertBefore(wrap, sel.nextSibling);
+}
+
+function syncLykieStageLock(data) {
+  const box = $('lykieStageLock');
+  if (!box) return;
+  const flags = data && data.flags;
+  if (!flags) return; // 该响应不带 flags（如 chat 轮）时保留当前勾选
+  box.checked = !!flags.relationship_locked;
 }
 
 let pinningStage = false;
@@ -3484,12 +3187,13 @@ async function onLykieStageChange() {
   const sel = $('lykieStageSelect');
   if (!sel || pinningStage) return;
   const stage = sel.value;
+  const lock = !!($('lykieStageLock') && $('lykieStageLock').checked);
   pinningStage = true;
   try {
     const res = await fetchAuth('/api/lykie/relationship', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stage }),
+      body: JSON.stringify({ stage, lock }),
     });
     const data = await res.json();
     if (!data.ok) {
@@ -3497,7 +3201,9 @@ async function onLykieStageChange() {
       await refreshLykieState();
       return;
     }
-    appendLykieBubble('system', `（作者）已钉在${data.label || stage}`);
+    appendLykieBubble('system', lock
+      ? `（作者）已钉在${data.label || stage}（已锁定，读数不再自动升层）`
+      : `（作者）已钉在${data.label || stage}`);
     applyOpeningFromState(data);
     await refreshLykieState();
   } catch (e) {
@@ -3569,7 +3275,7 @@ async function fireOpeningNudge() {
     const bubbles = Array.isArray(data.bubbles) ? data.bubbles : [];
     for (const b of bubbles) {
       const text = (b && (b.text || b.content)) || '';
-      if (text) appendLykieBubble('assistant', text, { noFeedback: true });
+      if (text) appendLykieBubble('assistant', text);
     }
     if (data.stopped) {
       appendLykieBubble('system', '（作者）她不再催了。关系停在开局。你再主动找她，她会起疑。');
@@ -3711,7 +3417,7 @@ function sleepMs(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** 分条发出 Lykie 回复（多气泡），条间按打字速度间隔；评价绑定整次回复。 */
+/** 分条发出 Lykie 回复（多气泡），条间按打字速度间隔。 */
 async function appendLykieReplyBurst(text) {
   const parts = splitLykieReply(text);
   if (!parts.length) {
@@ -3722,10 +3428,8 @@ async function appendLykieReplyBurst(text) {
   for (let i = 0; i < parts.length; i++) {
     if (i > 0) await sleepMs(Math.min(2500, typingDelayForLine(parts[i])));
     else await sleepMs(Math.min(1200, Math.round(typingDelayForLine(parts[i]) * 0.35)));
-    const isLast = i === parts.length - 1;
     appendLykieBubble('assistant', parts[i], {
       burstId,
-      noFeedback: !isLast,
       noPing: i > 0,
     });
   }
@@ -3910,7 +3614,7 @@ async function sendLykie(mode, messageOrBatch, questionCard) {
     appendLykieBubble('user', lastUserUtterance);
   }
 
-  const pending = appendLykieBubble('assistant', '……', { noFeedback: true, skipPersist: true, noPing: true });
+  const pending = appendLykieBubble('assistant', '……', { skipPersist: true, noPing: true });
   if (pending) pending.classList.add('pending');
 
   try {
@@ -3958,6 +3662,17 @@ async function sendLykie(mode, messageOrBatch, questionCard) {
           `（作者）直攻，落到${data.relationship_label || data.relationship_dropped}`
         );
         await refreshLykieState();
+      } else if (data.relationship_raised) {
+        const raised = data.relationship_raised;
+        const sel = $('lykieStageSelect');
+        let fromLabel = String(raised.from || '');
+        if (sel) {
+          const opt = [...sel.options].find((o) => o.value === String(raised.from || ''));
+          if (opt) fromLabel = opt.textContent;
+        }
+        syncLykieStageSelect(data);
+        appendLykieBubble('system', `关系变化：${fromLabel} → ${raised.label || ''}`);
+        await refreshLykieState();
       } else if ((data.facts_added && data.facts_added.length) ||
           (data.style_notes_added && data.style_notes_added.length)) {
         if (data.style_notes_added && data.style_notes_added.length) {
@@ -3993,6 +3708,11 @@ function onLykieSend() {
   if (window.StoryRunner && window.StoryRunner.isActive()) {
     if (!text) return;
     window.StoryRunner.handleSend(text);
+    return;
+  }
+  // // 开头 = 直达作者的意见：不进连发队列、不发给模型
+  if (isAuthorNoteText(text)) {
+    submitLykieNote(text);
     return;
   }
   if (!text && !pendingQuestionCard) return;
@@ -4109,31 +3829,9 @@ if ($('lykiePendingCardClear')) $('lykiePendingCardClear').onclick = () => {
 if ($('lykieOpeningTestBtn')) $('lykieOpeningTestBtn').onclick = startOpeningNodeTest;
 if ($('lykieClearChatBtn')) $('lykieClearChatBtn').onclick = clearChatToOpeningEnd;
 if ($('lykieWipeMemoryBtn')) $('lykieWipeMemoryBtn').onclick = wipeLykieMemory;
-if ($('lykieStageSelect')) $('lykieStageSelect').addEventListener('change', onLykieStageChange);
-if ($('lykieAuthorLogToolBtn')) {
-  $('lykieAuthorLogToolBtn').onclick = () => openLykieAuthorLog(null);
-}
-if ($('lykieAuthorLogCancel')) $('lykieAuthorLogCancel').onclick = closeLykieAuthorLog;
-if ($('lykieAuthorLogSubmit')) $('lykieAuthorLogSubmit').onclick = submitLykieAuthorLog;
-if ($('lykieAuthorLogAllBtn')) {
-  $('lykieAuthorLogAllBtn').onclick = () => {
-    authorLogPick = null;
-    const packed = authorLogTalkRows();
-    authorLogCandidates = packed.rows;
-    setAuthorLogRange(packed.sessionFrom, Math.max(0, authorLogCandidates.length - 1));
-  };
-}
-if ($('lykieAuthorLogModal')) {
-  $('lykieAuthorLogModal').addEventListener('click', (e) => {
-    if (e.target === $('lykieAuthorLogModal')) closeLykieAuthorLog();
-  });
-}
-if ($('lykieFbCancel')) $('lykieFbCancel').onclick = closeLykieFeedback;
-if ($('lykieFbSubmit')) $('lykieFbSubmit').onclick = submitLykieFeedback;
-if ($('lykieFeedbackModal')) {
-  $('lykieFeedbackModal').addEventListener('click', (e) => {
-    if (e.target === $('lykieFeedbackModal')) closeLykieFeedback();
-  });
+if ($('lykieStageSelect')) {
+  ensureLykieStageLock();
+  $('lykieStageSelect').addEventListener('change', onLykieStageChange);
 }
 if ($('lykieCloseBtn')) $('lykieCloseBtn').onclick = () => setLykiePanelOpen(false);
 if ($('lykiePeekerBtn')) {

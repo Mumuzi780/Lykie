@@ -2238,88 +2238,21 @@ body,
   align-self: flex-start;
   background: var(--card);
   border: 1px solid var(--border);
-  position: relative;
-  padding-bottom: 28px;
 }
 .lykie-bubble-text {
   display: block;
 }
-.lykie-bubble-actions {
-  position: absolute;
-  right: 6px;
-  bottom: 4px;
-  display: flex;
-  gap: 2px;
-  opacity: .55;
-}
-.lykie-bubble:hover .lykie-bubble-actions {
-  opacity: 1;
-}
-.lykie-fb-btn {
-  border: none;
+/* // 反馈：直达作者的意见，她不会看到 */
+.lykie-bubble.user.note {
   background: transparent;
+  border: 1px dashed var(--muted);
   color: var(--muted);
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 4px;
 }
-.lykie-fb-btn:hover {
-  color: var(--text);
-  background: var(--active, rgba(127,127,127,.15));
-}
-.lykie-fb-btn.done {
-  opacity: .4;
-  pointer-events: none;
-}
-.lykie-feedback-box {
-  max-width: 440px;
-}
-.lykie-feedback-box.lykie-log-box {
-  max-width: 520px;
-}
-.lykie-log-range-tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 8px 0;
-}
-.lykie-log-range {
-  max-height: 220px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 4px 0;
-  margin-bottom: 10px;
-  background: var(--card);
-}
-.lykie-log-row {
+.lykie-note-tag {
   display: block;
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.4;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-.lykie-log-row.is-in {
-  background: rgba(45, 166, 168, .12);
-}
-.lykie-log-row.is-end,
-.lykie-log-row.is-start {
-  box-shadow: inset 3px 0 0 var(--primary, #2da6a8);
-}
-.lykie-log-who {
-  color: var(--muted);
-  margin-right: 6px;
-}
-.lykie-feedback-box textarea[readonly] {
-  opacity: .85;
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: .75;
 }
 .lykie-bubble.system {
   align-self: center;

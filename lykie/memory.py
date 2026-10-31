@@ -62,6 +62,15 @@ STAGE_LABELS = {
 CHAT_DROP_ORDER = ("couple", "heart", "casual", "acquainted")
 DIRECT_ATTACK_MARKS = ("你很烦", "我不想听")
 
+# 模型每轮自报的关系读数（原词）→ 既有 stage id。整词匹配，不做模糊匹配。
+READ_TO_STAGE = {
+    "开局": "opening",
+    "认识但不熟悉": "acquainted",
+    "能说事": "casual",
+    "能谈心": "heart",
+    "情侣": "couple",
+}
+
 STAGE_BRIEFS = {
     "opening": "你们刚开始认识，一切都在最开始的阶段。",
     "acquainted": "你们认识但还不熟，交情浅，彼此了解还很少。",
@@ -282,6 +291,58 @@ def drop_relationship_stage(state) -> str | None:
     nxt = CHAT_DROP_ORDER[idx + 1]
     set_relationship_stage(state, nxt)
     return nxt
+
+
+def apply_rel_read(state, read) -> dict | None:
+    """
+    模型每轮自报关系读数的护栏裁定（只升不降；降层仍走直攻机制）。
+
+    - 读数无效 / 不高于当前层 → None；
+    - 高于当前层 → 一次最多升一级（跳报截断到 当前层+1）；
+    - 目标为 couple 需 couple_streak >= 2（读数=情侣 且当前层=heart 计 streak，
+      读数非情侣清零），否则计 streak 返回 None；
+    - opening → acquainted 硬条件：opening_beat == "realized"（她已察觉对方不是 AI）；
+    - 落层生效：set_relationship_stage + 滚动替换进度 fact + relationship_auto=True，
+      opening 出口另落 opening_done 与认识 fact。返回 {"from", "to", "label"}。
+    """
+    flags = state.setdefault("flags", {})
+    # 作者钉层 lock=True 落的标记：层固定，模型读数不再自动升层
+    if flags.get("relationship_locked"):
+        return None
+    word = str(read or "").strip()
+    target = READ_TO_STAGE.get(word)
+    if not target:
+        return None
+    cur = get_relationship_stage(state)
+    cur_idx = RELATIONSHIP_STAGES.index(cur)
+    if RELATIONSHIP_STAGES.index(target) <= cur_idx:
+        return None
+
+    # streak：情侣需连续 2 轮报；读数非情侣即清零
+    if word != "情侣":
+        flags["couple_streak"] = 0
+    elif cur == "heart":
+        flags["couple_streak"] = int(flags.get("couple_streak") or 0) + 1
+
+    new = RELATIONSHIP_STAGES[cur_idx + 1]
+    if new == "couple" and int(flags.get("couple_streak") or 0) < 2:
+        return None
+
+    # 开局出口：未察觉前报多高都不动
+    if cur == "opening" and new == "acquainted":
+        if str(flags.get("opening_beat") or "") != "realized":
+            return None
+
+    set_relationship_stage(state, new)
+    remove_facts_matching(state, ["关系进度：", "关系进度（硬约束）："])
+    add_facts(state, [f"关系进度：{stage_label(new)}（{_today_str()} 起）"])
+    if cur == "opening" and new == "acquainted":
+        flags["opening_done"] = True
+        add_facts(state, [
+            "你们是这样认识的：她把心里事发给手机里的 AI，回话的是你。不算熟，就是认识了。",
+        ])
+    flags["relationship_auto"] = True
+    return {"from": cur, "to": new, "label": stage_label(new)}
 
 
 def empty_portrait():
@@ -762,6 +823,8 @@ def set_panel_log(state, messages):
             item["silence"] = True
         if m.get("no_feedback"):
             item["no_feedback"] = True
+        if m.get("note"):
+            item["note"] = True
         cleaned.append(item)
     state["panel_log"] = cleaned[-PANEL_LOG_MAX:]
     return state["panel_log"]

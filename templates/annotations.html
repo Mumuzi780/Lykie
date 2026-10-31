@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <title>对话标注 · Lykie</title>
+  <link rel="stylesheet" href="/static/style.css?v=m98">
+  <style>
+    /* 页面私有：// 反馈收件箱（列表 + 现场回放） */
+    .anno-app {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 20px 16px 48px;
+    }
+    .anno-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .anno-header h1 {
+      font-size: 20px;
+    }
+    .anno-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .anno-stats {
+      font-size: 12px;
+    }
+    .anno-hint {
+      margin: 8px 0 16px;
+      line-height: 1.5;
+    }
+    .anno-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .anno-item {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+      overflow: hidden;
+    }
+    .anno-row {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      padding: 12px 14px;
+      cursor: pointer;
+    }
+    .anno-row:hover {
+      background: rgba(127, 127, 127, .06);
+    }
+    .anno-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .anno-chip {
+      display: inline-block;
+      font-size: 11px;
+      line-height: 1;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+    .anno-chip.up { color: #2e7d32; border-color: #2e7d3366; }
+    .anno-chip.down { color: #b3541e; border-color: #b3541e66; }
+    .anno-chip.st-pending { color: var(--muted); }
+    .anno-chip.st-adopted { color: #2da6a8; border-color: #2da6a866; }
+    .anno-chip.st-ignored { opacity: .6; }
+    .anno-text {
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .anno-anchor {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .anno-detail {
+      border-top: 1px solid var(--border);
+      padding: 12px 14px;
+    }
+    .anno-detail-tools {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .anno-detail-tools .btn { padding: 4px 10px; font-size: 12px; }
+    .anno-detail-tools .btn.on {
+      border-color: var(--primary, #2da6a8);
+      color: var(--primary, #2da6a8);
+    }
+    .anno-block {
+      margin-bottom: 10px;
+    }
+    .anno-block > .anno-block-head {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .anno-turn {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .anno-turn .who {
+      font-size: 11px;
+      color: var(--muted);
+      margin-right: 6px;
+    }
+    .anno-turn.now {
+      border-color: var(--primary, #2da6a8);
+    }
+    .anno-history {
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .anno-history .anno-turn { margin-bottom: 6px; }
+    .anno-sys-seg {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .anno-sys-seg summary {
+      cursor: pointer;
+      padding: 6px 10px;
+      color: var(--muted);
+      user-select: none;
+    }
+    .anno-sys-seg pre {
+      margin: 0;
+      padding: 8px 10px;
+      border-top: 1px solid var(--border);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: inherit;
+      line-height: 1.5;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .anno-empty {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 24px 0;
+      text-align: center;
+    }
+  </style>
+</head>
+<body data-username="{{ username }}">
+  <div class="anno-app">
+    <header class="anno-header">
+      <h1>对话标注</h1>
+      <div class="anno-header-actions">
+        <span class="anno-stats hint" id="annoStats"></span>
+        <a class="btn ghost" href="/">返回</a>
+      </div>
+    </header>
+    <p class="anno-hint hint">聊天里 // 开头的反馈会出现在这里，自动带上她当时看到的完整现场（prompt 快照为递交时固化，之后档案怎么改都不影响回放）。点条目展开；状态三档：待分析 / 已采纳 / 已忽略。</p>
+    <main class="anno-main">
+      <ul class="anno-list" id="annoList"></ul>
+      <div class="anno-empty" id="annoEmpty" hidden>还没有标注。聊天里发一条 // 开头的反馈试试。</div>
+    </main>
+  </div>
+  <script src="/static/annotations.js?v=1"></script>
+</body>
+</html>
