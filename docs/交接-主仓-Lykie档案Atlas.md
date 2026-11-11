@@ -44,7 +44,7 @@
   "entries": [
     {
       "id": "e001",
-      "text": "她叫 Lykie，2007 年生，复读一年，现在是河北科技师范学院（秦皇岛校区）2026 级大一学生，人工智能专业。",
+      "text": "她叫 Lykie，2007 年生，复读一年，现在是望潮师范学院 2026 级大一学生，人工智能专业。",
       "layer": "core",
       "secret": false,
       "undecided": false,
@@ -188,7 +188,7 @@
 - [ ] 渲染只由作者显式触发；发布前模型侧行为与发布前完全一致
 - [ ] `LYKIE_PROFILE_SOURCE=legacy` 回退后行为与现状一致
 - [ ] facts 对象化后：`facts_summary`/`remove_facts_matching`/FACTS_MAX 行为不变，旧字符串数据自动迁移
-- [ ] `deploy_to_bt.py` 打包清单加入 `lykie/profile_entries.json`、`lykie/profile_prose.txt`、`lykie/atlas.py`、`templates/atlas.html`、`static/atlas.js`、`static/atlas.css`
+- [x] ~~`deploy_to_bt.py` 打包清单加入 atlas 文件~~（宝塔路线已废弃，脚本已删除；atlas 文件已随 Ubuntu 直传部署上线）
 - [ ] 非 LiZF 账号访问 /atlas 与其 API 返回 404 或 403（复用现有作者门禁）
 - [ ] /atlas 上完成的拆条 + 渲染发布后，作者与 Lykie 实聊十轮，无"档案感退坡"（作者人工判定）
 

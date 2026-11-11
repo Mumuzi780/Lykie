@@ -694,6 +694,7 @@ def _reading_view_payload(text_id):
         "sections": sections,
         "has_questions": any(s.get("questions") for s in sections),
         "lookup_marks": marks,
+        "lookup_notes": lykie_readings.get_notes(g.store.username, text_id),
         "answer_state": lykie_readings.get_answer_state(g.store.username, text_id),
     }
 
@@ -824,7 +825,10 @@ _LOOKUP_PROMPT = (
     '  "head": "选中内容的词典词头原形，小写；若是短语则保持原样",\n'
     '  "pos": "词性缩写，从 n./v./adj./adv./n.&v./prep./conj./phr. 中选最贴切的一个",\n'
     '  "meaning": "该词在此句语境中的中文释义，简明，只给这一个义项",\n'
-    '  "example_zh": "整个句子的中文翻译"\n'
+    '  "example_zh": "整个句子的中文翻译",\n'
+    '  "phrase": 若选中词在此句中与相邻词构成常见固定搭配或习语（如 shed 构成 shed light on），'
+    '输出 {{"text": "该搭配在句中的连续原文片段", "meaning": "搭配整体的中文释义"}}；'
+    "无固定搭配时为 null\n"
     "}}\n"
     "句子：{sentence}\n"
     "选中：{selection}"
@@ -920,6 +924,7 @@ def api_reading_lookup():
                 "meaning": str(res.get("meaning") or "").strip(),
                 "example_en": sentence,
                 "example_zh": cached_zh(hit),
+                "phrase": res.get("phrase") if isinstance(res.get("phrase"), dict) else None,
             },
         })
 
@@ -972,9 +977,21 @@ def api_reading_lookup():
     pos = lykie_assets.normalize_pos(obj.get("pos") or "")
     meaning = str(obj.get("meaning") or "").strip()
     example_zh = shared_zh or str(obj.get("example_zh") or "").strip()
+    # 短语联动：模型单次调用顺带返回句中固定搭配（无则为 null，字段残缺视为无）
+    raw_phrase = obj.get("phrase")
+    if (isinstance(raw_phrase, dict)
+            and str(raw_phrase.get("text") or "").strip()
+            and str(raw_phrase.get("meaning") or "").strip()):
+        phrase = {
+            "text": str(raw_phrase["text"]).strip()[:200],
+            "meaning": str(raw_phrase["meaning"]).strip()[:200],
+        }
+    else:
+        phrase = None
     record = lykie_readings.append_lookup(
         g.store.username, text_id, selection, sentence, mode, head=head,
-        result={"head": head, "pos": pos, "meaning": meaning, "example_zh": example_zh},
+        result={"head": head, "pos": pos, "meaning": meaning, "example_zh": example_zh,
+                "phrase": phrase},
         para_index=para_index, occur_index=occur_index,
         q_num=q_num, q_para_index=q_para_index,
     )
@@ -988,8 +1005,91 @@ def api_reading_lookup():
             "meaning": meaning,
             "example_en": sentence,
             "example_zh": example_zh,
+            "phrase": phrase,
         },
     })
+
+
+@app.route("/api/reading/lookup/<lookup_id>/phrase", methods=["POST"])
+def api_reading_lookup_phrase(lookup_id):
+    """短语联动确认制（2026-10-18 拍板）：用户确认「记短语」→ 原词记录
+    superseded 退役，纯本地派生短语记录（零模型调用），标记由短语接管。"""
+    data = request.get_json(force=True) or {}
+    text = str(data.get("text") or "").strip()
+    meaning = str(data.get("meaning") or "").strip()
+    if not text or not meaning:
+        return jsonify({"ok": False, "error": "缺少短语或释义"}), 400
+    record = lykie_readings.derive_phrase_lookup(g.store.username, lookup_id, text, meaning)
+    if not record:
+        return jsonify({"ok": False, "error": "查词记录不存在"}), 404
+    res = record.get("result") or {}
+    return jsonify_user({
+        "ok": True,
+        "lookup_id": record["id"],
+        "draft": {
+            "head": res.get("head") or text,
+            "pos": res.get("pos") or "phr.",
+            "meaning": res.get("meaning") or meaning,
+            "example_en": record.get("sentence") or "",
+            "example_zh": res.get("example_zh") or "",
+        },
+    })
+
+
+@app.route("/api/reading/note", methods=["POST"])
+def api_reading_note_add():
+    """做题痕迹：作答模式拖动直标 / 查词模式气泡「标记」按钮，数据同源。
+    segments 为同段落基准文本上的字符区间（跨挖空拆段，挖空永不参与）。"""
+    data = request.get_json(force=True) or {}
+    text_id = str(data.get("text_id") or "")
+    if not lykie_readings.get_text(g.store.username, text_id):
+        return jsonify({"ok": False, "error": "文章不存在或已被删除"}), 404
+    # 不 strip：text 与 segments 长度严格对应，剥空白会破坏前端重放校验导致高亮不渲染
+    # 上限 2000：与 readings.py append_note 同步，截断会破坏 text/segments 对应
+    text = str(data.get("text") or "")[:2000]
+    if not text.strip():
+        return jsonify({"ok": False, "error": "缺少标记文本"}), 400
+    raw_segs = data.get("segments")
+    if not isinstance(raw_segs, list) or not raw_segs:
+        return jsonify({"ok": False, "error": "缺少标记区间"}), 400
+    segs = []
+    for s in raw_segs[:200]:
+        if not isinstance(s, dict):
+            continue
+        try:
+            st = int(s.get("start"))
+            ln = int(s.get("length"))
+        except (TypeError, ValueError):
+            continue
+        if st >= 0 and ln > 0:
+            segs.append({"start": st, "length": ln})
+    if not segs:
+        return jsonify({"ok": False, "error": "标记区间无效"}), 400
+
+    def to_int(v):
+        try:
+            n = int(v)
+            return n if n >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    para_index = to_int(data.get("para_index"))
+    q_num = str(data.get("q_num") or "").strip()[:10]
+    q_para_index = to_int(data.get("q_para_index"))
+    if para_index is None and not q_num:
+        return jsonify({"ok": False, "error": "缺少定位"}), 400
+    note = lykie_readings.append_note(g.store.username, text_id, text, segs,
+                                      para_index=para_index, q_num=q_num,
+                                      q_para_index=q_para_index)
+    return jsonify_user({"ok": True, "note": note})
+
+
+@app.route("/api/reading/note/<note_id>", methods=["DELETE"])
+def api_reading_note_del(note_id):
+    ok = lykie_readings.delete_note(g.store.username, note_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "标记不存在"}), 404
+    return jsonify({"ok": True})
 
 
 # ==================== 阅读全题型：PDF 导入 + 站内作答 ====================
@@ -1109,6 +1209,81 @@ def api_reading_reset(text_id):
     if not lykie_readings.reset_answers(g.store.username, text_id):
         return jsonify({"ok": False, "error": "未找到"}), 404
     return jsonify({"ok": True})
+
+
+# ---------- 题目问 AI：逐题聊天解析（点击问AI → 默认简析 → 自由追问） ----------
+
+_ASK_BEHAVIOR_PROMPT = (
+    "你是大学英语四六级阅读解析老师。下面给你一篇文章和其中一道题。\n"
+    "正文：\n{article}\n\n"
+    "题目：{num}. {stem}\n"
+    "选项：{options}\n"
+    "学生选择：{picked}\n"
+    "正确答案：{answer}\n"
+    "要求：直接、具体，凡结论必须引用原文原句作证；"
+    "学生说出自己的想法时，先指出其推理从哪一步开始偏离原文，再针对性讲解，"
+    "不要把之前的解析换个说法重复；不输出鼓励性客套话。用中文回答。"
+)
+
+_ASK_FIRST_ROUND_NOTE = (
+    "\n\n请先给这道题的简短简析，按以下骨架，总长不超过两百字：\n"
+    "1. 定位：正确答案的依据是原文哪一句，原样引用该句；\n"
+    "2. 排除：错误选项分别踩了什么坑，各一句话点到；\n"
+    "3. 收束：一句话总结本题考什么。"
+    "\n学生随后可能有问题，简析之后接着回答。"
+)
+
+
+@app.route("/api/reading/<text_id>/ask/<num>", methods=["GET"])
+def api_reading_ask_get(text_id, num):
+    """取该题的问 AI 会话历史（浮窗打开时回看）。"""
+    msgs = lykie_readings.get_ask_thread(g.store.username, text_id, num)
+    if msgs is None:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True, "messages": msgs})
+
+
+@app.route("/api/reading/<text_id>/ask/<num>", methods=["POST"])
+def api_reading_ask_post(text_id, num):
+    """发消息求解析：message 为空 = 自动请求首轮简析。
+    成功后 user 提问与 ai 回复一起落盘；模型调用失败不落半截，前端可原样重试。"""
+    data = request.get_json(force=True) or {}
+    message = str(data.get("message") or "").strip()[:2000]
+    ok, payload = lykie_readings.build_ask_context(g.store.username, text_id, num)
+    if not ok:
+        return jsonify({"ok": False, "error": str(payload)}), 400
+
+    thread = lykie_readings.get_ask_thread(g.store.username, text_id, num) or []
+    # 上下文是每轮的固定开场消息（API 无状态，全文只在此打包一次，不随轮数重复）
+    ctx = _ASK_BEHAVIOR_PROMPT.format(**payload)
+    if not thread:
+        ctx += _ASK_FIRST_ROUND_NOTE
+    model_msgs = [{"role": "user", "content": ctx}]
+    for m in thread:
+        model_msgs.append({
+            "role": "assistant" if m.get("role") == "ai" else "user",
+            "content": str(m.get("content") or ""),
+        })
+    if message:
+        model_msgs.append({"role": "user", "content": message})
+
+    try:
+        raw = lykie_llm.chat_completion(
+            model_msgs,
+            temperature=0.3,
+            disable_thinking=True,  # 简析/追问是轻任务：关思考，秒级返回
+        )
+    except Exception as exc:  # Key 失效/断网等：不落库，前端可重试
+        return jsonify({"ok": False, "error": f"解析失败：{exc}，可点重试"})
+    reply = str(raw or "").strip()
+    if not reply:
+        return jsonify({"ok": False, "error": "模型返回为空，可点重试"})
+
+    pending = ([{"role": "user", "content": message}] if message else []) \
+        + [{"role": "ai", "content": reply}]
+    lykie_readings.append_ask_messages(g.store.username, text_id, num, pending)
+    msgs = lykie_readings.get_ask_thread(g.store.username, text_id, num) or []
+    return jsonify_user({"ok": True, "messages": msgs})
 
 
 def find_question(bank, qid):

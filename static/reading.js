@@ -40,6 +40,10 @@
   let seq = 0;             // 请求序号：只认最后一次
   let savedRect = null;    // 划词时选区的视口矩形（查词后 DOM 会被标记重写，Range 会失效，rect 当场缓存）
 
+  // ---- 鼠标模式层：作答（默认）点击作答+拖动笔迹 | 查词 作答静默、全区域可查 ----
+  let mouseMode = 'answer';
+  try { if (localStorage.getItem('rd-mouse-mode') === 'lookup') mouseMode = 'lookup'; } catch (e) { /* ignore */ }
+
   // ---- 多视图：正文渲染（顺序与后端 para_index 定位严格一致） ----
   function renderArticle(allSections) {
     const host = $('rdPassHost');
@@ -70,12 +74,13 @@
     if (card) { card.remove(); card = null; }
   }
 
-  /** 划词有效区：正文（多篇阅读区）+ 题目面板/弹层（做题时也能查题干生词）。 */
+  /** 划词有效区：正文（多篇阅读区）+ 题目面板/弹层（做题时也能查题干生词）
+   *  + 问AI消息区（AI 解析里的生词也能当场查）。 */
   function inReadArea(node) {
     if (!node) return false;
     if (readAreas.some((a) => a.contains(node))) return true;
     const el = node.nodeType === 1 ? node : node.parentElement;
-    return !!(el && el.closest && el.closest('.rd-qcard-body, .rd-qall-body, .rd-picker-panel'));
+    return !!(el && el.closest && el.closest('.rd-qcard-body, .rd-qall-body, .rd-picker-panel, .rd-ask-msgs'));
   }
 
   function getSelectionInfo() {
@@ -209,11 +214,13 @@
     dismissCard();
     const rect = info.sel.getRangeAt(0).getBoundingClientRect();
     const isLookup = info.words <= 5;
+    const noteable = isNoteableSelection(info);
     bubble = document.createElement('div');
     bubble.className = 'rd-bubble';
     bubble.innerHTML = `
       <button type="button" class="btn rd-bubble-btn rd-btn-lookup ${isLookup ? 'rd-btn-primary' : ''}">查词</button>
       <button type="button" class="btn ghost rd-bubble-btn rd-btn-translate ${isLookup ? '' : 'rd-btn-primary'}">翻译</button>
+      ${noteable ? '<button type="button" class="btn ghost rd-bubble-btn rd-btn-note" title="划选高亮为做题痕迹">标记</button>' : ''}
     `;
     document.body.appendChild(bubble);
     const bw = bubble.offsetWidth;
@@ -226,6 +233,8 @@
 
     bubble.querySelector('.rd-btn-lookup').addEventListener('click', () => runLookup('lookup', info));
     bubble.querySelector('.rd-btn-translate').addEventListener('click', () => runLookup('translate', info));
+    const noteBtn = bubble.querySelector('.rd-btn-note');
+    if (noteBtn) noteBtn.addEventListener('click', async () => { dismissBubble(); await saveNoteFromSelection(info); });
   }
 
   function bubbleLoading(mode) {
@@ -343,6 +352,13 @@
     card.innerHTML = `
       <div class="rd-card-grip" title="按住拖动">⠿</div>
       ${errMsg ? `<p class="rd-card-err">${escapeHtml(errMsg)}</p>` : ''}
+      ${draft.phrase ? `<div class="rd-phrase-bar">
+        <span class="rd-phrase-info">句中搭配：<b>${escapeHtml(draft.phrase.text)}</b> —— ${escapeHtml(draft.phrase.meaning)}</span>
+        <span class="rd-phrase-actions">
+          <button type="button" class="btn ghost rd-phrase-yes">记短语</button>
+          <button type="button" class="btn ghost rd-phrase-no">只记单词</button>
+        </span>
+      </div>` : ''}
       <div class="rd-card-row">
         <label class="reading-label" for="rdWord">词头</label>
         <div class="rd-wordline">
@@ -373,9 +389,48 @@
       </div>
     `;
     document.body.appendChild(card);
+    setHint(''); // 双击直查的「查询中…」到站：卡片即 loading 终点
     const pos = draft.pos || 'other';
     const posSel = card.querySelector('#rdPos');
     if (POS_OPTIONS.indexOf(pos) >= 0) posSel.value = pos;
+
+    // ---- 短语联动确认制（2026-10-18 拍板）：单次调用带回的搭配由用户拍板 ----
+    if (draft.phrase) {
+      const ph = draft.phrase;
+      const bar = card.querySelector('.rd-phrase-bar');
+      const hintEl = card.querySelector('#rdCardHint');
+      card.querySelector('.rd-phrase-no').addEventListener('click', () => bar.remove());
+      card.querySelector('.rd-phrase-yes').addEventListener('click', async () => {
+        if (!lookupId) { bar.remove(); return; }
+        try {
+          const res = await api(`/api/reading/lookup/${encodeURIComponent(lookupId)}/phrase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: ph.text, meaning: ph.meaning }),
+          });
+          if (!res || res.ok === false) {
+            if (hintEl) { hintEl.textContent = (res && res.error) || '短语记录失败'; hintEl.classList.add('is-err'); }
+            return;
+          }
+          lookupId = res.lookup_id; // 后续「存入资产库」的 imported 落在短语记录上
+          card.querySelector('#rdWord').value = res.draft.head;
+          posSel.value = 'phr.';
+          card.querySelector('#rdMeaning').value = res.draft.meaning;
+          // 原词标记退役、短语接管（occur_index 归零与后端派生口径一致）
+          const low = String(info.text || '').trim().toLowerCase();
+          const qn = lastPos ? posToQNum(lastPos) : '';
+          const marks = window.RD_MARKS || [];
+          const idx = marks.findIndex((m) => String(m.selection || '').trim().toLowerCase() === low && String(m.q_num || '') === qn);
+          if (idx >= 0) marks.splice(idx, 1);
+          lastSelText = String(ph.text);
+          addMark(ph.text, res.draft.meaning, false, lastPos ? Object.assign({}, lastPos, { occurIndex: 0 }) : undefined);
+          rebuildMarks();
+          bar.remove();
+        } catch (e) {
+          if (hintEl) { hintEl.textContent = e.message || '网络错误'; hintEl.classList.add('is-err'); }
+        }
+      });
+    }
 
     // 定位：划词时缓存的选区矩形（查词标记会重写 DOM，实时 Range 不可靠），视口边缘收敛
     const rect = savedRect || { left: 40, top: 80, width: 0, bottom: 80 };
@@ -656,12 +711,371 @@
     if (qBody) markLookuped(qBody);
   }
 
+  /* ==================== 做题痕迹（划选高亮笔记，与查词标记独立） ==================== */
 
+  /** 笔迹锚定基准：段落文本节点清单 + 累计基准文本。
+   *  跳过内容可变/非正文子树：.rd-blank（回填内容可变）、.rd-para-marks（随作答变化的
+   *  徽章）、.rd-opt-key（选项字母标，非正文）。.rd-mark/.rd-note 包裹不改字符，照常计入。
+   *  注意：不能复用 paraCleanText——它对挖空有「回填词替代编号」的语义替换，锚定需要的是排除。 */
+  function noteBaseEntries(para) {
+    const entries = [];
+    let base = '';
+    const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+    let tn;
+    while ((tn = walker.nextNode())) {
+      const pe = tn.parentElement;
+      if (pe && pe.closest('.rd-blank, .rd-para-marks, .rd-opt-key')) continue;
+      entries.push({ node: tn, baseStart: base.length });
+      base += tn.nodeValue;
+    }
+    return { entries, base };
+  }
+
+  /** 选区可否落笔迹：单段落 + 正文/题干区（选项、词库等作答控件区除外）。 */
+  function isNoteableSelection(info) {
+    try {
+      const pa = paragraphOf(info.sel.anchorNode);
+      const pf = paragraphOf(info.sel.focusNode);
+      if (!pa || pa !== pf) return false;
+      return !!(pa.classList.contains('reading-p') || pa.classList.contains('rd-q-p') || pa.classList.contains('rd-match-stem'));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 把选区换算成基准文本上的字符区间（跨挖空自动拆段——挖空不在基准内，
+   *  选区穿过挖空时前后各成一段，视觉上高亮「跳过」挖空继续延伸）。
+   *  注意 compareBoundaryPoints 实测语义（Chromium，与常量名直觉相反）：
+   *  A.compare(END_TO_START, B) = A.start 对 B.end 的顺序；
+   *  A.compare(START_TO_END, B) = A.end 对 B.start 的顺序。 */
+  function noteSegmentsOf(para, sr) {
+    const { entries, base } = noteBaseEntries(para);
+    const intervals = [];
+    for (const en of entries) {
+      const nr = document.createRange();
+      nr.selectNodeContents(en.node);
+      if (nr.compareBoundaryPoints(Range.START_TO_END, sr) <= 0) continue; // 节点全在选区前（nr.end <= sr.start）
+      if (nr.compareBoundaryPoints(Range.END_TO_START, sr) >= 0) continue; // 节点全在选区后（nr.start >= sr.end）
+      let s = 0;
+      let e = en.node.nodeValue.length;
+      if (en.node === sr.startContainer) s = Math.max(s, sr.startOffset);
+      if (en.node === sr.endContainer) e = Math.min(e, sr.endOffset);
+      if (e <= s) continue;
+      intervals.push({ start: en.baseStart + s, end: en.baseStart + e });
+    }
+    const merged = [];
+    for (const it of intervals) { // 相邻文本节点都选中则接成一段
+      const last = merged[merged.length - 1];
+      if (last && last.end === it.start) last.end = it.end;
+      else merged.push({ start: it.start, end: it.end });
+    }
+    return {
+      base,
+      segments: merged.map((m) => ({ start: m.start, length: m.end - m.start })).filter((sg) => sg.length > 0),
+    };
+  }
+
+  /** 落一条做题痕迹：换算区间 → POST 落库 → 重放。两模式数据同源
+   *  （作答模式拖动直标 / 查词模式气泡「标记」按钮）。 */
+  async function saveNoteFromSelection(info) {
+    if (!isNoteableSelection(info)) { setHint('标记失败：需单段落正文或题干内拖选', true); return false; }
+    const sr = info.sel.getRangeAt(0);
+    const para = paragraphOf(info.sel.anchorNode);
+    const { base, segments } = noteSegmentsOf(para, sr);
+    if (!segments.length) { setHint('标记失败：选区落在挖空等无效区', true); return false; }
+    let text = '';
+    for (const sg of segments) text += base.substr(sg.start, sg.length);
+    if (!text.trim()) { setHint('标记失败：选中内容为空', true); return false; }
+    // 定位字段：正文 para_index；题干 q_num + q_para_index（与查词标记口径一致）
+    let paraIndex = null;
+    let qNum = '';
+    let qParaIndex = null;
+    if (para.classList.contains('rd-q-p')) {
+      const section = para.closest('.rd-q');
+      qNum = String((section && section.getAttribute('data-num')) || '').trim();
+      if (!qNum) { setHint('标记失败：题目定位失败', true); return false; }
+      qParaIndex = Array.prototype.indexOf.call(section.querySelectorAll('.rd-q-p'), para);
+      if (qParaIndex < 0) { setHint('标记失败：题目段落定位失败', true); return false; }
+    } else if (para.classList.contains('rd-match-stem')) {
+      const section = para.closest('.rd-match-q');
+      qNum = String((section && section.getAttribute('data-num')) || '').trim();
+      if (!qNum) { setHint('标记失败：匹配题定位失败', true); return false; }
+      qParaIndex = 0;
+    } else {
+      const allParas = document.querySelectorAll('.rd-pass .reading-p');
+      paraIndex = Array.prototype.indexOf.call(allParas, para);
+      if (paraIndex < 0) { setHint('标记失败：正文段落定位失败', true); return false; }
+    }
+    try {
+      const res = await api('/api/reading/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text_id: textId, segments, text, para_index: paraIndex, q_num: qNum, q_para_index: qParaIndex }),
+      });
+      if (!res || res.ok === false) {
+        setHint(res && res.error ? res.error : '标记失败', true);
+        return false;
+      }
+      (window.RD_NOTES = window.RD_NOTES || []).push(res.note);
+      rebuildNotes();
+      try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ }
+      setHint('已标记');
+      return true;
+    } catch (e) {
+      setHint(e.message || '网络错误', true);
+      return false;
+    }
+  }
+
+  /** 按 segments 在段落基准文本上重放高亮：区间文本与存文不符（内容变更错位）→ 该段静默跳过；
+   *  已在 .rd-note 内 → 幂等跳过。 */
+  function wrapNoteSegments(para, note) {
+    const { entries, base } = noteBaseEntries(para);
+    const segs = Array.isArray(note.segments) ? note.segments : [];
+    const text = String(note.text || '');
+    let cum = 0;
+    for (const sg of segs) {
+      const start = sg && sg.start;
+      const len = sg && sg.length;
+      if (typeof start !== 'number' || typeof len !== 'number' || len <= 0) continue;
+      const expect = text.substr(cum, len);
+      cum += len;
+      if (base.substr(start, len) !== expect) continue; // 内容变更：静默跳过防错标
+      for (const en of entries) {
+        const ns = en.baseStart;
+        const ne = en.baseStart + en.node.nodeValue.length;
+        const os = Math.max(start, ns);
+        const oe = Math.min(start + len, ne);
+        if (oe <= os) continue;
+        if (en.node.parentElement && en.node.parentElement.closest('.rd-note')) continue; // 幂等
+        const span = document.createElement('span');
+        span.className = 'rd-note';
+        span.setAttribute('data-nid', String(note.id || ''));
+        const tail = en.node.splitText(oe - ns);
+        const mid = en.node.splitText(os - ns);
+        mid.parentNode.insertBefore(span, tail);
+        span.appendChild(mid);
+      }
+    }
+  }
+
+  /** 痕迹全量重放：先拆旧再重放（与 rebuildMarks 同纪律——记录是唯一事实源）。
+   *  定位路由：正文 para_index / 题干 q_num（.rd-q 与 .rd-match-q，q_para_index 定段）。 */
+  function rebuildNotes() {
+    document.querySelectorAll('.rd-pass .reading-p span.rd-note, .rd-qcard-body span.rd-note')
+      .forEach((span) => {
+        const parent = span.parentNode;
+        if (!parent) return;
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        parent.removeChild(span);
+        parent.normalize();
+      });
+    const notes = window.RD_NOTES || [];
+    if (!notes.length) return;
+    const paras = document.querySelectorAll('.rd-pass .reading-p');
+    const qBody = $('rdQCardBody');
+    for (const n of notes) {
+      if (typeof n.para_index === 'number') {
+        const para = paras[n.para_index];
+        if (para) wrapNoteSegments(para, n);
+        continue;
+      }
+      const qn = String(n.q_num || '');
+      if (!qn || !qBody) continue;
+      const sec = qBody.querySelector(`.rd-q[data-num="${CSS.escape(qn)}"], .rd-match-q[data-num="${CSS.escape(qn)}"]`);
+      if (!sec) continue;
+      const para = sec.querySelectorAll('.rd-q-p')[n.q_para_index]
+        || (n.q_para_index === 0 ? sec.querySelector('.rd-match-stem') : null);
+      if (para) wrapNoteSegments(para, n);
+    }
+  }
+
+  // ---- 痕迹删除：点击高亮弹小浮层确认 ----
+  let noteDel = null;
+
+  function dismissNoteDel() {
+    if (noteDel) { noteDel.remove(); noteDel = null; }
+  }
+
+  function openNoteDel(nid, rect) {
+    dismissNoteDel();
+    noteDel = document.createElement('div');
+    noteDel.className = 'rd-note-del';
+    noteDel.innerHTML = '<span>删除这条标记？</span>' +
+      '<button type="button" class="btn ghost rd-note-del-cancel">取消</button>' +
+      '<button type="button" class="btn primary rd-note-del-ok">删除</button>';
+    document.body.appendChild(noteDel);
+    let left = rect.left + rect.width / 2 - noteDel.offsetWidth / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - noteDel.offsetWidth - 8));
+    let top = rect.bottom + 6;
+    if (top + noteDel.offsetHeight > window.innerHeight - 8) top = rect.top - noteDel.offsetHeight - 6;
+    noteDel.style.left = `${left}px`;
+    noteDel.style.top = `${Math.max(8, top)}px`;
+    noteDel.querySelector('.rd-note-del-ok').addEventListener('click', async () => {
+      try {
+        const res = await api(`/api/reading/note/${encodeURIComponent(nid)}`, { method: 'DELETE' });
+        if (res && res.ok) {
+          window.RD_NOTES = (window.RD_NOTES || []).filter((x) => String(x.id) !== String(nid));
+          rebuildNotes();
+        } else {
+          setHint((res && res.error) || '删除失败', true);
+        }
+      } catch (e) {
+        setHint(e.message || '网络错误', true);
+      }
+      dismissNoteDel();
+    });
+    noteDel.querySelector('.rd-note-del-cancel').addEventListener('click', dismissNoteDel);
+  }
+
+  document.addEventListener('click', (ev) => {
+    const el = ev.target && ev.target.closest ? ev.target : null;
+    if (el && el.closest('.rd-note')) {
+      const nid = el.closest('.rd-note').getAttribute('data-nid');
+      if (nid) openNoteDel(nid, el.closest('.rd-note').getBoundingClientRect());
+      return;
+    }
+    if (noteDel && !noteDel.contains(ev.target)) dismissNoteDel();
+  });
+
+  // ---- 划词气泡：两模式统一弹出（作答模式划选是辅助阅读，点「标记」才落笔迹） ----
   document.addEventListener('mouseup', () => {
     setTimeout(() => {
+      snapSelectionToWord(); // 松手吸附：外显选区以单词为单位（须在 getSelectionInfo 前执行）
       const info = getSelectionInfo();
       if (info) showBubble(info);
     }, 0);
+  });
+
+  // ---- 禁用浏览器自带的双击选区（只允许滑动拖选）：拦第二次 mousedown 默认行为，
+  //      双击查词改由 caret 取词，选区残留不再出现 ----
+  document.addEventListener('mousedown', (ev) => {
+    if (ev.detail > 1) ev.preventDefault();
+  });
+
+  /** 拖选松手后把选区两端吸附到词边界（只向外扩、不向内缩）：端点落在词内 → 扩到
+   *  词首/词尾。「落在词内」= 边界两侧都是词字符（只看外侧会把选在标点上的端点
+   *  扩成整个相邻词，违反验收「不吞标点、不扩到相邻词」）。字符集与 wordInfoAt
+   *  一致（[A-Za-z'-]，don't、well-known 不截断），不跨文本节点、不跨段落；
+   *  吸附后保留原生高亮（外显即整词）。setBaseAndExtent 会把选区正向化
+   *  （anchor 左 focus 右），现有逻辑只有 isNoteableSelection 读 anchor/focus
+   *  且仅判同段落，正向化无影响。 */
+  function snapSelectionToWord() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    if (!inReadArea(sel.anchorNode) || !inReadArea(sel.focusNode)) return;
+    const r = sel.getRangeAt(0);
+    const sc = r.startContainer;
+    const ec = r.endContainer;
+    if (!sc || !ec || sc.nodeType !== 3 || ec.nodeType !== 3) return;
+    const sv = sc.nodeValue;
+    const ev = ec.nodeValue;
+    const CH = /[A-Za-z'-]/;
+    let s = r.startOffset;
+    let e = r.endOffset;
+    if (s < sv.length && CH.test(sv[s]) && s > 0 && CH.test(sv[s - 1])) {
+      while (s > 0 && CH.test(sv[s - 1])) s--;
+    }
+    if (e > 0 && CH.test(ev[e - 1]) && e < ev.length && CH.test(ev[e])) {
+      while (e < ev.length && CH.test(ev[e])) e++;
+    }
+    if (s === r.startOffset && e === r.endOffset) return; // 已在边界：不动选区，避免重置闪烁
+    sel.setBaseAndExtent(sc, s, ec, e);
+  }
+
+  /** caret 取词（双击/右键共用）：光标处向两侧扩到词边界，临时入选区供查词管道
+   *  读取（runLookup 同步段用完即清）。非字母词返回 null 并清掉选区。 */
+  function wordInfoAt(x, y) {
+    let pos = null;
+    if (document.caretRangeFromPoint) {
+      pos = document.caretRangeFromPoint(x, y);
+    } else if (document.caretPositionFromPoint) {
+      const cp = document.caretPositionFromPoint(x, y);
+      if (cp) {
+        pos = document.createRange();
+        pos.setStart(cp.offsetNode, cp.offset);
+        pos.collapse(true);
+      }
+    }
+    if (!pos) return null;
+    const node = pos.startContainer;
+    if (!node || node.nodeType !== 3 || !inReadArea(node)) return null;
+    const v = node.nodeValue;
+    const CH = /[A-Za-z'-]/;
+    let s = pos.startOffset;
+    let e = pos.startOffset;
+    while (s > 0 && CH.test(v[s - 1])) s--;
+    while (e < v.length && CH.test(v[e])) e++;
+    if (e <= s || !/[A-Za-z]/.test(v.slice(s, e))) return null; // 标点/空白处无词
+    const r = document.createRange();
+    r.setStart(node, s);
+    r.setEnd(node, e);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    const info = getSelectionInfo();
+    if (!info || !/^[A-Za-z][A-Za-z''-]*$/.test(info.text)) {
+      sel.removeAllRanges();
+      return null;
+    }
+    return info;
+  }
+
+  // ---- 双击直查：不弹气泡（setHint 文字提示 loading），无浏览器选区残留 ----
+  document.addEventListener('dblclick', (ev) => {
+    const el = ev.target && ev.target.nodeType === 1 ? ev.target : (ev.target && ev.target.parentElement);
+    if (!el || !el.closest) return;
+    if (mouseMode === 'answer') {
+      // 作答模式：作答控件（button：选项/挖空/tab 等）优先，题干正文照常双击直查
+      if (el.closest('button, .rd-note, .rd-picker-panel, .rd-card, .rd-bubble, .rd-qball, .rd-ask, .rd-mode-toggle, input, textarea, select, a')) return;
+    } else {
+      // 查词模式：作答已静默，选项（.rd-opt）/词库（.rd-bank-item）当纯文本可双击；
+      // 其余按钮（tab/对答案/问AI 等）与浮层仍排除
+      if (el.closest('.rd-blank, .rd-picker-panel, .rd-card, .rd-bubble, .rd-qball, .rd-ask, .rd-note, .rd-mode-toggle, input, textarea, select, a, button:not(.rd-opt)')) return;
+    }
+    const info = wordInfoAt(ev.clientX, ev.clientY);
+    if (!info) return;
+    const para = paragraphOf(info.sel.anchorNode);
+    if (!para) { try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } return; }
+    if ((para.classList.contains('rd-bank-item') || para.classList.contains('rd-opt')) && mouseMode !== 'lookup') {
+      try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ }
+      return;
+    }
+    setHint('查询中…');
+    runLookup('lookup', info); // runLookup 同步段读 selection，此后不再读
+    // 同一帧内清掉临时选区：蓝色高亮不渲染，页面无选区残留
+    setTimeout(() => { try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } }, 0);
+  });
+
+  // ---- 右键直查：两模式行为一致（右键不触发 click，与作答天然无冲突） ----
+  document.addEventListener('contextmenu', (ev) => {
+    const el = ev.target && ev.target.nodeType === 1 ? ev.target : (ev.target && ev.target.parentElement);
+    if (!el || !el.closest) return;
+    if (el.closest('.rd-picker-panel, .rd-card, .rd-bubble, .rd-qball, .rd-ask, .rd-note-del, .rd-mode-toggle, input, textarea, select, a, button:not(.rd-opt)')) return;
+    if (!inReadArea(ev.target)) return; // 只管阅读区，其余放行原生菜单
+    let info = null;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.rangeCount) {
+      // 鼠标点位于选区内 → 查整个选区（天然支持右键查短语）
+      const r = sel.getRangeAt(0);
+      let pointIn = false;
+      for (const rect of r.getClientRects()) {
+        if (ev.clientX >= rect.left - 1 && ev.clientX <= rect.right + 1
+          && ev.clientY >= rect.top - 1 && ev.clientY <= rect.bottom + 1) { pointIn = true; break; }
+      }
+      if (pointIn) info = getSelectionInfo();
+    }
+    if (!info) info = wordInfoAt(ev.clientX, ev.clientY);
+    if (!info || !info.text) return;
+    ev.preventDefault();
+    showBubble(info);
+    runLookup('lookup', info);
+  });
+
+  // 正文/题干拖字禁止升级为原生拖放（drag 会吞掉 mouseup，气泡不弹）
+  document.addEventListener('dragstart', (ev) => {
+    const el = ev.target && ev.target.nodeType === 1 ? ev.target : (ev.target && ev.target.parentElement);
+    if (el && el.closest && el.closest('.reading-p, .rd-q-p, .rd-match-stem')) ev.preventDefault();
   });
 
   // ---- 悬浮球题目：可拖动球 + 可拖动卡片 + 全部就地展开（v7） ----
@@ -787,9 +1201,10 @@
           `<span class="rd-opt-key">${escapeHtml(o.key)}</span><span class="rd-opt-text">${escapeHtml(o.text)}</span></button>`;
       });
       html += '</div>';
-      if (hasAnswerKey()) {
-        html += `<div class="rd-q-actions"><button type="button" class="btn ghost rd-judge-btn" data-num="${escapeHtml(q.num)}"${picked && !judged ? '' : ' disabled'}>对答案</button></div>`;
-      }
+      // 对答案 + 问AI 同行；无答案键时问AI 置灰（点击提示先生成/导入答案）
+      html += `<div class="rd-q-actions">` +
+        (hasAnswerKey() ? `<button type="button" class="btn ghost rd-judge-btn" data-num="${escapeHtml(q.num)}"${picked && !judged ? '' : ' disabled'}>对答案</button>` : '') +
+        `<button type="button" class="btn ghost rd-ask-btn${answerState.answer_key[q.num] ? '' : ' is-off'}" data-num="${escapeHtml(q.num)}">问AI</button></div>`;
       return html;
     };
 
@@ -832,6 +1247,7 @@
         return `<div class="${cls}" data-num="${escapeHtml(q.num)}"><span class="rd-match-num">${escapeHtml(q.num)}.</span>` +
           `<span class="rd-match-stem">${escapeHtml(q.stem || '')}</span><span class="rd-match-pick">${verdict}</span>` +
           (hasAnswerKey() ? `<button type="button" class="btn ghost rd-judge-btn" data-num="${escapeHtml(q.num)}"${picked && !judged ? '' : ' disabled'}>对答案</button>` : '') +
+          `<button type="button" class="btn ghost rd-ask-btn${answerState.answer_key[q.num] ? '' : ' is-off'}" data-num="${escapeHtml(q.num)}">问AI</button>` +
           '</div>';
       }).join('');
       return html;
@@ -977,6 +1393,7 @@
       renderParaBadges();
       markBodyMarks();
       renderPanel();
+      rebuildNotes();
     };
 
     const doJudge = async (payload) => {
@@ -988,6 +1405,7 @@
     qBody.addEventListener('click', async (ev) => {
       const opt = ev.target.closest('.rd-opt');
       if (opt) {
+        if (mouseMode !== 'answer') return; // 查词模式：作答静默，选项当纯文本
         if (opt.classList.contains('is-locked')) return;
         // 划选选项文本查词时不切换选项（拖动选词会触发 click，选区非空即视为选词）
         if (String(window.getSelection() || '').trim()) return;
@@ -1166,9 +1584,10 @@
       const wrongPicked = isJudged(n) && !answerState.judged[n] && !isRevealed(n);
       const revealBtn = (wrongPicked && hasAnswerKey())
         ? `<button type="button" class="btn ghost rd-reveal-btn" data-num="${escapeHtml(n)}">查看正确答案</button>` : '';
+      const askBtn = `<button type="button" class="btn ghost rd-ask-btn${answerState.answer_key[n] ? '' : ' is-off'}" data-num="${escapeHtml(n)}">问AI</button>`;
       openPicker(`<div class="rd-key-panel rd-picker-panel"><h3>第 ${escapeHtml(n)} 空 · 选词</h3>` +
         `<div class="rd-picker-list rd-picker-bank">${items}</div>` +
-        `<div class="rd-key-actions">${revealBtn}<button type="button" class="btn ghost rd-key-cancel">关闭</button></div></div>`);
+        `<div class="rd-key-actions">${revealBtn}${askBtn}<button type="button" class="btn ghost rd-key-cancel">关闭</button></div></div>`);
     };
 
     // B：点段首字母 → 题目列表选题
@@ -1193,6 +1612,16 @@
     document.addEventListener('click', async (ev) => {
       const cancel = ev.target.closest('.rd-key-cancel');
       if (cancel) { closePicker(); return; }
+      const askBtn = ev.target.closest('.rd-ask-btn');
+      if (askBtn) {
+        // 无该题答案：置灰态点击提示（不用 disabled，保留提示入口）
+        if (!answerState.answer_key[askBtn.dataset.num]) {
+          alert('这题还没有标准答案，请先「AI 出答案」或「导入答案」');
+          return;
+        }
+        openAsk(askBtn.dataset.num);
+        return;
+      }
       if (picker) {
         const reveal = ev.target.closest('.rd-reveal-btn');
         if (reveal) {
@@ -1225,11 +1654,219 @@
         // 锁定条件：已看答案 / 判对；判错解锁重选
         const locked = isRevealed(n) || (isJudged(n) && answerState.judged[n]);
         // 划选挖空里的词查词时不弹选词层（拖选会触发 click，选区非空即视为选词）
-        if (!locked && !String(window.getSelection() || '').trim()) { openBankPicker(n); return; }
+        if (!locked && mouseMode === 'answer' && !String(window.getSelection() || '').trim()) { openBankPicker(n); return; }
       }
       const letter = ev.target.closest('.rd-para-letter');
-      if (letter) { openMatchPicker(letter.dataset.letter); return; }
+      if (letter) {
+        if (mouseMode === 'answer') openMatchPicker(letter.dataset.letter); // 查词模式：选题静默
+        return;
+      }
     });
+
+    // ---- 题目问 AI：逐题聊天浮窗（默认简析 → 自由追问，会话按题持久化） ----
+    let askWin = null;
+    let askNum = '';         // 当前窗口绑定的题号
+    let askSeq = 0;          // 请求序号：只认最后一次
+    let askRetryMsg = null;  // 发送失败待重试的用户消息（null=无待重试）
+
+    const askMsgsEl = () => askWin.querySelector('.rd-ask-msgs');
+    const askErrEl = () => askWin.querySelector('.rd-ask-err');
+    const askInputEl = () => askWin.querySelector('.rd-ask-text');
+
+    function renderAskMsgs(msgs) {
+      const box = askMsgsEl();
+      box.innerHTML = (msgs || []).map((m) =>
+        `<div class="rd-ask-msg ${m.role === 'ai' ? 'is-ai' : 'is-user'}">${escapeHtml(m.content || '')}</div>`).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function setAskBusy(busy) {
+      askInputEl().disabled = busy;
+      askWin.querySelector('.rd-ask-send').disabled = busy;
+      askWin.classList.toggle('is-busy', busy);
+    }
+
+    function showAskErr(msg) {
+      const err = askErrEl();
+      err.querySelector('.rd-ask-errmsg').textContent = msg || '请求失败';
+      err.hidden = false;
+    }
+
+    async function sendAsk(message) {
+      const mySeq = ++askSeq;
+      const text = String(message || '').trim();
+      askRetryMsg = text || null;
+      askErrEl().hidden = true;
+      setAskBusy(true);
+      // 等待占位气泡：请求成功由全量消息替换，失败移除
+      askMsgsEl().insertAdjacentHTML('beforeend',
+        '<div class="rd-ask-msg is-ai rd-ask-waiting">正在解析…</div>');
+      askMsgsEl().scrollTop = askMsgsEl().scrollHeight;
+      try {
+        const data = await post(`/api/reading/${textId}/ask/${encodeURIComponent(askNum)}`, { message: text });
+        if (mySeq !== askSeq) return;
+        askRetryMsg = null;
+        renderAskMsgs(data.messages);
+      } catch (e) {
+        if (mySeq !== askSeq) return;
+        askWin.querySelector('.rd-ask-waiting').remove();
+        showAskErr(e.message);
+      } finally {
+        if (mySeq === askSeq) setAskBusy(false);
+      }
+    }
+
+    function placeAskWin() {
+      // 每次打开：窄屏居中、宽屏居中偏右（规格：位置不持久化）；拖动后本次打开内保持
+      const w = askWin.offsetWidth || 420;
+      const vw = window.innerWidth;
+      const left = vw < 640
+        ? Math.max(8, Math.round((vw - w) / 2))
+        : Math.max(12, Math.min(Math.round(vw * 0.56), vw - w - 24));
+      const top = Math.max(12, Math.round(window.innerHeight * 0.08));
+      askWin.style.left = `${left}px`;
+      askWin.style.top = `${top}px`;
+      askWin.style.right = 'auto';
+    }
+
+    async function openAsk(num) {
+      if (!askWin) buildAskWin();
+      askNum = String(num);
+      askSeq++; // 使此前在途请求全部失效
+      askRetryMsg = null;
+      askWin.hidden = false;
+      askWin.style.left = '';
+      askWin.style.top = '';
+      placeAskWin();
+      askWin.querySelector('.rd-ask-title').textContent = `第 ${num} 题 · 问 AI`;
+      renderAskMsgs([]);
+      askErrEl().hidden = true;
+      setAskBusy(false);
+      askInputEl().value = '';
+      // 先回看历史；无历史自动发起首轮简析（零门槛，不用先打字）
+      try {
+        const res = await api(`/api/reading/${textId}/ask/${encodeURIComponent(num)}`);
+        if (String(num) !== askNum) return;
+        if (!res.ok) { showAskErr(res.error); return; }
+        if ((res.messages || []).length) {
+          renderAskMsgs(res.messages);
+          askInputEl().focus();
+        } else {
+          sendAsk('');
+        }
+      } catch (e) {
+        showAskErr(e.message || '网络错误');
+      }
+    }
+
+    function buildAskWin() {
+      askWin = document.createElement('div');
+      askWin.className = 'rd-ask';
+      askWin.hidden = true;
+      askWin.innerHTML = `
+        <header class="rd-ask-head">
+          <span class="rd-ask-title"></span>
+          <button type="button" class="btn ghost rd-ask-close" title="收起">✕</button>
+        </header>
+        <div class="rd-ask-msgs"></div>
+        <div class="rd-ask-err" hidden><span class="rd-ask-errmsg"></span><button type="button" class="btn ghost rd-ask-retry">重试</button></div>
+        <div class="rd-ask-input">
+          <textarea class="rd-ask-text" rows="2" placeholder="没懂就追问，也可以说说你的想法"></textarea>
+          <button type="button" class="btn primary rd-ask-send">发送</button>
+        </div>
+        <div class="rd-ask-resize" title="拖动调整大小"></div>`;
+      document.body.appendChild(askWin);
+
+      // 头部拖动（按钮除外，同题目卡片的 pointer capture 手法）
+      // clamp 保证至少 160px 留在屏内——窗口永远拖不丢、随时抓得回来
+      const head = askWin.querySelector('.rd-ask-head');
+      let askDrag = null;
+      head.addEventListener('pointerdown', (ev) => {
+        if (ev.target.closest('.btn')) return;
+        const rect = askWin.getBoundingClientRect();
+        askDrag = { x: ev.clientX, y: ev.clientY, left: rect.left, top: rect.top };
+        head.setPointerCapture(ev.pointerId);
+        ev.preventDefault();
+      });
+      head.addEventListener('pointermove', (ev) => {
+        if (!askDrag) return;
+        const left = Math.max(-askWin.offsetWidth + 160, Math.min(askDrag.left + ev.clientX - askDrag.x, window.innerWidth - 160));
+        const top = Math.max(0, Math.min(askDrag.top + ev.clientY - askDrag.y, window.innerHeight - 160));
+        askWin.style.left = `${left}px`;
+        askWin.style.top = `${top}px`;
+      });
+      const endAskDrag = () => { askDrag = null; };
+      head.addEventListener('pointerup', endAskDrag);
+      head.addEventListener('pointercancel', endAskDrag);
+
+      // 右下角拖动调整大小（首次拖动后才写入显式宽高，覆盖 CSS 默认值）
+      const rz = askWin.querySelector('.rd-ask-resize');
+      let askRz = null;
+      rz.addEventListener('pointerdown', (ev) => {
+        const rect = askWin.getBoundingClientRect();
+        askRz = { x: ev.clientX, y: ev.clientY, w: rect.width, h: rect.height };
+        rz.setPointerCapture(ev.pointerId);
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+      rz.addEventListener('pointermove', (ev) => {
+        if (!askRz) return;
+        const w = Math.max(300, Math.min(askRz.w + ev.clientX - askRz.x, window.innerWidth - 16));
+        const h = Math.max(260, Math.min(askRz.h + ev.clientY - askRz.y, window.innerHeight - 16));
+        askWin.style.width = `${Math.round(w)}px`;
+        askWin.style.height = `${Math.round(h)}px`;
+        askWin.style.maxHeight = 'none'; // 显式高度接管，解除 80vh 上限
+      });
+      const endAskRz = () => { askRz = null; };
+      rz.addEventListener('pointerup', endAskRz);
+      rz.addEventListener('pointercancel', endAskRz);
+
+      askWin.querySelector('.rd-ask-close').addEventListener('click', () => { askWin.hidden = true; });
+      askWin.querySelector('.rd-ask-send').addEventListener('click', () => {
+        const val = askInputEl().value.trim();
+        if (!val) { askInputEl().focus(); return; }
+        askInputEl().value = '';
+        sendAsk(val);
+      });
+      askWin.querySelector('.rd-ask-retry').addEventListener('click', () => {
+        sendAsk(askRetryMsg || '');
+      });
+      // Enter 发送 / Shift+Enter 换行（聊天窗惯例）
+      askInputEl().addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          askWin.querySelector('.rd-ask-send').click();
+        }
+      });
+    }
+
+    const closeAsk = () => { if (askWin && !askWin.hidden) askWin.hidden = true; };
+    window.__rdCloseAsk = closeAsk;
+
+    // ---- 鼠标模式分段开关：作答（默认）| 查词。唯一状态源是 mouseMode，
+    //      切换时收起现场交互，防止跨模式残留气泡/选词层/卡/选区 ----
+    const modeToggle = $('rdModeToggle');
+    if (modeToggle) {
+      const modeBtns = modeToggle.querySelectorAll('.rd-mode-btn');
+      const applyModeUi = () => {
+        modeBtns.forEach((b) => { b.classList.toggle('is-active', b.dataset.mode === mouseMode); });
+        document.body.classList.toggle('rd-mode-lookup', mouseMode === 'lookup');
+      };
+      modeBtns.forEach((b) => b.addEventListener('click', () => {
+        const m = b.dataset.mode === 'lookup' ? 'lookup' : 'answer';
+        if (m === mouseMode) return;
+        mouseMode = m;
+        try { localStorage.setItem('rd-mouse-mode', m); } catch (e) { /* ignore */ }
+        applyModeUi();
+        dismissBubble();
+        dismissCard();
+        closePicker();
+        closeAsk();
+        dismissNoteDel();
+        try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ }
+      }));
+      applyModeUi();
+    }
 
     // ---- 多视图初始化：script.js 侧栏切换或 RD_BOOT 直链调用，文章可反复切换 ----
     function init(payload, opts) {
@@ -1238,6 +1875,7 @@
       textId = String(text.id || '');
       source = String(text.source || '');
       window.RD_MARKS = payload.lookup_marks || [];
+      window.RD_NOTES = payload.lookup_notes || [];
 
       const all = payload.sections || [];
       sections = all.filter((s) => (s.questions || []).length || (s.bank || []).length);
@@ -1257,10 +1895,12 @@
       srcEl.style.display = text.source ? '' : 'none';
       renderArticle(all);
 
-      // 旧交互清理：气泡 / 弹层 / 选题层 / 题卡归位
+      // 旧交互清理：气泡 / 弹层 / 选题层 / 题卡 / 问AI窗归位
       dismissBubble();
       dismissCard();
       closePicker();
+      closeAsk();
+      askSeq++; // 在途问AI请求全部失效（防旧文章响应渲染进新文章的窗口）
       qCard.hidden = true;
       qCard.style.left = '';
       qCard.style.top = '';
@@ -1270,15 +1910,17 @@
       const totalQs = sections.reduce((n, s) => n + (s.questions || []).length, 0);
       const hasQ = totalQs > 0;
       qBall.hidden = !hasQ;
+      qBall.style.display = ''; // 清掉 openCard 遗留的行内隐藏，防止跨视图切换后悬浮球永久消失
       $('rdQBallNum').textContent = String(totalQs);
       document.querySelectorAll('.rd-toolbar-only').forEach((b) => { b.hidden = !hasQ; });
 
-      // 渲染：空块 / 段落徽章 / 查词标记重放 / 面板
+      // 渲染：空块 / 段落徽章 / 查词标记重放 / 面板 / 做题痕迹重放
       activeTab = 0;
       renderBlanks();
       renderParaBadges();
       markBodyMarks();
       renderPanel();
+      rebuildNotes();
 
       // 侧栏入口定位：sec → 滚动到对应篇 + 预选对应 tab（不自动弹题卡，球保持收起态）
       const sec = String(opts.sec || '');
@@ -1423,15 +2065,19 @@
   document.addEventListener('mousedown', (ev) => {
     if (bubble && bubble.contains(ev.target)) return;
     if (card && card.contains(ev.target)) return;
+    if (noteDel && noteDel.contains(ev.target)) return;
     // 点空白处收起气泡与卡片（点阅读区/题目卡/悬浮球/弹层内部除外）
     if (card && !ev.target.closest('.reading-article, .rd-qcard, .rd-qball, .rd-picker-panel')) dismissCard();
     dismissBubble();
+    if (noteDel) dismissNoteDel();
   });
 
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
       dismissCard();
       dismissBubble();
+      dismissNoteDel();
+      if (window.__rdCloseAsk) window.__rdCloseAsk();
       if (window.__rdCloseCard) window.__rdCloseCard();
     }
   });

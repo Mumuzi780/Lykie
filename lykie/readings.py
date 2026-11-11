@@ -25,7 +25,7 @@ def readings_path(username: str) -> str:
 
 
 def _empty() -> dict:
-    return {"texts": [], "lookups": []}
+    return {"texts": [], "lookups": [], "notes": []}
 
 
 def load_readings(username: str) -> dict:
@@ -43,6 +43,8 @@ def load_readings(username: str) -> dict:
         data["texts"] = []
     if not isinstance(data.get("lookups"), list):
         data["lookups"] = []
+    if not isinstance(data.get("notes"), list):
+        data["notes"] = []
     return data
 
 
@@ -699,7 +701,8 @@ def get_lookup_marks(username: str, text_id: str) -> list[dict]:
     （与前端 addMark 口径一致）；imported 是词级事实，跨区域一起升级不降级。"""
     data = load_readings(username)
     rows = [l for l in data["lookups"]
-            if isinstance(l, dict) and l.get("text_id") == text_id and l.get("mode") == "lookup"]
+            if isinstance(l, dict) and l.get("text_id") == text_id and l.get("mode") == "lookup"
+            and not l.get("superseded")]
     imported_words = {str(l.get("selection") or "").strip().lower()
                       for l in rows if l.get("imported")}
     marks: dict[str, dict] = {}
@@ -731,6 +734,113 @@ def mark_lookup_imported(username: str, lookup_id: str) -> bool:
             save_readings(username, data)
             return True
     return False
+
+
+def derive_phrase_lookup(username: str, lookup_id: str, text: str, meaning: str) -> dict | None:
+    """短语联动确认制：原词记录置 superseded，本地派生短语记录（零模型调用）。
+
+    - 短语记录继承原句与位置字段，occur_index 归零（按短语自身第 1 次出现重放标记）
+    - get_lookup_marks 跳过 superseded 记录 → 原词虚线标记退役，短语接管
+    - 找不到原记录返回 None
+    """
+    data = load_readings(username)
+    orig = None
+    for l in data["lookups"]:
+        if isinstance(l, dict) and str(l.get("id") or "") == str(lookup_id or ""):
+            orig = l
+            break
+    if not orig:
+        return None
+    orig["superseded"] = True
+    res = orig.get("result") or {}
+    phrase_head = str(text or "").strip().lower()[:120]
+    record = {
+        "id": _new_lookup_id(),
+        "text_id": str(orig.get("text_id") or ""),
+        "selection": str(text or "").strip()[:300],
+        "sentence": str(orig.get("sentence") or "").strip()[:1200],
+        "mode": "lookup",
+        "head": phrase_head,
+        "imported": False,
+        "result": {
+            "head": phrase_head,
+            "pos": "phr.",
+            "meaning": str(meaning or "").strip()[:200],
+            "example_zh": str(res.get("example_zh") or "").strip(),
+        },
+        "para_index": orig.get("para_index") if isinstance(orig.get("para_index"), int) else None,
+        "occur_index": 0,
+        "q_num": str(orig.get("q_num") or "").strip()[:10],
+        "q_para_index": orig.get("q_para_index") if isinstance(orig.get("q_para_index"), int) else None,
+        "at": now_str(),
+    }
+    data["lookups"].append(record)
+    save_readings(username, data)
+    return record
+
+
+# ==================== 做题痕迹：划选高亮笔记 ====================
+
+def _new_note_id() -> str:
+    global _lookup_id_seq
+    _lookup_id_seq += 1
+    return f"nt_{int(time.time() * 1000)}{_lookup_id_seq:03d}"
+
+
+def append_note(username: str, text_id: str, text: str, segments: list,
+                para_index: int | None = None, q_num: str = "",
+                q_para_index: int | None = None) -> dict:
+    """落一条做题痕迹。segments=[{start,length}…]（同段落基准文本上的字符区间，
+    跨挖空拆段——挖空内容可变，永不参与锚定）。"""
+    note = {
+        "id": _new_note_id(),
+        "text_id": str(text_id or ""),
+        # 不 strip：text 与 segments 长度严格对应，剥空白会破坏重放校验导致高亮不渲染
+        # 上限 2000：与 app.py note 路由同步
+        "text": str(text or "")[:2000],
+        "segments": segments if isinstance(segments, list) else [],
+        "para_index": para_index if isinstance(para_index, int) and para_index >= 0 else None,
+        "q_num": str(q_num or "").strip()[:10],
+        "q_para_index": q_para_index if isinstance(q_para_index, int) and q_para_index >= 0 else None,
+        "at": now_str(),
+    }
+    data = load_readings(username)
+    data.setdefault("notes", []).append(note)
+    save_readings(username, data)
+    return note
+
+
+def delete_note(username: str, note_id: str) -> bool:
+    data = load_readings(username)
+    notes = data.get("notes")
+    if not isinstance(notes, list):
+        return False
+    nid = str(note_id or "")
+    rest = [n for n in notes if not (isinstance(n, dict) and str(n.get("id") or "") == nid)]
+    if len(rest) == len(notes):
+        return False
+    data["notes"] = rest
+    save_readings(username, data)
+    return True
+
+
+def get_notes(username: str, text_id: str) -> list[dict]:
+    """该文章全部做题痕迹（阅读视图 init 注入用）。"""
+    data = load_readings(username)
+    out = []
+    for n in data.get("notes", []):
+        if not isinstance(n, dict) or n.get("text_id") != text_id:
+            continue
+        out.append({
+            "id": str(n.get("id") or ""),
+            "text": str(n.get("text") or ""),
+            "segments": n.get("segments") if isinstance(n.get("segments"), list) else [],
+            "para_index": n.get("para_index") if isinstance(n.get("para_index"), int) else None,
+            "q_num": str(n.get("q_num") or ""),
+            "q_para_index": n.get("q_para_index") if isinstance(n.get("q_para_index"), int) else None,
+            "at": n.get("at") or "",
+        })
+    return out
 
 
 # ==================== 站内作答：答案键 / 作答 / 判分 ====================
@@ -873,7 +983,8 @@ def judge_answers(username: str, text_id: str, num: str = "", nums=None) -> dict
 
 
 def reset_answers(username: str, text_id: str) -> bool:
-    """重做：清空作答、判分态与已看答案（答案键保留）。"""
+    """重做：清空作答、判分态与已看答案（答案键保留）。
+    问 AI 会话与作答解耦（作者拍板）：历史解析仍有参考价值，不跟随清除。"""
     data = load_readings(username)
     t = _find_text(data, text_id)
     if not t:
@@ -883,3 +994,98 @@ def reset_answers(username: str, text_id: str) -> bool:
     t["revealed"] = {}
     save_readings(username, data)
     return True
+
+
+# ==================== 题目问 AI：按题会话线程 ====================
+
+ASK_AI_MAX_MESSAGES = 20  # 单题上限：超出丢最旧（历史价值递减，控体积）
+
+
+def get_ask_thread(username: str, text_id: str, num: str) -> list[dict] | None:
+    """问 AI 会话历史：[{role: 'user'|'ai', content, at}]；文章不存在返回 None。"""
+    data = load_readings(username)
+    t = _find_text(data, text_id)
+    if not t:
+        return None
+    msgs = (t.get("ask_ai") or {}).get(str(num or "").strip()) or []
+    return [{"role": m.get("role") or "", "content": str(m.get("content") or ""),
+             "at": m.get("at") or ""} for m in msgs
+            if isinstance(m, dict) and str(m.get("content") or "").strip()]
+
+
+def append_ask_messages(username: str, text_id: str, num: str, msgs: list) -> bool:
+    """追加一批消息（user 提问 + ai 回复一起落盘，调用方失败不追加不落半截）。
+    单题上限 ASK_AI_MAX_MESSAGES 条，超出丢最旧。文章不存在返回 False。"""
+    data = load_readings(username)
+    t = _find_text(data, text_id)
+    if not t:
+        return False
+    num = str(num or "").strip()
+    thread = t.setdefault("ask_ai", {}).setdefault(num, [])
+    for m in msgs or []:
+        content = str(m.get("content") or "").strip()[:4000]
+        if not content:
+            continue
+        thread.append({
+            "role": "ai" if m.get("role") == "ai" else "user",
+            "content": content,
+            "at": now_str(),
+        })
+    if len(thread) > ASK_AI_MAX_MESSAGES:
+        del thread[:len(thread) - ASK_AI_MAX_MESSAGES]
+    save_readings(username, data)
+    return True
+
+
+def _ask_opt_word(q: dict, letter: str) -> str:
+    """选项键 → 选项文本（选词填空=词库词；段落匹配/仔细阅读不映射，返回空）。"""
+    for o in q.get("options") or []:
+        if o.get("key") == letter:
+            return str(o.get("text") or "")
+    return ""
+
+
+def build_ask_context(username: str, text_id: str, num: str) -> tuple[bool, dict | str]:
+    """单题问 AI 上下文组装。返回 (ok, payload)；ok=False 时 payload 是中文错误。
+    条件：文章存在、题号存在、答案键里有该题。payload 各字段均为可直接拼提示词的文本。"""
+    data = load_readings(username)
+    t = _find_text(data, text_id)
+    if not t:
+        return False, "未找到"
+    num = str(num or "").strip()
+    if not num.isdigit():
+        return False, "题号不合法"
+    key = (t.get("answer_key") or {}).get(num)
+    if not key:
+        return False, "这题还没有标准答案，请先「AI 出答案」或「导入答案」"
+    paragraphs = [p for p in str(t.get("content") or "").split("\n\n") if p.strip()]
+    sec = None
+    q = None
+    for s in build_sections(paragraphs):
+        for qq in s.get("questions") or []:
+            if str(qq.get("num")) == num:
+                sec, q = s, qq
+                break
+        if q:
+            break
+    if not q:
+        return False, "这篇文章里没找到这道题"
+    picked = str((t.get("answers") or {}).get(num) or "").strip().upper()[:1]
+    # 选词填空字母→词（模型看实际单词）；仔细阅读/段落匹配只给字母（选项文本太长）
+    kind = str(s.get("kind") or "") if s else ""
+    if kind == "bank":
+        picked_desc = f"{picked}（{_ask_opt_word(q, picked)}）" if picked else "未作答"
+        answer_desc = f"{key}（{_ask_opt_word(q, key)}）"
+    else:
+        picked_desc = picked or "未作答"
+        answer_desc = key
+    return True, {
+        "kind": kind,
+        "article": "\n".join((s.get("articles") or []) if s else []),
+        "num": num,
+        "stem": str(q.get("stem") or ""),
+        "options": " ".join(f"{o.get('key')}) {o.get('text')}"
+                           for o in q.get("options") or []),
+        "picked": picked_desc,
+        "answer": answer_desc,
+    }

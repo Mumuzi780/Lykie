@@ -464,6 +464,91 @@ body.mode-reading #brandSub {
   font-weight: 500;
 }
 
+/* ---------- 鼠标模式分段开关（作答 | 查词） ---------- */
+.rd-mode-toggle {
+  display: inline-flex;
+  flex-direction: row;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rd-mode-toggle .rd-mode-btn {
+  border: none;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.rd-mode-toggle .rd-mode-btn.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* 查词模式：作答控件提示性弱化（点击已静默） */
+body.rd-mode-lookup .rd-blank,
+body.rd-mode-lookup .rd-opt,
+body.rd-mode-lookup .rd-para-letter {
+  cursor: text;
+}
+
+/* ---------- 做题痕迹（划选高亮，与查词标记两套样式） ---------- */
+.rd-note {
+  background: rgba(255, 205, 10, 0.32);
+  border-bottom: 1px solid rgba(230, 160, 0, 0.55);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.rd-note:hover {
+  background: rgba(255, 205, 10, 0.5);
+}
+
+/* 痕迹删除确认小浮层 */
+.rd-note-del {
+  position: fixed;
+  z-index: 75;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+}
+
+/* ---------- 短语联动确认条（卡片顶部） ---------- */
+.rd-phrase-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(124, 111, 240, 0.45);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  background: rgba(124, 111, 240, 0.06);
+}
+
+.rd-phrase-info {
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+
+.rd-phrase-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .reading-article-head {
   margin-bottom: 20px;
 }
@@ -1192,4 +1277,185 @@ body.mode-reading #brandSub {
   flex-shrink: 0;
   font-size: 0.74rem;
   color: var(--muted);
+}
+
+/* ---------- 题目问 AI：逐题聊天浮窗（默认简析 → 自由追问，会话按题持久化） ---------- */
+.rd-ask-btn.is-off {
+  opacity: 0.45;
+}
+
+.rd-ask {
+  position: fixed;
+  z-index: 80;
+  width: min(420px, calc(100vw - 16px));
+  max-height: 80vh;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 右下角调整大小手柄（JS pointer 拖拽改宽高） */
+.rd-ask-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 0 50%, var(--border) 50% 62%, transparent 62% 74%, var(--border) 74% 86%, transparent 86%);
+  border-bottom-right-radius: 14px;
+}
+
+.rd-ask-resize:hover {
+  background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.rd-ask[hidden] {
+  display: none;
+}
+
+.rd-ask-head {
+  display: flex;
+  flex-direction: row; /* 覆盖 style.css 裸 header 的全局 column，否则标题与关闭钮上下堆叠 */
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.rd-ask-head:active {
+  cursor: grabbing;
+}
+
+.rd-ask-title {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--text);
+  white-space: nowrap;
+  /* 窄屏/长标题防挤压：溢出省略，永不把关闭按钮顶出屏外 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rd-ask-msgs {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 消息少时输入区贴底，不悬在半空 */
+  min-height: 140px;
+}
+
+.rd-ask-msg {
+  max-width: 86%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.rd-ask-msg.is-ai {
+  align-self: flex-start;
+  background: var(--rd-paper);
+  border: 1px solid var(--rd-border);
+  border-top-left-radius: 4px;
+  color: var(--rd-ink);
+}
+
+.rd-ask-msg.is-user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
+/* 等待占位气泡：转圈动画（复用 rd-spin） */
+.rd-ask-msg.rd-ask-waiting {
+  color: var(--muted);
+}
+
+.rd-ask-msg.rd-ask-waiting::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: rd-spin 0.8s linear infinite;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+.rd-ask-err {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.82rem;
+  color: var(--red);
+  flex-shrink: 0;
+}
+
+.rd-ask-err .btn {
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.rd-ask-input {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.rd-ask-text {
+  flex: 1;
+  min-width: 0; /* flex 子项防挤压：再窄也不会被发送按钮挤没 */
+  resize: none;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.rd-ask-text:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.rd-ask-input .btn {
+  align-self: flex-end;
+  flex-shrink: 0;
+  width: auto; /* 覆盖 style.css 全局 .btn.primary 的 width:100%，否则发送钮全宽挤没输入框 */
+}
+
+.rd-ask.is-busy .rd-ask-text,
+.rd-ask.is-busy .rd-ask-send {
+  opacity: 0.55;
 }
