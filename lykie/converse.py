@@ -97,7 +97,7 @@ def build_messages(state, user_message, mode="chat", question_card=None, last_re
 
     # ── 发送格式 ──
     system += (
-        "\n\n【发送格式】闲聊优先短句；多句必须每句单独一行（换行分隔）。"
+        "\n\n【发送格式】闲聊优先短句，每轮最多 3 句；多句必须每句单独一行（换行分隔）。"
         "若应先不回，整段只输出 [不回复]。"
     )
 
