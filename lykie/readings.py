@@ -91,6 +91,27 @@ _BANK_HEAD_RE = re.compile(r"^\s*[A-O]\)\s*\S")
 # 整行纯词条（单词、无空格短语才认；C 节选项句、B 节正文段不匹配）
 _BANK_LINE_FULL_RE = re.compile(r"^(?:[A-O]\)\s*[A-Za-z][A-Za-z\-\'\.]*\s*)+$")
 _DIRECTIONS_RE = re.compile(r"^\s*Directions\s*[:：]", re.IGNORECASE)
+# CET Directions 模板句（四六级阅读三节几十年固定的说明句式）：逐句前缀白名单。
+# Directions 段可能吞入正文首段（normalize_content 的短行启发切不开模板收尾行），
+# _drop_structure_lines 整段丢弃会连正文一起丢——改为逐句剔除模板句摘回正文；
+# 模板句只会以这些固定短语开头，正文句（如 "One of the biggest controversies..."）不会命中。
+# 首句带 "Directions:" 前缀，句首可能夹直引号/智能引号变体，一并容忍。
+_DIRECTIONS_SENT_RE = re.compile(
+    r"^[\"'\u201c\u2018]?(?:Directions\s*[:：]\s*)?"
+    r"(?:In this section"
+    r"|You are (?:required|asked)"
+    r"|Read the"
+    r"|Each (?:choice|paragraph|statement|question|passage)"
+    r"|Please mark"
+    r"|You may (?:not use|check|select|choose)"
+    r"|Mark the corresponding"
+    r"|For each (?:question|statement|of them)"
+    r"|Identify the paragraph"
+    r"|Answer the questions"
+    r"|Do not mark"
+    r"|You should decide)",
+    re.IGNORECASE,
+)
 _READING_PART_RE = re.compile(r"^Part\s+[IVX]+\s*Reading Comprehension", re.IGNORECASE)
 _ANY_PART_RE = re.compile(r"^Part\s+[IVX]+\b", re.IGNORECASE)
 
@@ -174,9 +195,23 @@ def _split_legacy(paragraphs: list[str], kind: str = "", options_all: bool = Fal
 
 def _drop_structure_lines(paragraphs: list[str]) -> list[str]:
     """渲染层清洗：Directions 说明段、Part/Passage/Questions 标记段不显示。
-    注意不能在 _split_sections 之前用——Section 标记行本身是分节信号。"""
-    return [p for p in paragraphs
-            if not _DIRECTIONS_RE.match(p.strip()) and not _MARKER_RE.match(p.strip())]
+    注意不能在 _split_sections 之前用——Section 标记行本身是分节信号。
+    Directions 段可能吞入正文首段（normalize_content 的短行启发切不开模板收尾行），
+    整段丢弃会连正文一起丢——改为逐句剔除模板句、摘回剩余正文句（无剩余才整段丢弃）。
+    Part/Passage/Questions 标记段的丢弃行为不变。"""
+
+    def _clean(p: str) -> str | None:
+        s = p.strip()
+        if _MARKER_RE.match(s):
+            return None
+        if not _DIRECTIONS_RE.match(s):
+            return p
+        # 句子自带句末标点，空格拼接不增删改正文字符；仍在原位置、保持原顺序
+        keep = [sent for sent in _split_sentences(s)
+                if not _DIRECTIONS_SENT_RE.match(sent)]
+        return " ".join(keep) if keep else None
+
+    return [c for c in (_clean(p) for p in paragraphs) if c is not None]
 
 
 def normalize_content(raw) -> str:
