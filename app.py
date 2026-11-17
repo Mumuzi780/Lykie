@@ -1276,6 +1276,37 @@ def api_reading_translation_get(text_id):
     return jsonify_user({"ok": True, "translation": tr})
 
 
+@app.route("/api/translate/papers", methods=["GET"])
+def api_translate_papers():
+    """专项练习列表：聚合当前用户所有含翻译节的卷（视图非数据源）。"""
+    return jsonify_user({"ok": True,
+                         "papers": lykie_readings.list_translation_papers(
+                             g.store.username)})
+
+
+@app.route("/api/reading/<text_id>/translation/polish", methods=["POST"])
+def api_reading_translation_polish(text_id):
+    """保存整段润色稿（专项练习）。base 由后端现算当前拼接（前端传的仅作对照，
+    不信任客户端快照），改写任一句后 base 失配 → 润色稿标过期。"""
+    data = request.get_json(force=True) or {}
+    text = str(data.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "润色稿为空"}), 400
+    sents, err = _translation_sents_or_error(text_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404 if err == "未找到" else 400
+    tr = lykie_readings.get_translation(g.store.username, text_id)
+    missing = [i for i in range(len(sents))
+               if not str(tr.get("answers", {}).get(str(i)) or "").strip()]
+    if missing:
+        return jsonify({"ok": False, "error": "先写完全部句子再润色"}), 400
+    joined = " ".join(str(tr["answers"][str(i)]).strip() for i in range(len(sents)))
+    if not lykie_readings.set_translation_polish(
+            g.store.username, text_id, text[:6000], joined):
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True})
+
+
 @app.route("/api/reading/<text_id>/translation/answer", methods=["POST"])
 def api_reading_translation_answer(text_id):
     """存单句译文（空文本=清除该句）。"""
@@ -1393,17 +1424,25 @@ def api_reading_translation_evaluate(text_id):
     tr = lykie_readings.get_translation(g.store.username, text_id)
 
     if data.get("full"):
-        # 整段终态评价
+        # 整段终态评价（润色稿优先：专项里润色过且未过期 → 评价润色稿）
         missing = [i for i in range(len(sents))
                    if not str(tr.get("answers", {}).get(str(i)) or "").strip()]
         if missing:
             return jsonify({"ok": False,
                             "error": f"还有 {len(missing)} 句未完成，写完全部句子再整段评价"}), 400
-        answer = " ".join(str(tr["answers"][str(i)]).strip() for i in range(len(sents)))
+        joined = " ".join(str(tr["answers"][str(i)]).strip() for i in range(len(sents)))
+        polish = tr.get("polish")
+        answer = joined
+        polished = False
+        if isinstance(polish, dict) and str(polish.get("base") or "") == joined \
+                and str(polish.get("text") or "").strip():
+            answer = str(polish["text"]).strip()
+            polished = True
         cn_full = " ".join(sents)
         cached = (tr.get("evals") or {}).get("full")
         if isinstance(cached, dict) and cached.get("answer") == answer:
-            return jsonify_user({"ok": True, "cached": True, "eval": cached})
+            return jsonify_user({"ok": True, "cached": True, "eval": cached,
+                                 "polished": polished})
         prompt = _TRANSLATION_EVAL_FULL_PROMPT.format(cn=cn_full, answer=answer)
         try:
             raw = lykie_llm.chat_completion(
@@ -1421,9 +1460,10 @@ def api_reading_translation_evaluate(text_id):
             return jsonify({"ok": False, "error": "模型返回异常，可点重试"})
         lykie_readings.set_translation_eval(
             g.store.username, text_id, "full", answer, comment[:1500], reference[:2000])
-        return jsonify_user({"ok": True, "eval": {"answer": answer,
-                                                  "comment": comment[:1500],
-                                                  "reference": reference[:2000]}})
+        return jsonify_user({"ok": True, "polished": polished,
+                             "eval": {"answer": answer,
+                                      "comment": comment[:1500],
+                                      "reference": reference[:2000]}})
 
     # 逐句评价
     sent_idx = _parse_sent_idx(data)
@@ -1611,6 +1651,12 @@ def index():
 @app.route("/import")
 def import_page():
     return render_template("import.html", username=g.store.username)
+
+
+@app.route("/translate")
+def translate_page():
+    """翻译专项练习：聚合所有已导入卷的翻译题，独立大屏作答界面。"""
+    return render_template("translate.html", username=g.store.username)
 
 
 @app.route("/sa")

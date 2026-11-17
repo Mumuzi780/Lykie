@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>翻译专项 · Lykie</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m110">
+  <link rel="stylesheet" href="/static/translate.css?v=2">
+</head>
+<body class="translate-page">
+  <div class="translate-shell">
+    <header class="translate-top">
+      <h1 class="brand-title">Lykie <span class="brand-sub">翻译</span></h1>
+      <div class="actions">
+        <a class="btn ghost" href="/" id="btnBack">返回背题</a>
+        <span class="account-name" title="当前账号">{{ username }}</span>
+        <a class="btn ghost" href="/logout">退出</a>
+      </div>
+    </header>
+
+    <!-- 列表页：聚合所有含翻译节的卷 -->
+    <main class="translate-list" id="listView">
+      <p class="translate-lead">已导入试卷里的翻译题都在这，整卷和这里共用答题进度。</p>
+      <div id="paperList" class="paper-list"></div>
+      <p class="translate-empty" id="listEmpty" hidden>
+        还没有翻译题——去 <a href="/import">导入试卷</a> 上传含翻译的整卷 PDF。
+      </p>
+    </main>
+
+    <!-- 练习页：逐句作答 + 润色编辑 -->
+    <main class="translate-practice" id="practiceView" hidden>
+      <div class="practice-head">
+        <button type="button" class="btn ghost" id="btnList">&larr; 全部翻译</button>
+        <div class="practice-title" id="practiceTitle"></div>
+      </div>
+      <div class="practice-body">
+        <aside class="sent-list" id="sentList"></aside>
+        <section class="work-area" id="workArea"></section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/translate.js?v=1"></script>
+  <div class="beian-bar">
+    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>
+  </div>
+</body>
+</html>

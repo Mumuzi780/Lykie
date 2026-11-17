@@ -1,0 +1,429 @@
+/* 翻译专项练习：独立页面（全宽限中，无三栏挤压） */
+
+.translate-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px 24px 60px;
+}
+
+.translate-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.translate-lead {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin: 0 0 14px;
+}
+
+.translate-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 30px 2px;
+}
+
+.translate-empty a {
+  color: var(--primary);
+}
+
+/* ---- 列表页 ---- */
+
+.paper-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.paper-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.paper-card:hover {
+  border-color: var(--primary);
+}
+
+.paper-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.paper-card-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paper-card-preview {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paper-card-meta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.paper-card-progress {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-fine);
+}
+
+.paper-card-progress.is-done {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.paper-card-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-fine);
+}
+
+.paper-card-badge.is-done {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ---- 练习页 ---- */
+
+.practice-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.practice-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.practice-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.sent-list {
+  flex-shrink: 0;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  top: 16px;
+}
+
+.sent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sent-item:hover {
+  border-color: var(--primary);
+}
+
+.sent-item.is-cur {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.sent-idx {
+  flex-shrink: 0;
+  min-width: 1.4em;
+  text-align: center;
+  font-size: 0.72rem;
+}
+
+.sent-cn {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sent-mark {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+}
+
+.sent-mark.is-written {
+  color: var(--primary);
+}
+
+.sent-polish-item {
+  border-style: dashed;
+}
+
+/* ---- 作答区（复用整卷翻译的交互形态，类名独立避免样式串扰） ---- */
+
+.work-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.ta-head {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.ta-cn {
+  font-size: 1.0rem;
+  line-height: 1.8;
+  color: var(--text);
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--card);
+}
+
+.ta-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--text);
+  resize: vertical;
+}
+
+.ta-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.ta-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* 词块提示 */
+
+.ta-hints {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ta-hint-loading {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.ta-hint-item {
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.ta-hint-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ta-hint-row:hover {
+  color: var(--primary);
+}
+
+.ta-hint-detail {
+  padding: 4px 12px 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.ta-hint-variant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 5px 0;
+  color: var(--text);
+}
+
+.ta-hint-rec {
+  font-weight: 600;
+}
+
+.ta-hint-rec-tag {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+}
+
+.ta-hint-save {
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ta-hint-save:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.ta-hint-save:disabled {
+  cursor: default;
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.ta-hint-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* 评价 */
+
+.ta-eval {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--primary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ta-eval-comment {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.ta-eval-ref {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.ta-eval-ref-tag {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+/* ---- 润色编辑（终态） ---- */
+
+.polish-cn {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.polish-area {
+  position: relative;
+}
+
+.polish-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 180px;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--text);
+  resize: vertical;
+}
+
+.polish-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.polish-stale {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: var(--answer-text);
+  padding: 8px 12px;
+  border: 1px dashed var(--answer-border);
+  border-radius: var(--radius-md);
+  background: var(--answer-bg);
+}
+
+.polish-full-eval {
+  margin-top: 12px;
+}

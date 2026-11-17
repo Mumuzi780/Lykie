@@ -475,9 +475,20 @@ def _extract_translation_block(paragraphs: list[str]) -> tuple[list[str], list[s
     返回 (剩余段落, 中文原文段列表, 整段原文)；未命中或只有标记没正文（截断卷）
     返回 (原段落, [], "")。"""
 
+    # 翻译节尾部的中文结构行：参考答案/答案解析等标题及其后的英文参考译文——
+    # 它们含汉字不能靠"纯英文段"规则剔除。两种粒度：段落级（独立段直接丢）、
+    # 句级（并进末段时从首个噪声句起截断，参考答案后跟的是参考译文不是原文）
+    _CN_TAIL_NOISE_RE = re.compile(
+        r"^(参考答案|参考译文|答案解析|答案|解析|part\s+v|writing)[\s：:，,]?\s*$",
+        re.IGNORECASE)
+    _CN_TAIL_NOISE_SENT_RE = re.compile(
+        r"^(参考答案|参考译文|答案解析)[\s：:，,、]?\s*$")
+
     def _clean(p: str) -> str | None:
         s = p.strip()
         if _MARKER_RE.match(s):
+            return None
+        if _CN_TAIL_NOISE_RE.match(s):
             return None
         m = re.search(r"[\u4e00-\u9fff]", s)
         if not m:
@@ -497,6 +508,17 @@ def _extract_translation_block(paragraphs: list[str]) -> tuple[list[str], list[s
     if not cn_paras:
         return paragraphs, [], ""
     cn_full = " ".join(re.sub(r"\s+", " ", c).strip() for c in cn_paras)
+    # 尾部噪声句剔除：normalize_content 常把「参考答案」及之后内容并进末段
+    # （段落级 _clean 匹配不到），这里按句剔除——从首个噪声句起全部截断
+    # （参考答案后跟的是英文参考译文，不是原文）。
+    sents = _split_cn_sentences(cn_full)
+    for k, s in enumerate(sents):
+        if _CN_TAIL_NOISE_SENT_RE.match(s):
+            sents = sents[:k]
+            break
+    if not sents:
+        return paragraphs, [], ""
+    cn_full = " ".join(sents)
     return head, cn_paras, cn_full
 
 
@@ -1120,6 +1142,7 @@ def get_translation(username: str, text_id: str) -> dict | None:
         "answers": tr.get("answers") if isinstance(tr.get("answers"), dict) else {},
         "hints": tr.get("hints") if isinstance(tr.get("hints"), dict) else {},
         "evals": tr.get("evals") if isinstance(tr.get("evals"), dict) else {},
+        "polish": tr.get("polish") if isinstance(tr.get("polish"), dict) else None,
     }
 
 
@@ -1161,15 +1184,53 @@ def set_translation_hints(username: str, text_id: str, sent_idx: int, hints: lis
     return _mutate_translation(username, text_id, mut)
 
 
-def set_translation_eval(username: str, text_id: str, sent_idx: int,
+def set_translation_eval(username: str, text_id: str, sent_idx,
                          answer: str, comment: str, reference: str) -> bool:
-    """缓存某句的 AI 评价（含译文快照：译文未变时缓存命中，改写后重新评价）。"""
+    """缓存 AI 评价（含译文快照：译文未变时缓存命中，改写后重新评价）。
+    sent_idx 可为句序号 int 或 "full"（整段评价）。"""
     def mut(tr: dict) -> None:
         ev = tr.get("evals") if isinstance(tr.get("evals"), dict) else {}
         ev[str(sent_idx)] = {"answer": str(answer or ""), "comment": str(comment or ""),
                              "reference": str(reference or "")}
         tr["evals"] = ev
     return _mutate_translation(username, text_id, mut)
+
+
+def set_translation_polish(username: str, text_id: str, text: str, base: str) -> bool:
+    """保存整段润色稿（专项练习）。base = 编辑时的逐句拼接快照，
+    之后任一句改写 → 当前拼接 ≠ base → 润色稿过期（不自动覆盖用户内容）。"""
+    def mut(tr: dict) -> None:
+        tr["polish"] = {"text": str(text or "").strip()[:6000],
+                        "base": str(base or "").strip()[:6000]}
+    return _mutate_translation(username, text_id, mut)
+
+
+def list_translation_papers(username: str) -> list[dict]:
+    """专项练习列表：聚合所有含翻译节的卷（视图非数据源——只引用 text_id，
+    不复制题目）。按导入时间倒序，进度/评价状态现算。"""
+    data = load_readings(username)
+    papers = []
+    for t in data.get("texts", []):
+        sents = translation_sents_of(t)
+        if not sents:
+            continue
+        tr = t.get("translation")
+        tr = tr if isinstance(tr, dict) else {}
+        answers = tr.get("answers") if isinstance(tr.get("answers"), dict) else {}
+        evals = tr.get("evals") if isinstance(tr.get("evals"), dict) else {}
+        full_ev = evals.get("full")
+        papers.append({
+            "text_id": str(t.get("id") or ""),
+            "title": str(t.get("title") or ""),
+            "source": str(t.get("source") or ""),
+            "preview": sents[0][:50] + ("…" if len(sents[0]) > 50 else ""),
+            "sents": len(sents),
+            "written": sum(1 for i in range(len(sents)) if str(answers.get(str(i)) or "").strip()),
+            "full_evaled": isinstance(full_ev, dict) and bool(full_ev.get("comment")),
+            "created_at": str(t.get("created_at") or ""),
+        })
+    papers.sort(key=lambda p: p["created_at"], reverse=True)
+    return papers
 
 
 # ==================== 题目问 AI：按题会话线程 ====================
