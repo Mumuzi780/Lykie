@@ -8,10 +8,10 @@
 }
 
 .import-switch-btn {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-fine);
   background: var(--card);
   color: var(--muted);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 8px 18px;
   font: inherit;
   cursor: pointer;
@@ -26,7 +26,7 @@
 /* 试卷分段预览（所见即所得，与保存走同一后端分段器） */
 .paper-preview {
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   margin-top: 12px;
   max-height: 320px;
@@ -39,15 +39,10 @@
   white-space: pre-wrap;
 }
 
+/* 继承 style.css body 的背景纹理 + 径向渐变 + 主色，不再重复定义 */
 .import-page {
   min-height: 100vh;
   min-height: 100dvh;
-  background:
-    radial-gradient(900px 420px at 12% -10%, var(--bg-wash-a), transparent 55%),
-    radial-gradient(700px 380px at 88% 0%, var(--bg-wash-b), transparent 50%),
-    var(--bg);
-  color: var(--text);
-  font-family: var(--font-body);
 }
 
 .import-shell {
@@ -81,7 +76,7 @@
 }
 
 .import-step {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-fine);
   background: var(--card);
   color: var(--muted);
   border-radius: 999px;
@@ -114,8 +109,8 @@
 
 .import-panel {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-lg);
   padding: 22px 22px 18px;
   box-shadow: var(--lift-0);
 }
@@ -161,7 +156,7 @@
   margin-bottom: 14px;
   padding: 16px 18px;
   border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--active) 55%, var(--card));
 }
 
@@ -202,7 +197,7 @@
   line-height: 1.5;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
 }
@@ -211,7 +206,7 @@
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   font-family: inherit;
@@ -245,8 +240,8 @@
 }
 
 .import-q {
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   background: var(--surface);
 }
@@ -263,7 +258,7 @@
 .import-q-type {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--tag-primary-bg);
   color: var(--primary);
   font-weight: 600;
@@ -313,7 +308,7 @@
 .import-q-confirm {
   margin-top: 6px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px dashed color-mix(in srgb, var(--primary) 40%, var(--border));
   background: var(--surface);
 }
@@ -335,8 +330,8 @@
   min-width: 36px;
   height: 32px;
   padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-fine);
   background: var(--card);
   color: var(--text);
   font-family: inherit;
@@ -375,8 +370,8 @@
 }
 
 .import-type-banner {
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   background: var(--surface);
   padding: 12px 14px;
   margin-bottom: 14px;
@@ -400,8 +395,8 @@
 .import-type-list li {
   font-size: 13px;
   padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-fine);
   background: var(--card);
 }
 
@@ -472,8 +467,8 @@
   align-items: flex-start;
   gap: 6px;
   text-align: left;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   background: var(--surface);
   padding: 14px 16px;
   cursor: pointer;
@@ -527,7 +522,7 @@
   margin: 0 0 14px;
   padding: 12px 14px;
   border: 1px dashed var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
@@ -564,8 +559,8 @@
 }
 
 .import-pool-item {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   background: var(--card);
 }
@@ -589,15 +584,15 @@
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--surface);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   max-height: 200px;
   overflow: auto;
 }
 
 
 .import-callout {
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   background: var(--surface);
   padding: 12px 14px;
   margin-bottom: 14px;

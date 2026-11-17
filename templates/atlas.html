@@ -5,13 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <title>档案 Atlas · Lykie</title>
-  <link rel="stylesheet" href="/static/style.css?v=m80">
-  <link rel="stylesheet" href="/static/atlas.css?v=a3">
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m110">
+  <link rel="stylesheet" href="/static/atlas.css?v=a4">
 </head>
-<body data-username="{{ username }}">
+<body class="atlas-page" data-username="{{ username }}">
   <div class="atlas-app">
     <header class="atlas-header">
-      <h1>档案 Atlas</h1>
+      <h1 class="brand-title">Lykie <span class="brand-sub">档案</span></h1>
       <div class="atlas-header-actions">
         <span class="atlas-stale" id="proseStale" hidden>档案已修改，散文待更新</span>
         <button type="button" id="renderProseBtn" class="btn ghost">生成草稿</button>
@@ -103,5 +115,8 @@
   </div>
 
   <script src="/static/atlas.js?v=a3"></script>
+  <div class="beian-bar">
+    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>
+  </div>
 </body>
 </html>

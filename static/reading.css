@@ -102,8 +102,8 @@
 
 .reading-new {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-lg);
   padding: 16px;
   margin-bottom: 20px;
 }
@@ -121,7 +121,7 @@
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 8px 12px;
 }
 
@@ -158,8 +158,8 @@
   justify-content: space-between;
   gap: 12px;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 12px 16px;
 }
 
@@ -220,7 +220,7 @@
   align-items: center;
   justify-content: center;
   gap: 1px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--lift-2);
   transition: transform 0.15s ease;
   touch-action: none;
 }
@@ -254,9 +254,9 @@
   width: min(440px, calc(100vw - 44px));
   max-height: min(62vh, 560px);
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--lift-2);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -280,7 +280,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px 8px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-fine);
   flex-shrink: 0;
   cursor: grab;
   touch-action: none;
@@ -397,10 +397,10 @@ body.mode-reading #brandSub {
   background: var(--card);
   color: var(--text);
   border: 1px solid var(--primary);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 10px 18px;
   font-size: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--lift-2);
 }
 
 /* 查词卡片拖动手柄 */
@@ -447,15 +447,15 @@ body.mode-reading #brandSub {
   transform: translateX(-50%);
   background: var(--card);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   font-size: 0.8rem;
   line-height: 1.5;
   white-space: normal;
   width: max-content;
   max-width: 260px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--lift-2);
   z-index: 70;
   pointer-events: none;
 }
@@ -469,7 +469,7 @@ body.mode-reading #brandSub {
   display: inline-flex;
   flex-direction: row;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -515,11 +515,11 @@ body.rd-mode-lookup .rd-para-letter {
   align-items: center;
   gap: 8px;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 6px 8px;
   font-size: 0.82rem;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--lift-2);
 }
 
 /* ---------- 短语联动确认条（卡片顶部） ---------- */
@@ -532,7 +532,7 @@ body.rd-mode-lookup .rd-para-letter {
   margin: 0 0 10px;
   padding: 8px 10px;
   border: 1px dashed rgba(124, 111, 240, 0.45);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 0.82rem;
   background: rgba(124, 111, 240, 0.06);
 }
@@ -569,7 +569,7 @@ body.rd-mode-lookup .rd-para-letter {
 .reading-article {
   background: var(--rd-paper);
   border: 1px solid var(--rd-border);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 34px 38px;
   font-size: 1.125rem;
   line-height: 2;
@@ -607,10 +607,10 @@ body.rd-mode-lookup .rd-para-letter {
   align-items: center;
   gap: 6px;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 6px 8px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--lift-2);
 }
 
 .rd-bubble-btn {
@@ -658,10 +658,10 @@ body.rd-mode-lookup .rd-para-letter {
   z-index: 70;
   width: min(480px, calc(100vw - 24px));
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-lg);
   padding: 16px;
-  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--lift-2);
   box-sizing: border-box;
 }
 
@@ -685,7 +685,7 @@ body.rd-mode-lookup .rd-para-letter {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 7px 10px;
 }
 
@@ -771,8 +771,8 @@ body.rd-mode-lookup .rd-para-letter {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   background: var(--card);
   user-select: text; /* 选项文本可划选查词（点击切换行为由 JS 选区守卫区分） */
   color: var(--text);
@@ -862,7 +862,7 @@ body.rd-mode-lookup .rd-para-letter {
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(0, 0, 0, 0.4);
+  background: color-mix(in srgb, var(--text) 20%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -871,11 +871,11 @@ body.rd-mode-lookup .rd-para-letter {
 
 .rd-key-panel {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-lg);
   width: min(520px, 100%);
   padding: 18px 20px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--lift-2);
   box-sizing: border-box;
 }
 
@@ -897,7 +897,7 @@ body.rd-mode-lookup .rd-para-letter {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -956,7 +956,7 @@ body.rd-mode-lookup .rd-para-letter {
 }
 
 .rd-tab {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-fine);
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
@@ -992,7 +992,7 @@ body.rd-mode-lookup .rd-para-letter {
   min-width: 2.4em;
   text-align: center;
   border: 1px dashed var(--primary);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--tag-primary-bg);
   color: var(--muted);
   font: inherit;
@@ -1072,9 +1072,9 @@ body.rd-mode-lookup .rd-para-letter {
   transform: translateY(-50%);
   background: var(--card);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
+  box-shadow: var(--lift-2);
   padding: 8px 12px;
   width: max-content;
   max-width: 300px;
@@ -1115,7 +1115,7 @@ body.rd-mode-lookup .rd-para-letter {
   height: 30px;
   margin-right: 8px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-fine);
   background: var(--card);
   color: var(--text);
   font-weight: 700;
@@ -1141,8 +1141,8 @@ body.rd-mode-lookup .rd-para-letter {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 6px 10px;
   font-size: 0.85rem;
 }
@@ -1174,8 +1174,8 @@ body.rd-mode-lookup .rd-para-letter {
 .rd-match-paras {
   max-height: 40vh;
   overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 8px 12px;
 }
 
@@ -1188,8 +1188,8 @@ body.rd-mode-lookup .rd-para-letter {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   padding: 8px 10px;
   margin-bottom: 6px;
   font-size: 0.85rem;
@@ -1246,8 +1246,8 @@ body.rd-mode-lookup .rd-para-letter {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -1290,9 +1290,9 @@ body.rd-mode-lookup .rd-para-letter {
   width: min(420px, calc(100vw - 16px));
   max-height: 80vh;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--lift-2);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1308,7 +1308,7 @@ body.rd-mode-lookup .rd-para-letter {
   cursor: nwse-resize;
   touch-action: none;
   background: linear-gradient(135deg, transparent 0 50%, var(--border) 50% 62%, transparent 62% 74%, var(--border) 74% 86%, transparent 86%);
-  border-bottom-right-radius: 14px;
+  border-bottom-right-radius: var(--radius-lg);
 }
 
 .rd-ask-resize:hover {
@@ -1326,7 +1326,7 @@ body.rd-mode-lookup .rd-para-letter {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px 8px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-fine);
   flex-shrink: 0;
   cursor: grab;
   touch-action: none;
@@ -1363,7 +1363,7 @@ body.rd-mode-lookup .rd-para-letter {
 .rd-ask-msg {
   max-width: 86%;
   padding: 8px 11px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 0.9rem;
   line-height: 1.65;
   white-space: pre-wrap;
@@ -1426,7 +1426,7 @@ body.rd-mode-lookup .rd-para-letter {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-fine);
   flex-shrink: 0;
 }
 
@@ -1439,7 +1439,7 @@ body.rd-mode-lookup .rd-para-letter {
   line-height: 1.5;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg);
   color: var(--text);
 }
@@ -1487,7 +1487,7 @@ body.rd-mode-lookup .rd-para-letter {
   line-height: 1.6;
   padding: 10px 12px;
   border: 1px solid var(--rd-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--rd-paper);
   color: var(--rd-ink);
 }
@@ -1564,7 +1564,7 @@ body.rd-mode-lookup .rd-para-letter {
   font-size: 0.68rem;
   line-height: 1;
   padding: 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--primary);
   color: var(--primary);
   white-space: nowrap;
@@ -1602,7 +1602,7 @@ body.rd-mode-lookup .rd-para-letter {
   color: var(--rd-ink);
   padding: 12px 14px;
   border: 1px solid var(--rd-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--rd-paper);
   white-space: pre-wrap;
 }
@@ -1624,7 +1624,7 @@ body.rd-mode-lookup .rd-para-letter {
   font-size: 0.85rem;
   padding: 7px 10px;
   border: 1px solid var(--rd-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--rd-paper);
   color: var(--rd-ink);
   cursor: pointer;
@@ -1671,8 +1671,8 @@ body.rd-mode-lookup .rd-para-letter {
   font-size: 0.7rem;
   line-height: 1;
   padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-fine);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1692,7 +1692,7 @@ body.rd-mode-lookup .rd-para-letter {
   margin-top: 10px;
   padding: 10px 12px;
   border-left: 2px solid var(--primary);
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   background: var(--rd-paper);
   display: flex;
   flex-direction: column;
@@ -1720,7 +1720,7 @@ body.rd-mode-lookup .rd-para-letter {
   line-height: 1;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;

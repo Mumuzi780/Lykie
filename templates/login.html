@@ -7,38 +7,116 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m23">
+  <link rel="stylesheet" href="/static/style.css?v=m110">
 </head>
 <body class="login-body">
-  <form class="login-card" method="post" action="/login" autocomplete="on">
-    <h1 class="brand-title">Lykie</h1>
-    <p class="login-tagline">把学会的，变成自己的。</p>
-    <p class="login-lead">内测账号登录。没有账号的话，让开号的人给你建一个。</p>
-    {% if error %}
-    <p class="login-error">{{ error }}</p>
-    {% endif %}
-    {% if not has_users %}
-    <p class="login-hint">还没有账号。在项目目录运行：<code>python add_user.py 用户名</code></p>
-    {% endif %}
-    <label class="login-label" for="username">用户名</label>
-    <input id="username" name="username" type="text" required maxlength="24" autofocus>
-    <label class="login-label" for="password">密码</label>
-    <input id="password" name="password" type="password" required minlength="4">
-    <button type="submit" class="btn primary login-submit">进入</button>
-  </form>
+  <!-- 背景装饰：浮动光斑 -->
+  <div class="login-orb login-orb-a" aria-hidden="true"></div>
+  <div class="login-orb login-orb-b" aria-hidden="true"></div>
+  <div class="login-orb login-orb-c" aria-hidden="true"></div>
+
+  <main class="login-shell">
+    <!-- 深浅色切换 -->
+    <button type="button" class="login-celestial" id="loginCelestial" aria-label="切换深浅色" title="切换深浅色">
+      <img class="celestial-icon celestial-sun" id="loginSun" src="/static/lykie/sun-solid-teal.png?v=6" alt="" draggable="false" hidden>
+      <img class="celestial-icon celestial-moon" id="loginMoon" src="/static/lykie/moon-teal.png?v=1" alt="" draggable="false" hidden>
+    </button>
+
+    <section class="login-card">
+      <!-- 左侧：角色 + 品牌 -->
+      <div class="login-visual" aria-hidden="true">
+        <div class="login-peek-wrap">
+          <img class="login-peek" src="/static/lykie/lykie_avatar.png?v=1" alt="Lykie" width="1920" height="1920" draggable="false">
+        </div>
+        <h1 class="brand-title login-brand">Lykie</h1>
+        <p class="login-tagline">把学会的，变成自己的。</p>
+        <div class="login-visual-line"></div>
+        <p class="login-visual-quote">一个陪你学习、也陪你说话的小站。</p>
+      </div>
+
+      <!-- 右侧：表单 -->
+      <form class="login-form" method="post" action="/login" autocomplete="on">
+        <h2 class="login-form-title">欢迎回来</h2>
+        <p class="login-form-sub">内测账号登录。没有账号的话，让开号的人给你建一个。</p>
+
+        {% if error %}
+        <p class="login-error">{{ error }}</p>
+        {% endif %}
+        {% if not has_users %}
+        <p class="login-hint">还没有账号。在项目目录运行：<code>python add_user.py 用户名</code></p>
+        {% endif %}
+
+        <div class="login-field">
+          <label class="login-label" for="username">用户名</label>
+          <span class="login-input-wrap">
+            <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <input id="username" name="username" type="text" required maxlength="24" autofocus placeholder="输入用户名">
+          </span>
+        </div>
+
+        <div class="login-field">
+          <label class="login-label" for="password">密码</label>
+          <span class="login-input-wrap">
+            <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input id="password" name="password" type="password" required minlength="4" placeholder="输入密码">
+          </span>
+        </div>
+
+        <button type="submit" class="btn primary login-submit">
+          进入
+          <svg class="login-submit-arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M13 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </form>
+    </section>
+
+    <div class="beian-bar">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>
+      <!-- 公安备案号：审核通过后在此追加，格式：<a href="http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=纯数字" target="_blank" rel="noopener">冀公网安备 XXX号</a> -->
+    </div>
+  </main>
+
   <script>
     (function () {
       try {
         var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', theme);
         document.documentElement.style.colorScheme = theme;
+        syncCelestial(theme);
       } catch (e) { /* ignore */ }
+
+      function syncCelestial(theme) {
+        var sun = document.getElementById('loginSun');
+        var moon = document.getElementById('loginMoon');
+        if (!sun || !moon) return;
+        if (theme === 'dark') {
+          sun.hidden = true;
+          moon.hidden = false;
+        } else {
+          sun.hidden = false;
+          moon.hidden = true;
+        }
+      }
+
+      var btn = document.getElementById('loginCelestial');
+      if (btn) {
+        btn.addEventListener('click', function () {
+          var cur = document.documentElement.getAttribute('data-theme') || 'light';
+          var next = cur === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', next);
+          document.documentElement.style.colorScheme = next;
+          try { localStorage.setItem('theme', next); } catch (e) {}
+          syncCelestial(next);
+        });
+      }
     })();
   </script>
-
-  <div class="beian-bar" style="text-align:center;padding:12px 0;font-size:12px;color:#999;">
-    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="color:#999;">冀ICP备2026049654号</a>
-    <!-- 公安备案号：审核通过后在此追加，格式：<a href="http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=纯数字" target="_blank" rel="noopener">冀公网安备 XXX号</a> -->
-  </div>
 </body>
 </html>

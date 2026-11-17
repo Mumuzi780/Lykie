@@ -5,7 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <title>对话标注 · Lykie</title>
-  <link rel="stylesheet" href="/static/style.css?v=m98">
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m110">
   <style>
     /* 页面私有：// 反馈收件箱（列表 + 现场回放） */
     .anno-app {
@@ -22,6 +34,7 @@
     }
     .anno-header h1 {
       font-size: 20px;
+      margin: 0;
     }
     .anno-header-actions {
       display: flex;
@@ -80,10 +93,10 @@
       border-radius: 999px;
       border: 1px solid var(--border);
     }
-    .anno-chip.up { color: #2e7d32; border-color: #2e7d3366; }
-    .anno-chip.down { color: #b3541e; border-color: #b3541e66; }
+    .anno-chip.up { color: var(--correct-text); border-color: color-mix(in srgb, var(--green) 45%, transparent); background: var(--correct-bg); }
+    .anno-chip.down { color: var(--answer-text); border-color: var(--answer-border); background: var(--answer-bg); }
     .anno-chip.st-pending { color: var(--muted); }
-    .anno-chip.st-adopted { color: #2da6a8; border-color: #2da6a866; }
+    .anno-chip.st-adopted { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 45%, transparent); background: var(--tag-primary-bg); }
     .anno-chip.st-ignored { opacity: .6; }
     .anno-text {
       font-size: 13px;
@@ -173,10 +186,10 @@
     }
   </style>
 </head>
-<body data-username="{{ username }}">
+<body class="anno-page" data-username="{{ username }}">
   <div class="anno-app">
     <header class="anno-header">
-      <h1>对话标注</h1>
+      <h1 class="brand-title">Lykie <span class="brand-sub">标注</span></h1>
       <div class="anno-header-actions">
         <span class="anno-stats hint" id="annoStats"></span>
         <a class="btn ghost" href="/">返回</a>
@@ -189,5 +202,8 @@
     </main>
   </div>
   <script src="/static/annotations.js?v=1"></script>
+  <div class="beian-bar">
+    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>
+  </div>
 </body>
 </html>
