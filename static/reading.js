@@ -1163,6 +1163,11 @@
 
     // 作答状态（init 注入；作答/判分后本地同步，刷新不丢——后端持久化）
     const answerState = { answer_key: {}, answer_key_source: '', answers: {}, judged: {}, revealed: {} };
+    // 翻译节状态（init 注入；逐句作答/提示/对答案后本地同步，刷新不丢）
+    let trState = null;
+    let trCur = 0;          // 当前作答句下标（init 续作时跳到第一句未写的）
+    let trView = 'sents';   // 'sents' 逐句作答 | 'full' 整段终态（全部写完才有意义）
+    let trHintStage = {};   // 提示逐阶揭示进度：'句:词' → 1/2/3（纯前端态，不落库）
     const hasAnswerKey = () => Object.keys(answerState.answer_key).length > 0;
     const isJudged = (n) => Object.prototype.hasOwnProperty.call(answerState.judged, String(n));
     const isRevealed = (n) => Object.prototype.hasOwnProperty.call(answerState.revealed, String(n));
@@ -1177,6 +1182,7 @@
     const shortLabel = (s) => {
       if (s.kind === 'bank') return '选词填空';
       if (s.kind === 'match') return '段落匹配';
+      if (s.kind === 'translation') return '翻译';
       if (s.kind === 'legacy') return '题目';
       const m = /Passage (\w+)$/.exec(s.label || '');
       const cn = { One: '一', Two: '二', Three: '三', Four: '四', Five: '五' };
@@ -1253,6 +1259,121 @@
       return html;
     };
 
+    // ---- 翻译节：逐句作答 + 阶梯提示 + 对答案（2026-11-17 规格） ----
+    const trFirstPending = () => {
+      const s = sections.find((x) => x.kind === 'translation');
+      if (!s || !trState) return 0;
+      const n = (s.sents || []).length;
+      for (let i = 0; i < n; i++) {
+        if (!trState.answers[String(i)]) return i;
+      }
+      return n ? n - 1 : 0;
+    };
+
+    const renderTrHintList = (i) => {
+      const hints = (trState && trState.hints && trState.hints[String(i)]) || null;
+      if (!hints) return '';
+      const s = sections.find((x) => x.kind === 'translation');
+      const cn = s ? (s.sents || [])[i] || '' : '';
+      const evalRef = (trState.evals && trState.evals[String(i)] || {}).reference || '';
+      return hints.map((h, k) => {
+        const open = trHintStage[i + ':' + k];
+        let detail = '';
+        if (open) {
+          detail = '<div class="rd-tr-hint-detail">'
+            + (h.variants || []).map((v, vi) => {
+              const isRec = v === h.recommended;
+              // 例句优先 AI 参考句（已评价过），否则不带例句
+              const ex = evalRef ? `${evalRef}||${cn}` : '';
+              return `<div class="rd-tr-hint-variant${isRec ? ' rd-tr-hint-rec' : ''}">`
+                + `${escapeHtml(v)}${isRec ? '<span class="rd-tr-hint-rec-tag">推荐</span>' : ''}`
+                + `<button type="button" class="rd-tr-hint-save" data-i="${i}" data-k="${k}" data-v="${vi}" title="存入资产库（词头+中文释义+例句）">存入库</button></div>`;
+            }).join('')
+            + (h.note ? `<div class="rd-tr-hint-note">${escapeHtml(h.note)}</div>` : '')
+            + '</div>';
+        }
+        return `<div class="rd-tr-hint-item">`
+          + `<button type="button" class="rd-tr-hint-row${open ? ' rd-tr-hint-open' : ''}" data-i="${i}" data-k="${k}" data-open="${open ? 1 : 0}" title="点击展开这个词块的英文表达">`
+          + `${escapeHtml(h.cn || '')}</button>${detail}</div>`;
+      }).join('');
+    };
+
+    const renderTrEval = (i) => {
+      const ev = trState.evals && trState.evals[String(i)];
+      const cur = trState.answers[String(i)] || '';
+      // 快照一致才展示（改写后的旧评价不误导）
+      if (!ev || !cur || ev.answer !== cur || !ev.comment) return '';
+      return '<div class="rd-tr-eval">'
+        + `<div class="rd-tr-eval-comment">${escapeHtml(ev.comment)}</div>`
+        + (ev.reference ? `<div class="rd-tr-eval-ref"><span class="rd-tr-tag rd-tr-tag-ai">参考</span><span>${escapeHtml(ev.reference)}</span></div>` : '')
+        + '</div>';
+    };
+
+    const renderTrAnswer = (sents) => {
+      const i = Math.min(trCur, sents.length - 1);
+      trCur = i;
+      const answered = sents.filter((_, k) => trState.answers[String(k)]).length;
+      const allDone = answered === sents.length;
+      const cur = trState.answers[String(i)] || '';
+      const last = i === sents.length - 1;
+      let html = `<div class="rd-tr-head">第 ${i + 1}/${sents.length} 句 · 已写 ${answered}/${sents.length}</div>`;
+      html += `<p class="rd-tr-cn">${escapeHtml(sents[i])}</p>`;
+      html += `<textarea class="rd-tr-input" id="rdTrInput" data-i="${i}" maxlength="2000" placeholder="写出这句的英文译文…">${escapeHtml(cur)}</textarea>`;
+      html += renderTrEval(i);
+      html += `<div class="rd-tr-hints" id="rdTrHints">${renderTrHintList(i)}</div>`;
+      html += '<div class="rd-tr-actions">'
+        + `<button type="button" class="btn ghost rd-tr-hint-btn" data-i="${i}">提示</button>`
+        + `<button type="button" class="btn ghost rd-tr-eval-btn" data-i="${i}"${cur ? '' : ' disabled'}>AI 评价</button>`
+        + (i > 0 ? `<button type="button" class="btn ghost rd-tr-prev" data-i="${i}">上一句</button>` : '')
+        + (last
+          ? (allDone ? `<button type="button" class="btn ghost rd-tr-full-btn">完成整段</button>` : '')
+          : `<button type="button" class="btn ghost rd-tr-next" data-i="${i}"${cur ? '' : ' disabled'}>下一句</button>`)
+        + (allDone && !last ? `<button type="button" class="btn ghost rd-tr-full-btn">完成整段</button>` : '')
+        + '</div>';
+      return html;
+    };
+
+    const renderTrFull = (s) => {
+      const sents = s.sents || [];
+      const answers = sents.map((_, i) => trState.answers[String(i)] || '');
+      if (answers.some((a) => !a)) {
+        // 有句被清空：自动跌回逐句作答
+        trView = 'sents';
+        return renderTrAnswer(sents);
+      }
+      let html = '<h4 class="rd-tab-h">整段完成</h4>';
+      html += `<p class="rd-tr-full-cn">${escapeHtml(sents.join(''))}</p>`;
+      html += `<div class="rd-tr-full-mine">${escapeHtml(answers.join(' '))}</div>`;
+      // 逐句回改入口 + 各句评价状态
+      html += '<div class="rd-tr-full-sents">' + sents.map((cn, i) => {
+        const ev = (trState.evals || {})[String(i)];
+        const fresh = ev && ev.answer === answers[i];
+        return `<button type="button" class="rd-tr-full-sent${fresh && ev.comment ? ' rd-tr-full-sent-eved' : ''}" data-i="${i}" title="点击回到这句修改">`
+          + `<span class="rd-tr-full-sent-idx">${i + 1}</span>`
+          + `<span class="rd-tr-full-sent-cn">${escapeHtml(cn)}</span>`
+          + `<span class="rd-tr-full-sent-mark">${fresh && ev.comment ? '已评' : '未评'}</span></button>`;
+      }).join('') + '</div>';
+      const fullEval = (trState.evals || {})['full'];
+      const freshFull = fullEval && fullEval.answer === answers.join(' ');
+      if (freshFull && fullEval.comment) {
+        html += '<div class="rd-tr-eval rd-tr-eval-full">'
+          + `<div class="rd-tr-eval-comment">${escapeHtml(fullEval.comment)}</div>`
+          + (fullEval.reference ? `<div class="rd-tr-eval-ref"><span class="rd-tr-tag rd-tr-tag-ai">整段参考</span><span>${escapeHtml(fullEval.reference)}</span></div>` : '')
+          + '</div>';
+      }
+      html += '<div class="rd-tr-actions">'
+        + `<button type="button" class="btn ghost rd-tr-evalfull-btn"${freshFull ? ' disabled' : ''}>${freshFull ? '已整段评价' : '整段 AI 评价'}</button>`
+        + `<button type="button" class="btn ghost rd-tr-backsents-btn">返回逐句</button>`
+        + '</div>';
+      return html;
+    };
+
+    const renderTranslationTab = (s) => {
+      const sents = s.sents || [];
+      if (!trState || !sents.length) return '<p class="rd-tr-empty">这篇没有翻译题</p>';
+      return trView === 'full' ? renderTrFull(s) : renderTrAnswer(sents);
+    };
+
     const renderActive = () => {
       const s = sections[activeTab];
       if (!s) { qBody.innerHTML = ''; return; }
@@ -1265,7 +1386,8 @@
         html += `<div class="rd-qall-tools"><span class="rd-qall-count">已作答 ${answered}/${qs.length}${aiNote}</span>` +
           `<button type="button" class="btn ghost rd-judgeall-btn"${answered ? '' : ' disabled'}>统一对答案</button></div>`;
       }
-      if (s.kind === 'bank') html += renderBankTab(s);
+      if (s.kind === 'translation') html += renderTranslationTab(s);
+      else if (s.kind === 'bank') html += renderBankTab(s);
       else if (s.kind === 'match') html += renderMatchTab(s);
       else if (s.kind === 'legacy') {
         html += qs.map((q) => `<section class="rd-q" data-num="${escapeHtml(q.num)}">` +
@@ -1431,6 +1553,163 @@
         if (!nums.length) return;
         try { await doJudge({ nums }); } catch (e) { alert(e.message); }
       }
+    });
+
+    // ---- 翻译节交互（委托在 qBody：词块提示 / AI 评价 / 翻句 / 词块存库） ----
+    const saveTrAnswer = async () => {
+      const el = $('rdTrInput');
+      if (!el || !trState) return true;
+      const i = Number(el.dataset.i) || 0;
+      const val = el.value.trim();
+      try {
+        await post(`/api/reading/${textId}/translation/answer`, { sent_idx: i, text: val });
+        if (val) trState.answers[String(i)] = val;
+        else delete trState.answers[String(i)];
+        return true;
+      } catch (e) {
+        alert(e.message);
+        return false;
+      }
+    };
+
+    qBody.addEventListener('click', async (ev) => {
+      const hintBtn = ev.target.closest('.rd-tr-hint-btn');
+      if (hintBtn && !hintBtn.disabled) {
+        const i = Number(hintBtn.dataset.i) || 0;
+        const host = $('rdTrHints');
+        if (host) host.innerHTML = '<span class="rd-tr-hint-loading">生成中…（已生成过的不重复调用）</span>';
+        try {
+          const data = await post(`/api/reading/${textId}/translation/hint`, { sent_idx: i });
+          trState.hints = trState.hints || {};
+          trState.hints[String(i)] = data.hints || [];
+          if (host) host.innerHTML = renderTrHintList(i);
+        } catch (e) {
+          if (host) host.innerHTML = '';
+          alert(e.message);
+        }
+        return;
+      }
+      const row = ev.target.closest('.rd-tr-hint-row');
+      if (row) {
+        // 点中文按钮 → 展开/收起该词块的多种表达 + 推荐标记（选择权在用户：知道自己缺哪个）
+        const key = row.dataset.i + ':' + row.dataset.k;
+        trHintStage[key] = !trHintStage[key];
+        const host = $('rdTrHints');
+        if (host) host.innerHTML = renderTrHintList(Number(row.dataset.i) || 0);
+        return;
+      }
+      const evalBtn = ev.target.closest('.rd-tr-eval-btn');
+      if (evalBtn && !evalBtn.disabled) {
+        // 逐句 AI 评价：先落译文（后端按快照判断是否需要重新评价）
+        if (!(await saveTrAnswer())) return;
+        evalBtn.disabled = true;
+        evalBtn.textContent = '评价中…';
+        const i = Number(evalBtn.dataset.i) || 0;
+        try {
+          const data = await post(`/api/reading/${textId}/translation/evaluate`, { sent_idx: i });
+          trState.evals = trState.evals || {};
+          trState.evals[String(i)] = data.eval;
+          renderPanel();
+        } catch (e) {
+          alert(e.message);
+          evalBtn.disabled = false;
+          evalBtn.textContent = 'AI 评价';
+        }
+        return;
+      }
+      const saveBtn = ev.target.closest('.rd-tr-hint-save');
+      if (saveBtn && !saveBtn.disabled) {
+        // 反思沉淀：学到的词块一键入资产库（word=表达，释义=中文词块，例句=AI 参考句）
+        const i = Number(saveBtn.dataset.i) || 0;
+        const k = Number(saveBtn.dataset.k) || 0;
+        const vi = Number(saveBtn.dataset.v) || 0;
+        const h = (trState.hints || {})[String(i)] || [];
+        const block = h[k];
+        const word = block && (block.variants || [])[vi];
+        if (!word) return;
+        saveBtn.disabled = true;
+        saveBtn.textContent = '入库中…';
+        const s = sections.find((x) => x.kind === 'translation');
+        const cn = s ? (s.sents || [])[i] || '' : '';
+        const evalRef = (trState.evals && trState.evals[String(i)] || {}).reference || '';
+        const examples = evalRef ? `${evalRef}||${cn}` : '';
+        try {
+          await post('/api/assets/vocab', {
+            word, pos: 'other', meaning: block.cn || '',
+            examples, source: '四级翻译',
+          });
+          saveBtn.textContent = '已入库';
+        } catch (e) {
+          alert(e.message);
+          saveBtn.disabled = false;
+          saveBtn.textContent = '存入库';
+        }
+        return;
+      }
+      const fullBtn = ev.target.closest('.rd-tr-full-btn');
+      if (fullBtn) {
+        // 完成整段：落当前译文后进终态视图
+        if (await saveTrAnswer()) { trView = 'full'; renderPanel(); }
+        return;
+      }
+      const backsents = ev.target.closest('.rd-tr-backsents-btn');
+      if (backsents) {
+        trView = 'sents';
+        renderPanel();
+        return;
+      }
+      const evalFullBtn = ev.target.closest('.rd-tr-evalfull-btn');
+      if (evalFullBtn && !evalFullBtn.disabled) {
+        evalFullBtn.disabled = true;
+        evalFullBtn.textContent = '整段评价中…';
+        try {
+          const data = await post(`/api/reading/${textId}/translation/evaluate`, { full: true });
+          trState.evals = trState.evals || {};
+          trState.evals['full'] = data.eval;
+          renderPanel();
+        } catch (e) {
+          alert(e.message);
+          evalFullBtn.disabled = false;
+          evalFullBtn.textContent = '整段 AI 评价';
+        }
+        return;
+      }
+      const sentBack = ev.target.closest('.rd-tr-full-sent');
+      if (sentBack) {
+        // 点某句 → 回逐句作答修改该句（trHintStage 不清：词块提示仍缓存）
+        trCur = Number(sentBack.dataset.i) || 0;
+        trView = 'sents';
+        renderPanel();
+        return;
+      }
+      const prev = ev.target.closest('.rd-tr-prev');
+      if (prev) {
+        const i = Number(prev.dataset.i) || 0;
+        if (await saveTrAnswer()) { trCur = Math.max(0, i - 1); renderPanel(); }
+        return;
+      }
+      const next = ev.target.closest('.rd-tr-next');
+      if (next && !next.disabled) {
+        const i = Number(next.dataset.i) || 0;
+        if (await saveTrAnswer()) { trCur = i + 1; renderPanel(); }
+        return;
+      }
+    });
+
+    // 输入联动：译文非空才放行「下一句/AI 评价」（disabled 不能只在渲染时固化，
+    // 用户随后输入不会自动解锁按钮——disabled 按钮点击不触发事件，表现为无响应）
+    qBody.addEventListener('input', (ev) => {
+      if (!ev.target || ev.target.id !== 'rdTrInput' || !trState) return;
+      const has = ev.target.value.trim().length > 0;
+      const next = qBody.querySelector('.rd-tr-next');
+      const evalBtn = qBody.querySelector('.rd-tr-eval-btn');
+      if (next) next.disabled = !has;
+      if (evalBtn) evalBtn.disabled = !has;
+    });
+
+    // 失焦静默保存：切 tab / 收卡片 / 关页面前不丢已写的译文
+    qBody.addEventListener('focusout', (ev) => {
+      if (ev.target && ev.target.id === 'rdTrInput' && trState) saveTrAnswer();
     });
 
     // ---- 卡片开合：开=球隐藏；关=球出现在卡片当前位置并记忆 ----
@@ -1878,7 +2157,7 @@
       window.RD_NOTES = payload.lookup_notes || [];
 
       const all = payload.sections || [];
-      sections = all.filter((s) => (s.questions || []).length || (s.bank || []).length);
+      sections = all.filter((s) => (s.questions || []).length || (s.bank || []).length || s.kind === 'translation');
 
       const st = payload.answer_state || {};
       answerState.answer_key = st.answer_key || {};
@@ -1887,6 +2166,18 @@
       answerState.judged = st.judged || {};
       answerState.revealed = st.revealed || {};
       answerState.answer_key_source = st.answer_key_source || '';
+
+      // 翻译节状态注入 + 续作定位（第一句未写的；全写完停在最后一句）
+      trState = payload.translation || null;
+      trHintStage = {};
+      trCur = trState ? trFirstPending() : 0;
+      // 全部写完 → 默认进整段终态视图；否则逐句作答
+      trView = 'sents';
+      if (trState) {
+        const s0 = sections.find((x) => x.kind === 'translation');
+        const n0 = (s0 && s0.sents || []).length;
+        if (n0 && n0 === Object.keys(trState.answers || {}).length) trView = 'full';
+      }
 
       // 标题 / 来源 / 正文（顺序与后端 para_index 定位一致）
       $('rdTitle').textContent = text.title || '';

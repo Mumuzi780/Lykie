@@ -1459,3 +1459,283 @@ body.rd-mode-lookup .rd-para-letter {
 .rd-ask.is-busy .rd-ask-send {
   opacity: 0.55;
 }
+
+/* ==================== 翻译节：逐句作答 + 阶梯提示 + 对照参考 ==================== */
+
+.rd-tr-head {
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  margin: 4px 2px 8px;
+}
+
+.rd-tr-cn {
+  font-size: 1.02rem;
+  line-height: 1.8;
+  color: var(--rd-ink);
+  margin: 0 0 10px;
+}
+
+.rd-tr-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  padding: 10px 12px;
+  border: 1px solid var(--rd-border);
+  border-radius: 10px;
+  background: var(--rd-paper);
+  color: var(--rd-ink);
+}
+
+.rd-tr-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.rd-tr-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.rd-tr-hint-loading {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.rd-tr-hint-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rd-tr-hint-row {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 5px 14px;
+  border: 1px solid var(--rd-border);
+  border-radius: 999px;
+  background: var(--rd-paper);
+  color: var(--rd-ink);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.rd-tr-hint-row:hover,
+.rd-tr-hint-open {
+  border-color: var(--primary);
+}
+
+.rd-tr-hint-open {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.rd-tr-hint-detail {
+  padding: 8px 12px;
+  border-left: 2px solid var(--primary);
+  margin-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rd-tr-hint-variant {
+  font-size: 0.88rem;
+  color: var(--rd-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rd-tr-hint-rec {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.rd-tr-hint-rec-tag {
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.rd-tr-hint-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.rd-tr-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.rd-tr-actions .btn {
+  width: auto; /* 覆盖全局 .btn 全宽，与问 AI 工具行同纪律 */
+}
+
+/* ---- 整段终态（全部写完：完整译文 + 整段 AI 评价） ---- */
+
+.rd-tr-full-cn {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.rd-tr-full-mine {
+  font-size: 0.95rem;
+  line-height: 1.8;
+  color: var(--rd-ink);
+  padding: 12px 14px;
+  border: 1px solid var(--rd-border);
+  border-radius: 10px;
+  background: var(--rd-paper);
+  white-space: pre-wrap;
+}
+
+.rd-tr-full-sents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.rd-tr-full-sent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 7px 10px;
+  border: 1px solid var(--rd-border);
+  border-radius: 10px;
+  background: var(--rd-paper);
+  color: var(--rd-ink);
+  cursor: pointer;
+}
+
+.rd-tr-full-sent:hover {
+  border-color: var(--primary);
+}
+
+.rd-tr-full-sent-idx {
+  flex-shrink: 0;
+  min-width: 1.4em;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.rd-tr-full-sent-cn {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rd-tr-full-sent-mark {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.rd-tr-full-sent-eved .rd-tr-full-sent-mark {
+  color: var(--primary);
+}
+
+.rd-tr-eval-full {
+  margin-top: 12px;
+}
+
+/* ---- 逐句 AI 评价（v3：评价即反馈，对答案环节已删） ---- */
+
+.rd-tr-tag {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rd-tr-tag-ai {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.rd-tr-empty {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin: 8px 2px;
+}
+
+.rd-tr-eval {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--primary);
+  border-radius: 0 10px 10px 0;
+  background: var(--rd-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rd-tr-eval-comment {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--rd-ink);
+}
+
+.rd-tr-eval-ref {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.rd-tr-hint-save {
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rd-tr-hint-save:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.rd-tr-hint-save:disabled {
+  cursor: default;
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.rd-tr-actions {

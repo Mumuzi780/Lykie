@@ -114,6 +114,8 @@ _DIRECTIONS_SENT_RE = re.compile(
 )
 _READING_PART_RE = re.compile(r"^Part\s+[IVX]+\s*Reading Comprehension", re.IGNORECASE)
 _ANY_PART_RE = re.compile(r"^Part\s+[IVX]+\b", re.IGNORECASE)
+# 翻译节（Part IV Translation，四级卷固定末节）：slice 不裁掉、build_sections 摘出独立节
+_TRANSLATION_PART_RE = re.compile(r"^Part\s+IV\s+Translation\b", re.IGNORECASE)
 
 # PDF 页脚（"2026 年6月大学英语四级考试真题(第3套)" 等）：导入时整行丢弃
 _FOOTER_RE = re.compile(
@@ -285,7 +287,8 @@ def slice_reading_part(text: str) -> tuple[str, bool]:
         if _READING_PART_RE.match(s):
             if start < 0:
                 start = i
-        elif start >= 0 and _ANY_PART_RE.match(s):
+        elif start >= 0 and _ANY_PART_RE.match(s) and not _TRANSLATION_PART_RE.match(s):
+            # 翻译节是四级卷末节：不作为裁剪终点，随阅读部分一起并入（其后到文末）
             end = i
             break
     if start < 0:
@@ -456,19 +459,68 @@ def _section_c_parts(paras: list[str]) -> list[tuple[list[str], list[dict]]]:
     return out
 
 
+# 翻译节（Part IV Translation，四级卷固定末节）：导入时并入，不再被 slice 裁掉
+def _split_cn_sentences(text: str) -> list[str]:
+    """中文句切分：。！？；收尾（标点保留），供翻译节逐句作答。"""
+    parts = re.split(r"(?<=[。！？；])\s*", str(text or ""))
+    return [s.strip() for s in parts if s.strip()]
+
+
+def _extract_translation_block(paragraphs: list[str]) -> tuple[list[str], list[str], str]:
+    """全局摘除翻译节：Part IV Translation 标记起到末尾（同词库摘除的思路——
+    翻译节在 Section C 之后，不摘会被 _split_sections 归进 C 节当正文）。
+    纯英文段（Directions 说明等）丢弃；Directions 与中文首句合并时（normalize_content
+    的英文句界切不开中英文交界），从首个汉字起截取——不能复用 _drop_structure_lines
+    的模板句剔除，它按英文句点切分，会把粘住的中文首句整句误删。
+    返回 (剩余段落, 中文原文段列表, 整段原文)；未命中或只有标记没正文（截断卷）
+    返回 (原段落, [], "")。"""
+
+    def _clean(p: str) -> str | None:
+        s = p.strip()
+        if _MARKER_RE.match(s):
+            return None
+        m = re.search(r"[\u4e00-\u9fff]", s)
+        if not m:
+            return None  # 纯英文段：Directions 说明等
+        return s[m.start():] if m.start() > 0 else p  # 丢英文尾巴，保正文
+
+    head: list[str] = []
+    tail: list[str] | None = None
+    for i, p in enumerate(paragraphs):
+        if _TRANSLATION_PART_RE.match(p.strip()):
+            tail = paragraphs[i + 1:]
+            break
+        head.append(p)
+    if tail is None:
+        return paragraphs, [], ""
+    cn_paras = [c for c in (_clean(p) for p in tail) if c and c.strip()]
+    if not cn_paras:
+        return paragraphs, [], ""
+    cn_full = " ".join(re.sub(r"\s+", " ", c).strip() for c in cn_paras)
+    return head, cn_paras, cn_full
+
+
 def build_sections(paragraphs: list[str]) -> list[dict]:
     """题目感知分组：每篇一个阅读区。返回：
     [{key, label, kind, articles, questions, bank?}, ...]
-    kind: bank(选词填空)/match(长篇阅读)/choice(仔细阅读)/legacy(无标记旧文章)。
+    kind: bank(选词填空)/match(长篇阅读)/choice(仔细阅读)/legacy(无标记旧文章)/
+    translation(四级翻译，source_cn+sents 逐句作答)。
     空输入 → []。Section C 无 Passage 标记时整节一篇。"""
     paragraphs, bank = _extract_bank_block(paragraphs)
+    paragraphs, cn_paras, cn_full = _extract_translation_block(paragraphs)
     secs = _split_sections(paragraphs)
     if not secs:
         arts, qs = _split_legacy(_drop_structure_lines(paragraphs))
         if not arts and not qs:
-            return []
-        return [{"key": "legacy", "label": "", "kind": "legacy",
-                 "articles": arts, "questions": qs}]
+            out: list[dict] = []
+        else:
+            out = [{"key": "legacy", "label": "", "kind": "legacy",
+                    "articles": arts, "questions": qs}]
+        if cn_full:
+            out.append({"key": "T", "label": "Part IV · 翻译", "kind": "translation",
+                        "articles": cn_paras, "questions": [],
+                        "source_cn": cn_full, "sents": _split_cn_sentences(cn_full)})
+        return out
 
     out: list[dict] = []
     if "A" in secs:
@@ -496,6 +548,11 @@ def build_sections(paragraphs: list[str]) -> list[dict]:
             label = f"Section C · Passage {name}" if len(parts) > 1 and name else "Section C · 仔细阅读"
             out.append({"key": f"C{i + 1}", "label": label, "kind": "choice",
                         "articles": arts, "questions": qs})
+    if cn_full:
+        # 卷面顺序：翻译节在阅读各节之后
+        out.append({"key": "T", "label": "Part IV · 翻译", "kind": "translation",
+                    "articles": cn_paras, "questions": [],
+                    "source_cn": cn_full, "sents": _split_cn_sentences(cn_full)})
     return out
 
 
@@ -594,6 +651,11 @@ def _paper_sections(item: dict) -> list[dict]:
     out = []
     for s in build_sections(paragraphs):
         qs = s.get("questions") or []
+        if s.get("kind") == "translation":
+            # 翻译节无题目，count 固定 1（整段一题）
+            out.append({"key": s.get("key") or "T", "kind": "translation",
+                        "label": "翻译", "count": 1})
+            continue
         if s.get("kind") == "legacy" or not qs:
             continue
         out.append({"key": s.get("key") or "", "kind": s.get("kind") or "",
@@ -1029,6 +1091,85 @@ def reset_answers(username: str, text_id: str) -> bool:
     t["revealed"] = {}
     save_readings(username, data)
     return True
+
+
+# ==================== 翻译节：逐句作答 + 阶梯提示 + 参考译文 ====================
+
+
+def translation_sents_of(item: dict) -> list[str]:
+    """text 记录 → 翻译节中文句列表（单一事实源：content 现算，不落库，
+    与 sections 的解析纪律一致）。无翻译节返回 []。"""
+    paragraphs = [p for p in str(item.get("content") or "").split("\n\n") if p.strip()]
+    _, _, cn_full = _extract_translation_block(paragraphs)
+    return _split_cn_sentences(cn_full) if cn_full else []
+
+
+def get_translation(username: str, text_id: str) -> dict | None:
+    """翻译节作答状态。旧记录无 translation 字段 → 全空骨架（未作答）；
+    文章不存在返回 None。v3（作者体验后拍板）：对答案/参考译文环节删除，
+    改逐句 AI 评价（evals：句 idx → {answer 快照, comment, reference}，
+    answer 与当前译文一致时缓存命中零模型调用）。"""
+    data = load_readings(username)
+    t = _find_text(data, text_id)
+    if not t:
+        return None
+    tr = t.get("translation")
+    if not isinstance(tr, dict):
+        tr = {}
+    return {
+        "answers": tr.get("answers") if isinstance(tr.get("answers"), dict) else {},
+        "hints": tr.get("hints") if isinstance(tr.get("hints"), dict) else {},
+        "evals": tr.get("evals") if isinstance(tr.get("evals"), dict) else {},
+    }
+
+
+def _mutate_translation(username: str, text_id: str, mut) -> bool:
+    """读-改-写事务：mut(tr) 就地修改后落盘（save_readings 原子写）。"""
+    data = load_readings(username)
+    t = _find_text(data, text_id)
+    if not t:
+        return False
+    tr = t.get("translation")
+    if not isinstance(tr, dict):
+        tr = {}
+    mut(tr)
+    t["translation"] = tr
+    save_readings(username, data)
+    return True
+
+
+def set_translation_answer(username: str, text_id: str, sent_idx: int, text: str) -> bool:
+    """存单句译文；空文本 = 清除该句（重写）。"""
+    def mut(tr: dict) -> None:
+        answers = tr.get("answers") if isinstance(tr.get("answers"), dict) else {}
+        key = str(sent_idx)
+        val = str(text or "").strip()[:2000]
+        if val:
+            answers[key] = val
+        else:
+            answers.pop(key, None)
+        tr["answers"] = answers
+    return _mutate_translation(username, text_id, mut)
+
+
+def set_translation_hints(username: str, text_id: str, sent_idx: int, hints: list) -> bool:
+    """缓存某句的阶梯提示（之后同句请求零模型调用）。"""
+    def mut(tr: dict) -> None:
+        h = tr.get("hints") if isinstance(tr.get("hints"), dict) else {}
+        h[str(sent_idx)] = hints
+        tr["hints"] = h
+    return _mutate_translation(username, text_id, mut)
+
+
+def set_translation_eval(username: str, text_id: str, sent_idx: int,
+                         answer: str, comment: str, reference: str) -> bool:
+    """缓存某句的 AI 评价（含译文快照：译文未变时缓存命中，改写后重新评价）。"""
+    def mut(tr: dict) -> None:
+        ev = tr.get("evals") if isinstance(tr.get("evals"), dict) else {}
+        ev[str(sent_idx)] = {"answer": str(answer or ""), "comment": str(comment or ""),
+                             "reference": str(reference or "")}
+        tr["evals"] = ev
+    return _mutate_translation(username, text_id, mut)
 
 
 # ==================== 题目问 AI：按题会话线程 ====================

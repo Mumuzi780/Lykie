@@ -696,6 +696,7 @@ def _reading_view_payload(text_id):
         "lookup_marks": marks,
         "lookup_notes": lykie_readings.get_notes(g.store.username, text_id),
         "answer_state": lykie_readings.get_answer_state(g.store.username, text_id),
+        "translation": lykie_readings.get_translation(g.store.username, text_id),
     }
 
 
@@ -1209,6 +1210,254 @@ def api_reading_reset(text_id):
     if not lykie_readings.reset_answers(g.store.username, text_id):
         return jsonify({"ok": False, "error": "未找到"}), 404
     return jsonify({"ok": True})
+
+
+# ---------- 翻译节：逐句作答 + 词块提示 + 逐句 AI 评价（2026-11-17 规格） ----------
+
+_TRANSLATION_HINT_PROMPT = (
+    "你是大学英语四级翻译辅导老师。下面是一篇四级翻译的全段中文，"
+    "本次需要你处理的一句已用【当前句】标出。\n"
+    "挑出【当前句】里最可能让考生卡住的 3~6 个中文词块（单词、短语、固定搭配、"
+    "介词短语均可；介词搭配类如「在中国的年轻人中」必须收录——考生常纠结"
+    "用 in 还是 at/on）。输出严格 JSON：\n"
+    '{{"hints": [{{"cn": "中文词块", "variants": ["表达1", "表达2"], '
+    '"recommended": "最适合这句语境的表达", "note": "几个表达的区别或介词取舍，没有就填空串"}}]}}\n'
+    "要求：每个词块给 2~3 种四级水平的朴实表达，recommended 标注最适合这句语境的一种，"
+    "只依据这段中文作答，不虚构。\n"
+    "重要：你推荐的英文表达必须与全段及考生已写译文的**人称、术语保持一致**"
+    "（比如全段用 walker 就不要推荐 stroller，两版指同一事物时只推荐已在用的一种）。\n"
+    "{ctx}"
+)
+
+
+def _translation_context_block(sents, tr, sent_idx):
+    """全局上下文：全段中文（标当前句）+ 考生已写句的译文。
+    逐句提示/评价需要全局视野——没有它，各句的人称术语推荐会互相冲突
+    （作者体验发现：上句推荐 walker、下句推荐 stroller）。"""
+    lines = []
+    for i, s in enumerate(sents):
+        mark = "【当前句】" if i == sent_idx else ""
+        lines.append(f"{i + 1}. {mark}{s}")
+    ctx = "全段中文：\n" + "\n".join(lines)
+    answers = tr.get("answers") or {}
+    written = [f"{i + 1}. {answers[str(i)]}"
+               for i in range(len(sents))
+               if i != sent_idx and str(answers.get(str(i)) or "").strip()]
+    if written:
+        ctx += "\n考生已写句子的译文（人称、术语与这些保持一致）：\n" + "\n".join(written)
+    return ctx
+
+
+def _translation_sents_or_error(text_id):
+    """取翻译节中文句；返回 (sents, error)。sents 为空即无翻译节。"""
+    text = lykie_readings.get_text(g.store.username, text_id)
+    if not text:
+        return None, "未找到"
+    sents = lykie_readings.translation_sents_of(text)
+    if not sents:
+        return [], "这篇没有翻译题"
+    return sents, ""
+
+
+def _parse_sent_idx(data):
+    try:
+        n = int(data.get("sent_idx"))
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
+@app.route("/api/reading/<text_id>/translation", methods=["GET"])
+def api_reading_translation_get(text_id):
+    """翻译节作答状态（answers/hints/evals）。"""
+    tr = lykie_readings.get_translation(g.store.username, text_id)
+    if tr is None:
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify_user({"ok": True, "translation": tr})
+
+
+@app.route("/api/reading/<text_id>/translation/answer", methods=["POST"])
+def api_reading_translation_answer(text_id):
+    """存单句译文（空文本=清除该句）。"""
+    data = request.get_json(force=True) or {}
+    sent_idx = _parse_sent_idx(data)
+    if sent_idx is None:
+        return jsonify({"ok": False, "error": "句序号不合法"}), 400
+    sents, err = _translation_sents_or_error(text_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404 if err == "未找到" else 400
+    if sent_idx >= len(sents):
+        return jsonify({"ok": False, "error": "句序号超出范围"}), 400
+    if not lykie_readings.set_translation_answer(
+            g.store.username, text_id, sent_idx, str(data.get("text") or "")):
+        return jsonify({"ok": False, "error": "未找到"}), 404
+    return jsonify({"ok": True})
+
+
+def _hints_v3(cached) -> bool:
+    """提示缓存格式检测：v3 = 带全局上下文生成（每行带 ctx 标记）。
+    v2（无上下文，各句人称术语会互相冲突）与 v1（掩码式）一律作废重新生成。"""
+    if not isinstance(cached, list) or not cached:
+        return False
+    first = cached[0]
+    return (isinstance(first, dict) and isinstance(first.get("variants"), list)
+            and first.get("ctx") is True)
+
+
+@app.route("/api/reading/<text_id>/translation/hint", methods=["POST"])
+def api_reading_translation_hint(text_id):
+    """词块提示：点「提示」出中文词块按钮，点按钮展开多种表达+推荐。
+    v3：带全段中文+已写译文上下文生成，人称术语跨句一致。缓存命中（v3 格式）
+    零模型调用；未缓存或旧格式则重新生成覆盖。"""
+    data = request.get_json(force=True) or {}
+    sent_idx = _parse_sent_idx(data)
+    if sent_idx is None:
+        return jsonify({"ok": False, "error": "句序号不合法"}), 400
+    sents, err = _translation_sents_or_error(text_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404 if err == "未找到" else 400
+    if sent_idx >= len(sents):
+        return jsonify({"ok": False, "error": "句序号超出范围"}), 400
+    tr = lykie_readings.get_translation(g.store.username, text_id)
+    cached = (tr.get("hints") or {}).get(str(sent_idx))
+    if _hints_v3(cached):
+        return jsonify_user({"ok": True, "cached": True, "hints": cached})
+    ctx = _translation_context_block(sents, tr, sent_idx)
+    prompt = _TRANSLATION_HINT_PROMPT.format(ctx=ctx)
+    try:
+        raw = lykie_llm.chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            disable_thinking=True,  # 词块提示是轻任务：关思考，秒级返回
+        )
+    except Exception as exc:  # Key 失效/断网等：不落缓存，前端可重试
+        return jsonify({"ok": False, "error": f"提示生成失败：{exc}，可点重试"})
+    obj = _parse_llm_json(raw)
+    rows = obj.get("hints") if isinstance(obj, dict) else None
+    hints = []
+    for h in rows if isinstance(rows, list) else []:
+        if not isinstance(h, dict):
+            continue
+        cn = str(h.get("cn") or "").strip()[:60]
+        variants = [str(v).strip()[:120] for v in (h.get("variants") or [])
+                    if str(v or "").strip() and re.search(r"[A-Za-z]", str(v))][:3]
+        recommended = str(h.get("recommended") or "").strip()[:120]
+        if recommended and recommended not in variants and re.search(r"[A-Za-z]", recommended):
+            variants.insert(0, recommended)  # 推荐表达必须出现在列表里
+        if not cn or not variants:
+            continue
+        # ctx 标记：v3 缓存格式检测依据（带全局上下文生成的才合格）
+        hints.append({"cn": cn, "variants": variants,
+                      "recommended": recommended, "note": str(h.get("note") or "").strip()[:200],
+                      "ctx": True})
+    if not hints:
+        return jsonify({"ok": False, "error": "模型返回异常，可点重试"})
+    lykie_readings.set_translation_hints(g.store.username, text_id, sent_idx, hints)
+    return jsonify_user({"ok": True, "hints": hints})
+
+
+_TRANSLATION_EVAL_PROMPT = (
+    "你是大学英语四级翻译辅导老师。给你一篇翻译的全段中文（【当前句】已标出）"
+    "和考生对当前句的译文，逐项点评。\n"
+    "输出严格 JSON：\n"
+    '{{"comment": "点评", "reference": "这句中文的地道参考译文"}}\n'
+    "点评要求（中文，120 字以内）：先说译得好的地方（没有就跳过，不硬夸），再指出最值得改的 1~2 处——"
+    "按重要性排序：句子主干（主谓选择/语序）> 词块用词 > 时态单复数等细节；每处引用考生的原词说明问题并给出改法。"
+    "改法与参考译文须与考生已写句子的人称、术语一致（全段用 walker 就不要改用 stroller）。"
+    "考生没写的部分不要脑补。\n"
+    "{ctx}\n考生当前句译文：{answer}"
+)
+
+_TRANSLATION_EVAL_FULL_PROMPT = (
+    "你是大学英语四级翻译辅导老师。给你一段中文原文和考生的整段英文译文，"
+    "从整段视角点评（逐句的细节另有逐句点评，不要重复）。\n"
+    "输出严格 JSON：\n"
+    '{{"comment": "点评", "reference": "整段中文的地道参考译文"}}\n'
+    "点评要求（中文，180 字以内）：聚焦只有整段才看得出的问题——句间衔接（连词/分词结构是否用起来）、"
+    "时态与人称的一致性、术语前后统一、整段读起来是否像一篇连贯的英文短文；引用考生的原词说明问题并给出改法。"
+    "先说整体做得好的地方（没有就跳过，不硬夸），考生没写的部分不要脑补。\n"
+    "中文原文：\n{cn}\n考生整段译文：\n{answer}"
+)
+
+
+@app.route("/api/reading/<text_id>/translation/evaluate", methods=["POST"])
+def api_reading_translation_evaluate(text_id):
+    """逐句/整段 AI 评价（v3，作者拍板：对答案环节删除，评价即反馈）。
+    {"sent_idx": n} 逐句；{"full": true} 整段（终态：全部句写完才可评）。
+    缓存带译文快照：译文未变零模型调用，改写后重新评价覆盖。"""
+    data = request.get_json(force=True) or {}
+    sents, err = _translation_sents_or_error(text_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404 if err == "未找到" else 400
+    tr = lykie_readings.get_translation(g.store.username, text_id)
+
+    if data.get("full"):
+        # 整段终态评价
+        missing = [i for i in range(len(sents))
+                   if not str(tr.get("answers", {}).get(str(i)) or "").strip()]
+        if missing:
+            return jsonify({"ok": False,
+                            "error": f"还有 {len(missing)} 句未完成，写完全部句子再整段评价"}), 400
+        answer = " ".join(str(tr["answers"][str(i)]).strip() for i in range(len(sents)))
+        cn_full = " ".join(sents)
+        cached = (tr.get("evals") or {}).get("full")
+        if isinstance(cached, dict) and cached.get("answer") == answer:
+            return jsonify_user({"ok": True, "cached": True, "eval": cached})
+        prompt = _TRANSLATION_EVAL_FULL_PROMPT.format(cn=cn_full, answer=answer)
+        try:
+            raw = lykie_llm.chat_completion(
+                [{"role": "user", "content": prompt}],
+                temperature=0.3,
+                json_mode=True,
+                disable_thinking=True,
+            )
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"整段评价生成失败：{exc}，可点重试"})
+        obj = _parse_llm_json(raw)
+        comment = str((obj or {}).get("comment") or "").strip()
+        reference = str((obj or {}).get("reference") or "").strip()
+        if not comment:
+            return jsonify({"ok": False, "error": "模型返回异常，可点重试"})
+        lykie_readings.set_translation_eval(
+            g.store.username, text_id, "full", answer, comment[:1500], reference[:2000])
+        return jsonify_user({"ok": True, "eval": {"answer": answer,
+                                                  "comment": comment[:1500],
+                                                  "reference": reference[:2000]}})
+
+    # 逐句评价
+    sent_idx = _parse_sent_idx(data)
+    if sent_idx is None:
+        return jsonify({"ok": False, "error": "句序号不合法"}), 400
+    if sent_idx >= len(sents):
+        return jsonify({"ok": False, "error": "句序号超出范围"}), 400
+    answer = str(tr.get("answers", {}).get(str(sent_idx)) or "")
+    if not answer:
+        return jsonify({"ok": False, "error": "先写这句的译文再评价"}), 400
+    cached = (tr.get("evals") or {}).get(str(sent_idx))
+    if isinstance(cached, dict) and cached.get("answer") == answer:
+        return jsonify_user({"ok": True, "cached": True, "eval": cached})
+    ctx = _translation_context_block(sents, tr, sent_idx)
+    prompt = _TRANSLATION_EVAL_PROMPT.format(ctx=ctx, answer=answer)
+    try:
+        raw = lykie_llm.chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            disable_thinking=True,
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"评价生成失败：{exc}，可点重试"})
+    obj = _parse_llm_json(raw)
+    comment = str((obj or {}).get("comment") or "").strip()
+    reference = str((obj or {}).get("reference") or "").strip()
+    if not comment:
+        return jsonify({"ok": False, "error": "模型返回异常，可点重试"})
+    lykie_readings.set_translation_eval(
+        g.store.username, text_id, sent_idx, answer, comment[:1000], reference[:1000])
+    return jsonify_user({"ok": True, "eval": {"answer": answer,
+                                              "comment": comment[:1000],
+                                              "reference": reference[:1000]}})
 
 
 # ---------- 题目问 AI：逐题聊天解析（点击问AI → 默认简析 → 自由追问） ----------

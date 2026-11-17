@@ -443,6 +443,7 @@ function contextPapers(cur, folderIds) {
 function paperSectionName(s) {
   if (s.kind === 'bank') return '选词填空';
   if (s.kind === 'match') return '段落匹配';
+  if (s.kind === 'translation') return '翻译';
   const cn = ['一', '二', '三', '四', '五'];
   const m = /^C(\d+)$/.exec(String(s.key || ''));
   if (m) return `仔细阅读${cn[Number(m[1]) - 1] || m[1]}`;
@@ -465,7 +466,7 @@ function appendPaperItem(listEl, p, ctx) {
       listEl.appendChild(makePaperLi(p, {
         name: paperSectionName(s),
         badge: '卷',
-        meta: s.kind === 'bank' ? `${s.count} 空` : `${s.count} 题`,
+        meta: s.kind === 'bank' ? `${s.count} 空` : (s.kind === 'translation' ? '整段' : `${s.count} 题`),
         sec: s.key,
         archived: false,
       }));
