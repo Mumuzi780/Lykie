@@ -3305,23 +3305,39 @@ button.lykie-send:active { transform: scale(.94); }
   position: absolute;
   inset: -2px -3.5px;
   z-index: 1;
-  border-radius: inherit;
+  border-radius: calc(var(--radius-md) + 2px);
   overflow: hidden;
   opacity: 0;
   transition: opacity 0.4s ease;
   pointer-events: none;
+  transform: translateZ(0); /* 提升为合成层，圆角裁切掩膜静态缓存，旋转不再触发重绘 */
+  will-change: opacity;
 }
 .send-outline::before {
   content: "";
   position: absolute;
-  inset: -100%;
-  background: conic-gradient(from 180deg, transparent 60%, #fff 80%, transparent 100%);
+  left: 50%;
+  top: 50%;
+  width: 142%; /* 正方形、刚好覆盖对角：旋转层从 3 倍大矩形缩小 6 倍，栅格保持 1:1 清晰，长边中段不再量化卡顿 */
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  /* 软边光带：亮带两侧用多级色标做平滑衰减，扫过圆角时无硬边跳变 */
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(255, 255, 255, 0) 25deg,
+    rgba(255, 255, 255, 0.25) 40deg,
+    #fff 55deg,
+    rgba(255, 255, 255, 0.25) 70deg,
+    rgba(255, 255, 255, 0) 85deg,
+    transparent 360deg
+  );
   will-change: transform;
-  animation: send-spin 2s linear infinite;
+  animation: send-spin 2.4s linear infinite;
   animation-play-state: paused;
 }
 @keyframes send-spin {
-  to { transform: rotate(360deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   .send-outline::before { animation: none; }

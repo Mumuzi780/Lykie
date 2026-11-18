@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m119">
+  <link rel="stylesheet" href="/static/style.css?v=m121">
 </head>
 <body class="login-body">
   <!-- 背景装饰：浮动光斑 -->
@@ -270,11 +270,53 @@
         e.preventDefault();
         pending = true;
         if (window.__loginTiltSettle) window.__loginTiltSettle(); // 卡片平滑回正
+        if (window.__loginWarm) window.__loginWarm(); // 兜底：提交瞬间也触发资源预热
         btn.focus(); // 启动按钮动画（点击路径已有焦点，回车路径需要这一步）
         setTimeout(function () {
           form.submit();
         }, DELAY);
       });
+    })();
+  </script>
+  <script>
+    /* 主界面资源预热（保守）：用户聚焦/输入密码框才启动，作为登录意图信号。
+       利用输入 + 按钮动画 + 提交往返的窗口把资源拉进缓存；
+       prefetch 只下载不执行，不影响登录页。版本号需与 index.html 的引用保持一致，
+       改动任一文件 bump 版本时记得同步此列表。 */
+    (function () {
+      var pwd = document.getElementById('password');
+      if (!pwd) return;
+      if (navigator.connection && navigator.connection.saveData) return; // 流量敏感模式不预热
+
+      var PRELOAD = [
+        '/static/sa.css?v=m5',
+        '/static/reading.css?v=33',
+        '/static/dialog.js?v=1',
+        '/static/sa.js?v=sa25',
+        '/static/sfx.js?v=11',
+        '/static/fx.js?v=10',
+        '/static/script.js?v=m102',
+        '/static/mock.js?v=8',
+        '/static/story.js?v=m6',
+        '/static/reading.js?v=45'
+      ];
+      var fired = false;
+
+      function warm() {
+        if (fired) return;
+        fired = true;
+        PRELOAD.forEach(function (url) {
+          var link = document.createElement('link');
+          link.rel = 'prefetch';
+          link.href = url;
+          link.as = url.indexOf('.css') > -1 ? 'style' : 'script';
+          document.head.appendChild(link);
+        });
+      }
+      window.__loginWarm = warm; // 提交时兜底触发
+
+      pwd.addEventListener('focus', warm, { once: true });
+      pwd.addEventListener('input', warm, { once: true });
     })();
   </script>
 </body>
