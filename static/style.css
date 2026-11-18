@@ -3865,6 +3865,8 @@ body.assets-page .assets-workspace {
 }
 .beian-bar a { color: inherit; text-decoration: none; }
 .beian-bar a:hover { color: var(--primary); }
+.beian-bar a + a { margin-left: 12px; }
+.beian-bar .beian-badge { height: 14px; width: auto; vertical-align: -3px; margin-right: 4px; }
 
 /* 小屏：顶栏折行，按钮不挤压品牌 */
 @media (max-width: 640px) {
