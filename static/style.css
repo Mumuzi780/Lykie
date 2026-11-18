@@ -2591,6 +2591,10 @@ button.lykie-send:active { transform: scale(.94); }
     flex-direction: column;
     max-width: none;
     min-height: 100dvh;
+    /* 桌面端 .app 带 z-index:1 会建层叠上下文，把抽屉 sidebar（z50）压在
+       遮罩 backdrop（z45，body 直接子元素）之下导致点击被遮罩拦截；
+       手机端取消该上下文，让 sidebar 回到根层级正常盖过遮罩 */
+    z-index: auto;
   }
 
   /* 窄屏双栏降级：左栏变横向滚动 chips 条 */
