@@ -44,6 +44,27 @@
   let mouseMode = 'answer';
   try { if (localStorage.getItem('rd-mouse-mode') === 'lookup') mouseMode = 'lookup'; } catch (e) { /* ignore */ }
 
+  /* ==================== 触屏适配层（手机端适配） ====================
+   * 总原则：桌面交互零改动——新逻辑全部以 pointerType === 'touch'（含 'pen'）分支判定；
+   * 触屏分支不读 mouseMode（tap 落点区域天然分流：正文=查词、控件=作答）；
+   * CSS 形态变化（题目条/半屏面板/底部 sheet）全部限定在 reading.css 720px 断点内。 */
+  // 窄屏断点（与 CSS 同口径 720px）：形态判定用（CSS 跟断点走、JS 行为跟 pointerType 走，两者独立）
+  const narrowMq = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
+  const isNarrowScreen = () => !!(narrowMq && narrowMq.matches);
+  // selectionchange / contextmenu 事件自身不带 pointerType：以最近一次 pointerdown 的
+  // 类型区分触屏来源（鼠标交互路径不受任何影响）
+  let lastPointerType = '';
+  let touchDown = null;      // 触屏 tap 起点（位移 <10px 视为 tap，防滚动/滑动手势误触）
+  let touchWordSelUntil = 0; // 点词取词主动设选区的时间窗：窗口内 selectionchange 不接管
+  document.addEventListener('pointerdown', (ev) => {
+    lastPointerType = ev.pointerType || '';
+    if (lastPointerType === 'touch' || lastPointerType === 'pen') {
+      touchDown = { x: ev.clientX, y: ev.clientY };
+    }
+  }, true);
+  const isTouchEventSource = (ev) => !!(ev && (ev.pointerType === 'touch' || ev.pointerType === 'pen'));
+  const isTouchActive = () => lastPointerType === 'touch' || lastPointerType === 'pen';
+
   // ---- 多视图：正文渲染（顺序与后端 para_index 定位严格一致） ----
   function renderArticle(allSections) {
     const host = $('rdPassHost');
@@ -209,12 +230,14 @@
     return '';
   }
 
-  function showBubble(info) {
+  function showBubble(info, opts) {
+    opts = opts || {};
     dismissBubble();
     dismissCard();
     const rect = info.sel.getRangeAt(0).getBoundingClientRect();
+    info.rect = rect; // 快照：触屏点「查词」确认时选区可能已被系统清掉，runLookup 兜底用
     const isLookup = info.words <= 5;
-    const noteable = isNoteableSelection(info);
+    const noteable = !opts.noNote && isNoteableSelection(info); // 点词场景（无选区语义）不出标记按钮
     bubble = document.createElement('div');
     bubble.className = 'rd-bubble';
     bubble.innerHTML = `
@@ -231,6 +254,11 @@
     bubble.style.left = `${left}px`;
     bubble.style.top = `${top}px`;
 
+    // 触屏 tap 气泡按钮前，浏览器默认会清掉文本选区（runLookup 同步段仍要读选区）：
+    // touch 来源的 pointerdown 阻止默认（click 照常派发，仅抑制兼容 mouse 事件）
+    bubble.addEventListener('pointerdown', (ev) => {
+      if (isTouchEventSource(ev)) ev.preventDefault();
+    });
     bubble.querySelector('.rd-btn-lookup').addEventListener('click', () => runLookup('lookup', info));
     bubble.querySelector('.rd-btn-translate').addEventListener('click', () => runLookup('translate', info));
     const noteBtn = bubble.querySelector('.rd-btn-note');
@@ -273,7 +301,11 @@
     const mySeq = ++seq;
     bubbleLoading(mode);
     const pos = positionOfSelection(info.sel, info.text);
-    savedRect = info.sel.getRangeAt(0).getBoundingClientRect();
+    // 触屏确认点击时选区可能已被系统清掉（罕见兜底路径）：实时选区优先，失效退回
+    // showBubble 快照的 rect；桌面路径选区恒存活，行为与原先完全一致
+    savedRect = (info.sel && info.sel.rangeCount)
+      ? info.sel.getRangeAt(0).getBoundingClientRect()
+      : (info.rect || savedRect);
     // 例句取「查询处所在句」：正文/题干/选项划词，例句就是选区所在的那句；
     // 词库条目本身只有一个单词无句可取——靠答案键反查正文挖空句作例句，
     // 反查不到（干扰词/错选词）才无语境走词典义。
@@ -462,7 +494,7 @@
 
     card.querySelector('#rdCardCancel').addEventListener('click', dismissCard);
     card.querySelector('#rdCardSave').addEventListener('click', () => saveCard());
-    card.querySelector('#rdMeaning').focus();
+    if (!isNarrowScreen()) card.querySelector('#rdMeaning').focus(); // 窄屏 sheet：不自动聚焦（防唤起虚拟键盘）
   }
 
   let lookupId = null; // 最近一次查词的记录 id，存词成功后回写 imported
@@ -518,6 +550,29 @@
       btn.disabled = false;
     }
   }
+
+  /* ==================== 触屏虚拟键盘：底部 sheet（rd-card）防盖 ====================
+   * 键盘弹出时 visualViewport 高度差 = 键盘占位：sheet 上移（translateY），键盘收起复位；
+   * 面板内聚焦输入框 scrollIntoView 兜底（老浏览器无 visualViewport 也走这条）。 */
+  const syncSheetKeyboard = () => {
+    const vv = window.visualViewport;
+    if (!vv || !card) return;
+    const lift = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    card.style.transform = lift > 0 ? `translateY(${-Math.round(lift)}px)` : '';
+  };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncSheetKeyboard);
+    window.visualViewport.addEventListener('scroll', syncSheetKeyboard);
+  }
+  document.addEventListener('focusin', (ev) => {
+    // 兜底：sheet / 半屏题目面板内获得焦点的输入框滚入可视区（不动形态，纯滚动）
+    if (!isNarrowScreen() || !ev.target || !ev.target.scrollIntoView) return;
+    const qc = $('rdQCard');
+    const inSheet = card && card.contains(ev.target);
+    const inQCard = qc && !qc.hidden && qc.contains(ev.target);
+    if (!inSheet && !inQCard) return;
+    ev.target.scrollIntoView({ block: 'nearest' });
+  });
 
   // ---- 已查词持久标记：一词一位置一区域（同词跨区域各自保留，同区域后查覆盖） ----
   function addMark(selection, gloss, imported, pos) {
@@ -1021,6 +1076,64 @@
     return info;
   }
 
+  /* ==================== 触屏点词（tap 取词 → 气泡确认；已入库词本地直出） ====================
+   * 单击是触屏最高频动作、误点率高，多一次确认点击换零误查（省 AI 调用红线）；
+   * 已入库词 data-gloss 本地直出（零调用）保证复看场景即点即得。 */
+  document.addEventListener('pointerup', (ev) => {
+    if (!isTouchEventSource(ev)) return; // 鼠标路径零改动（dblclick/右键/拖选照旧）
+    const down = touchDown;
+    touchDown = null;
+    if (!down) return;
+    // 滚动/滑动手势（位移 ≥10px）不是 tap：静默放行，不弹气泡不查询
+    if (Math.abs(ev.clientX - down.x) + Math.abs(ev.clientY - down.y) >= 10) return;
+    // 有选区（长按选词 / 手柄扩选中）——交 selectionchange 气泡接管，不重复处理
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    const el = ev.target && ev.target.nodeType === 1 ? ev.target : (ev.target && ev.target.parentElement);
+    if (!el || !el.closest) return;
+    if (!touchTapWordZone(el)) return; // 控件区：作答静默（tap 落点不在取词区）
+    // 取词会主动设置选区（wordInfoAt）：加时间窗，窗口内的 selectionchange 不接管
+    touchWordSelUntil = Date.now() + 400;
+    let info = null;
+    try { info = wordInfoAt(ev.clientX, ev.clientY); } catch (e) { info = null; }
+    if (!info) { dismissBubble(); return; } // 词间空隙：什么都不做，收掉现有气泡
+    // 已入库标记词：本地直出 data-gloss 进底部面板（零 AI 调用、不弹确认气泡）
+    const anchor = info.sel.rangeCount ? info.sel.getRangeAt(0).startContainer : null;
+    const anchorEl = anchor ? (anchor.nodeType === 1 ? anchor : anchor.parentElement) : null;
+    const imported = anchorEl && anchorEl.closest ? anchorEl.closest('.rd-mark-imported') : null;
+    if (imported && imported.getAttribute('data-gloss')) {
+      lookupId = null;          // 无查词记录：存词直接走资产库管道
+      lastSelText = info.text;  // 存词后标记升级/重放走原管道
+      lastPos = positionOfSelection(info.sel, info.text);
+      openCard(info, extractSentence(info.text), { head: info.text, meaning: imported.getAttribute('data-gloss'), pos: 'other' }, '');
+      // 同一帧内清掉临时选区（与桌面双击直查同款）：蓝色高亮不残留
+      setTimeout(() => { try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } }, 0);
+      return;
+    }
+    // 新词：弹现有气泡挂词上方（查词/翻译按钮），用户确认后才 runLookup
+    showBubble(info, { noNote: true });
+  });
+
+  /** 触屏 tap 取词区：正文/题干文本 + 判分后选项；作答控件静默（复用桌面排除链语义）。 */
+  function touchTapWordZone(el) {
+    if (el.closest('button:not(.rd-opt), a, input, textarea, select, .rd-blank, .rd-bank-item, .rd-note, .rd-para-letter, .rd-mode-toggle, .rd-qball, .rd-qcard-head, .rd-tabs, .rd-ask, .rd-card, .rd-bubble, .rd-picker-panel, .rd-note-del')) return false;
+    const opt = el.closest('.rd-opt');
+    if (opt) return opt.classList.contains('is-locked'); // 判分前=作答控件静默；判分后=纯文本可查
+    return !!el.closest('.reading-p, .rd-q-p, .rd-match-stem');
+  }
+
+  /* ==================== 触屏长按选短语：响应系统选区（不自实现长按定时器） ====================
+   * 系统长按自己会选中词/短语；选区在阅读区且非空（单词/多词均可）→ 气泡挂选区上方
+   * （复用 showBubble 定位），选区变化气泡重新定位，选区清空气泡消失、不触发查询。 */
+  document.addEventListener('selectionchange', () => {
+    if (Date.now() < touchWordSelUntil) return; // 点词分支 JS 设的选区：由该分支自己管理
+    if (!isTouchActive()) return;               // 鼠标来源：桌面 mouseup 气泡管道照旧（零改动）
+    if (bubble && bubble.classList.contains('is-loading')) return; // 查询中：等结果面板接管
+    const info = getSelectionInfo();
+    if (info) showBubble(info);
+    else dismissBubble();
+  });
+
   // ---- 双击直查：不弹气泡（setHint 文字提示 loading），无浏览器选区残留 ----
   document.addEventListener('dblclick', (ev) => {
     const el = ev.target && ev.target.nodeType === 1 ? ev.target : (ev.target && ev.target.parentElement);
@@ -1053,6 +1166,9 @@
     if (!el || !el.closest) return;
     if (el.closest('.rd-picker-panel, .rd-card, .rd-bubble, .rd-qball, .rd-ask, .rd-note-del, .rd-mode-toggle, input, textarea, select, a, button:not(.rd-opt)')) return;
     if (!inReadArea(ev.target)) return; // 只管阅读区，其余放行原生菜单
+    // 触屏长按在 Android 会触发 contextmenu（与 selectionchange 双触发）：压制系统菜单后
+    // 直接返回、不查询——查询只从气泡确认走，防重复调 AI；鼠标来源走下方原路径（零改动）
+    if (isTouchActive()) { ev.preventDefault(); return; }
     let info = null;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed && sel.rangeCount) {
@@ -1085,16 +1201,33 @@
   if (qBall && qCard) {
     const BALL_POS_KEY = 'rd-qball-pos';
 
+    // ---- 题目条未答题数（窄屏专属：720px 通栏形态下显示剩余题数；桌面保持总题数，零改动） ----
+    let ballTotalQs = 0;
+    const updateQBallCount = () => {
+      if (!isNarrowScreen()) return; // 桌面：总题数由 init 设置，不动
+      const answered = sections.reduce((n, s) => n + (s.questions || [])
+        .filter((q) => answerState.answers[q.num]).length, 0);
+      $('rdQBallNum').textContent = String(Math.max(0, ballTotalQs - answered));
+    };
+    // 跨断点转屏：回桌面恢复总题数显示
+    if (narrowMq && narrowMq.addEventListener) {
+      narrowMq.addEventListener('change', () => {
+        if (!isNarrowScreen()) $('rdQBallNum').textContent = String(ballTotalQs);
+      });
+    }
+
     // ---- 卡片尺寸：右下角原生 resize 手柄拖拽，pointerup 时持久化 ----
+    // 窄屏（720px）半屏面板形态：CSS resize:none 无手柄，尺寸不恢复、不持久化
     const CARD_SIZE_KEY = 'rd-qcard-size';
     try {
       const sz = JSON.parse(localStorage.getItem(CARD_SIZE_KEY) || 'null');
-      if (sz && typeof sz.w === 'number' && typeof sz.h === 'number') {
+      if (!isNarrowScreen() && sz && typeof sz.w === 'number' && typeof sz.h === 'number') {
         qCard.style.width = `${sz.w}px`;
         qCard.style.height = `${sz.h}px`;
       }
     } catch (e) { /* ignore */ }
     qCard.addEventListener('pointerup', () => {
+      if (isNarrowScreen()) return; // 窄屏：无 resize 手柄，不写尺寸记忆
       try {
         localStorage.setItem(CARD_SIZE_KEY, JSON.stringify({ w: qCard.offsetWidth, h: qCard.offsetHeight }));
       } catch (e) { /* ignore */ }
@@ -1148,11 +1281,13 @@
       }
     };
 
-    // 恢复上次位置（含贴边停靠态）
-    try {
-      const saved = JSON.parse(localStorage.getItem(BALL_POS_KEY) || 'null');
-      if (saved && typeof saved.left === 'number') setBallPos(saved.left, saved.top, false, saved.docked || null);
-    } catch (e) { /* ignore */ }
+    // 恢复上次位置（含贴边停靠态）——窄屏题目条形态不恢复（CSS 通栏接管，禁用位置记忆）
+    if (!isNarrowScreen()) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(BALL_POS_KEY) || 'null');
+        if (saved && typeof saved.left === 'number') setBallPos(saved.left, saved.top, false, saved.docked || null);
+      } catch (e) { /* ignore */ }
+    }
 
     // ---- 题目面板：分篇 tab（v11 重构；v17 多视图：状态由 RD.init 注入） ----
     const qBody = $('rdQCardBody');
@@ -1516,6 +1651,7 @@
       markBodyMarks();
       renderPanel();
       rebuildNotes();
+      updateQBallCount(); // 窄屏题目条：未答题数随作答刷新（桌面不动）
     };
 
     const doJudge = async (payload) => {
@@ -1742,6 +1878,7 @@
     };
 
     const placeCard = () => {
+      if (isNarrowScreen()) return;           // 窄屏：CSS 半屏形态接管（fixed 通栏），不做 JS 定位
       if (qCard.style.left) return;           // 已被拖动过，保持
       if (restoreCardPos()) return;           // 上次关闭的位置，原路展开
       const br = qBall.getBoundingClientRect();
@@ -1757,7 +1894,8 @@
     };
 
     const openCard = () => {
-      qBall.style.display = 'none';
+      // 窄屏题目条常驻（半屏面板 bottom:48px 叠在条上方），不隐藏；桌面开卡=球隐藏
+      if (!isNarrowScreen()) qBall.style.display = 'none';
       qCard.hidden = false;
       placeCard();
       renderPanel();
@@ -1769,6 +1907,8 @@
       qCard.hidden = true;
       qCard.style.left = '';
       qCard.style.top = '';
+      // 窄屏：无卡片位置记忆；清行内隐藏（桌面开卡中途缩窗的兜底），题目条本就常驻
+      if (isNarrowScreen()) { qBall.style.display = ''; return; }
       try {
         localStorage.setItem(CARD_POS_KEY, JSON.stringify({ left: cr.left, top: cr.top }));
       } catch (e) { /* ignore */ }
@@ -1777,8 +1917,12 @@
     };
 
     // ---- 悬浮球拖动（pointer capture；位移 <4px 视为点击） ----
+    // 窄屏题目条形态：无拖动、无位置记忆，tap 即开合（形态与行为同走断点）；
+    // 滑动手势（题目条上滚动页面）不做开合——位移 ≥10px 一律静默
     let ballDrag = null;
+    let barTapStart = null; // 窄屏题目条 tap 起点
     qBall.addEventListener('pointerdown', (ev) => {
+      if (isNarrowScreen()) { barTapStart = { x: ev.clientX, y: ev.clientY }; return; }
       const rect = qBall.getBoundingClientRect();
       ballDrag = { x: ev.clientX, y: ev.clientY, left: rect.left, top: rect.top, moved: false };
       qBall.setPointerCapture(ev.pointerId);
@@ -1790,7 +1934,15 @@
       if (!ballDrag.moved && Math.abs(dx) + Math.abs(dy) > 4) ballDrag.moved = true;
       if (ballDrag.moved) setBallPos(ballDrag.left + dx, ballDrag.top + dy, false);
     });
-    qBall.addEventListener('pointerup', () => {
+    qBall.addEventListener('pointerup', (ev) => {
+      if (isNarrowScreen()) {
+        // 题目条 tap = 展开/收起半屏面板（滑动 ≥10px 不算 tap，防滚动误开合）
+        const st = barTapStart;
+        barTapStart = null;
+        if (st && Math.abs(ev.clientX - st.x) + Math.abs(ev.clientY - st.y) >= 10) return;
+        if (qCard.hidden) openCard(); else closeCard();
+        return;
+      }
       if (!ballDrag) return;
       if (ballDrag.moved) {
         const rect = qBall.getBoundingClientRect();
@@ -1808,12 +1960,13 @@
       }
       ballDrag = null;
     });
-    qBall.addEventListener('pointercancel', () => { ballDrag = null; });
+    qBall.addEventListener('pointercancel', () => { ballDrag = null; barTapStart = null; });
 
     // ---- 卡片拖动：头部空白区为手柄（按钮除外） ----
     let cardDrag = null;
     const cardHead = qCard.querySelector('.rd-qcard-head');
     cardHead.addEventListener('pointerdown', (ev) => {
+      if (isNarrowScreen()) return; // 窄屏半屏面板：头部纯展示（顶部把手条装饰），禁拖动
       if (ev.target.closest('.btn')) return;
       const rect = qCard.getBoundingClientRect();
       cardDrag = { x: ev.clientX, y: ev.clientY, left: rect.left, top: rect.top };
@@ -2202,7 +2355,9 @@
       const hasQ = totalQs > 0;
       qBall.hidden = !hasQ;
       qBall.style.display = ''; // 清掉 openCard 遗留的行内隐藏，防止跨视图切换后悬浮球永久消失
+      ballTotalQs = totalQs;
       $('rdQBallNum').textContent = String(totalQs);
+      updateQBallCount(); // 窄屏题目条显示未答题数（桌面保持总题数）
       document.querySelectorAll('.rd-toolbar-only').forEach((b) => { b.hidden = !hasQ; });
 
       // 渲染：空块 / 段落徽章 / 查词标记重放 / 面板 / 做题痕迹重放

@@ -1739,3 +1739,138 @@ body.rd-mode-lookup .rd-para-letter {
 }
 
 .rd-tr-actions {
+}
+
+/* ==================== 手机适配（≤720px）：桌面交互零改动，触屏形态全在本断点 ====================
+   * 总原则：桌面交互零改动——CSS 形态变化全部限定在本 media query 内；
+   * 行内 left/top（桌面定位与拖动残留）用 !important 压制，保证 CSS 形态接管
+   * （显隐仍由 JS hidden 属性统一管理，与桌面同管道，避免行内样式与 hidden 冲突）。 */
+
+@media (max-width: 720px) {
+
+  /* ---- 查词手机化：rd-card 浮动小卡 → 固定底部 sheet ---- */
+
+  .rd-card {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    width: 100% !important;
+    max-width: none;
+    max-height: 70dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-sizing: border-box;
+  }
+
+  /* 拖动手柄在 sheet 形态下隐藏（JS 不动） */
+  .rd-card-grip {
+    display: none;
+  }
+
+  /* 确认气泡：加大点击热区防误触（min-height 40px / min-width 48px） */
+  .rd-bubble .rd-bubble-btn {
+    min-height: 40px;
+    min-width: 48px;
+  }
+
+  /* iOS：图标/装饰类非文本元素压制长按 callout（正文不加，不干扰原生选区） */
+  .rd-qball,
+  .rd-qcard-head,
+  .rd-tabs {
+    -webkit-touch-callout: none;
+  }
+
+  /* ---- 答题手机化：悬浮球 → 底部固定通栏题目条 ---- */
+
+  .rd-qball {
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    width: 100%;
+    height: auto;
+    min-height: 48px;
+    border-radius: 0;
+    flex-direction: row;
+    justify-content: center;
+    /* 降噪：不做实色 CTA（余光会被大面积饱和色块吸走），改卡片底 + 细边框的结构条，
+       题号保留主题色作为唯一视觉锚点 */
+    background: var(--card);
+    border-top: 1px solid var(--border-fine);
+    color: var(--muted);
+    box-shadow: none;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px env(safe-area-inset-bottom, 0px);
+    touch-action: auto; /* 拖动已禁用（JS 分支），恢复默认触摸 */
+  }
+
+  .rd-qball-num {
+    font-size: 1rem;
+    color: var(--primary);
+  }
+
+  .rd-qball-label {
+    font-size: 0.8rem;
+  }
+
+  /* 展开提示（窄屏题目条专属） */
+  .rd-qball::after {
+    content: '· 展开答题';
+    font-size: 0.8rem;
+    opacity: 0.75;
+  }
+
+  /* 题目卡 → 半屏上滑面板（bottom:48px 叠在题目条上方；滑入节奏与侧栏抽屉一致） */
+  .rd-qcard {
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+    width: 100% !important;
+    max-width: none;
+    max-height: 60dvh;
+    min-width: 0;
+    min-height: 0;
+    height: auto !important;
+    resize: none; /* 手柄禁用，尺寸不记忆（JS 分支停写 localStorage） */
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 -10px 30px rgba(26, 42, 46, 0.22);
+    animation: rd-sheet-up 0.22s ease;
+  }
+
+  .rd-qcard.rd-qcard-all {
+    width: 100% !important;
+    max-height: 60dvh;
+  }
+
+  /* 顶部纯装饰把手条（无交互；拖拽变高不做） */
+  .rd-qcard::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+    margin: 8px auto 4px;
+    flex-shrink: 0;
+  }
+
+  .rd-qcard-head {
+    cursor: default;  /* 头部拖动已禁用（JS 分支） */
+    touch-action: auto;
+  }
+
+  /* 正文底部留白：防题目条遮挡末行 */
+  body.mode-reading .card-area {
+    padding: 12px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* 半屏面板滑入动画（仅 720px 断点内的 .rd-qcard 引用） */
+@keyframes rd-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
