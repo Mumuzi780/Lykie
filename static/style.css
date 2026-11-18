@@ -3222,10 +3222,11 @@ button.lykie-send:active { transform: scale(.94); }
 }
 /* 登录提交按钮：起飞式动效按钮（配色跟随主题） */
 .login-send {
-  --send-accent: var(--primary);
-  --send-n1: #f6f8f7;
-  --send-n2: #e4e8e6;
-  --send-ink: #2c403b;
+  --send-ink: var(--primary);
+  --send-ink-fill: #ffffff;
+  --send-hi: #063d38;      /* 字母闪现色（透明态：深青） */
+  --send-hi-fill: #9de3d6; /* 字母闪现色（填充态：亮薄荷） */
+  --send-trail: rgba(255, 255, 255, 0.6); /* 起飞航迹线（填充态使用） */
   position: relative;
   display: flex;
   align-items: center;
@@ -3234,113 +3235,55 @@ button.lykie-send:active { transform: scale(.94); }
   width: 100%;
   height: 64px;
   padding: 20px;
-  border: none;
+  background: transparent;
+  border: 1.5px solid var(--primary);
   border-radius: var(--radius-md);
+  overflow: hidden; /* 裁剪填充圆盘与起飞的箭头/航迹 */
   cursor: pointer;
   font-family: inherit;
   font-size: 18px;
   font-weight: 600;
   color: var(--send-ink);
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.35);
+  transition: color 0.3s 0.1s ease-out, transform 0.3s ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  box-shadow:
-    0 0.5px 0.5px 1px rgba(255, 255, 255, 0.2),
-    0 10px 20px rgba(0, 0, 0, 0.14),
-    0 4px 5px 0 rgba(0, 0, 0, 0.05);
-  transition: transform 0.3s ease;
 }
 [data-theme="dark"] .login-send {
-  --send-n1: #2a3531;
-  --send-n2: #1b2421;
-  --send-ink: #dce8e4;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  --send-ink-fill: #0d2b27;
+  --send-hi: #eafff8;
+  --send-hi-fill: #0e6e68;
+  --send-trail: rgba(13, 43, 39, 0.5);
+}
+/* 聚焦：文字颜色随 CSS 变量翻转（关键帧动画同步跟随），圆盘填充 */
+.login-send:focus {
+  --send-ink: var(--send-ink-fill);
+  --send-hi: var(--send-hi-fill);
 }
 .login-send:active {
   transform: scale(1);
 }
-.login-send:active .send-glow {
-  opacity: 1;
-  transform: scale(0.94);
-}
 
-/* 悬停光晕：预渲染的静态渐变层，hover 只过渡 opacity（合成器动画，不触发重绘） */
-.send-glow {
-  position: absolute;
-  inset: -14px;
-  border-radius: 26px;
-  background: radial-gradient(65% 60% at 50% 68%, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.1) 55%, transparent 78%);
-  opacity: 0;
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  pointer-events: none;
-  will-change: opacity;
-}
-
-/* 表面：渐变底 + 描边（border-box 双层渐变） */
-.login-send::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: var(--radius-md);
-  border: 2.5px solid transparent;
-  background:
-    linear-gradient(var(--send-n1), var(--send-n2)) padding-box,
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.45)) border-box;
-  transition: transform 0.4s ease, box-shadow 0.4s ease;
-}
-/* 内层高光 */
+/* 填充圆盘：从左侧展开的主题色圆（transform 缩放，纯合成器动画） */
 .login-send::before {
   content: "";
   position: absolute;
-  inset: 7px 6px 6px 6px;
-  z-index: 2;
-  background: linear-gradient(to top, var(--send-n1), var(--send-n2));
-  border-radius: 30px;
-  pointer-events: none;
-}
-
-/* 悬停光环：旋转锥形渐变描边 */
-.send-outline {
-  position: absolute;
-  inset: -2px -3.5px;
-  z-index: 1;
-  border-radius: calc(var(--radius-md) + 2px);
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-  transform: translateZ(0); /* 提升为合成层，圆角裁切掩膜静态缓存，旋转不再触发重绘 */
-  will-change: opacity;
-}
-.send-outline::before {
-  content: "";
-  position: absolute;
-  left: 50%;
   top: 50%;
-  width: 142%; /* 正方形、刚好覆盖对角：旋转层从 3 倍大矩形缩小 6 倍，栅格保持 1:1 清晰，长边中段不再量化卡顿 */
+  left: -25%;
+  width: 100%;
   aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  /* 软边光带：亮带两侧用多级色标做平滑衰减，扫过圆角时无硬边跳变 */
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    rgba(255, 255, 255, 0) 25deg,
-    rgba(255, 255, 255, 0.25) 40deg,
-    #fff 55deg,
-    rgba(255, 255, 255, 0.25) 70deg,
-    rgba(255, 255, 255, 0) 85deg,
-    transparent 360deg
-  );
-  will-change: transform;
-  animation: send-spin 2.4s linear infinite;
-  animation-play-state: paused;
+  border-radius: 50%;
+  background: var(--primary);
+  transform-origin: left center;
+  transform: translateY(-50%) scale(0);
+  transition: transform 0.5s ease-out;
+  z-index: 0;
+  pointer-events: none;
 }
-@keyframes send-spin {
-  to { transform: translate(-50%, -50%) rotate(360deg); }
+.login-send:focus::before {
+  transform: translateY(-50%) scale(2.6);
 }
 @media (prefers-reduced-motion: reduce) {
-  .send-outline::before { animation: none; }
+  .login-send::before { transition: none; }
 }
 
 /* 状态与文字 */
@@ -3375,15 +3318,39 @@ button.lykie-send:active { transform: scale(.94); }
   transform: scale(1.25);
   transition: transform 0.3s ease;
 }
+/* 对勾图标（送达态） */
 .send-icon svg {
   width: 18px;
   height: 18px;
   overflow: visible;
 }
-/* 默认态箭头斜向上；悬停转正指向右，点击起飞（见 send-take-off） */
-.send-state--default .send-icon {
-  transform: rotate(-45deg) scale(1.25);
+/* 纸飞机图标：PNG 素材用 mask 上色，颜色跟随 currentColor（随主题/填充态自动切换）。
+   未填充按钮显示实心机（素材机头朝右，旋转 -45° 后朝右上）；
+   按钮填充后切换为空心机（素材机头朝右上，旋转 45° 后朝正右，即起飞方向）。 */
+.send-plane {
+  display: block;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  -webkit-mask: url("/static/lykie/plane-hollow.png") center / contain no-repeat;
+  mask: url("/static/lykie/plane-hollow.png") center / contain no-repeat;
 }
+.send-plane--filled {
+  -webkit-mask-image: url("/static/lykie/plane-filled.png");
+  mask-image: url("/static/lykie/plane-filled.png");
+}
+.send-state--default .send-icon {
+  transform: scale(1.25);
+}
+.send-state--default .send-plane--filled {
+  transform: rotate(-45deg);
+}
+.send-state--default .send-plane--hollow {
+  display: none;
+  transform: rotate(45deg);
+}
+.login-send:focus .send-state--default .send-plane--filled { display: none; }
+.login-send:focus .send-state--default .send-plane--hollow { display: block; }
 .send-state--sent .send-icon svg {
   transform: scale(1.25);
   margin-right: 8px;
@@ -3396,9 +3363,8 @@ button.lykie-send:active { transform: scale(.94); }
   left: -5px;
   height: 2px;
   width: 0;
-  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.5));
+  background: linear-gradient(to right, transparent, var(--send-trail));
 }
-.login-send:focus .send-state--default .send-icon { transform: rotate(0) scale(1.25); }
 
 /* ===== 动效（尊重减弱动态偏好） ===== */
 @media (prefers-reduced-motion: no-preference) {
@@ -3414,10 +3380,10 @@ button.lykie-send:active { transform: scale(.94); }
     opacity: 0;
     animation: send-slide-down 0.45s ease forwards calc(var(--i) * 0.1s);
   }
-  .send-state--default .send-icon svg {
+  .send-state--default .send-plane--filled {
     animation: send-land 0.6s ease forwards;
   }
-  .login-send:focus .send-state--default .send-icon svg {
+  .login-send:focus .send-state--default .send-plane--hollow {
     animation: send-take-off 0.45s linear forwards;
   }
   .login-send:focus .send-state--default .send-icon::before {
@@ -3430,49 +3396,46 @@ button.lykie-send:active { transform: scale(.94); }
 }
 @media (hover: hover) and (pointer: fine) {
   .login-send:hover {
+    --send-ink: var(--send-ink-fill);
+    --send-hi: var(--send-hi-fill);
     transform: scale(1.02);
   }
-  .login-send:hover .send-glow { opacity: 1; }
-  .login-send:hover::after {
-    transform: scale(1.05, 1.1);
-    box-shadow: inset 0 -1px 3px 0 rgba(255, 255, 255, 1);
+  .login-send:hover::before {
+    transform: translateY(-50%) scale(2.6);
   }
-  .login-send:hover .send-outline { opacity: 1; }
-  .login-send:hover .send-outline::before { animation-play-state: running; }
 }
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .login-send:hover .send-text span {
     opacity: 1;
     animation: send-wave 0.5s ease forwards calc(var(--i) * 0.02s);
   }
-  .login-send:hover .send-state--default .send-icon {
-    transform: rotate(0deg) scale(1.25);
-  }
+  .login-send:hover .send-state--default .send-plane--filled { display: none; }
+  .login-send:hover .send-state--default .send-plane--hollow { display: block; }
 }
 
 @keyframes send-wave {
-  30% { opacity: 1; transform: translateY(4px) translateX(0) rotate(0); }
-  50% { opacity: 1; transform: translateY(-3px) translateX(0) rotate(0); color: var(--send-accent); }
-  100% { opacity: 1; transform: translateY(0) translateX(0) rotate(0); }
+  30% { opacity: 1; transform: translateY(4px) translateX(0) rotate(0); color: var(--send-ink); }
+  50% { opacity: 1; transform: translateY(-3px) translateX(0) rotate(0); color: var(--send-hi); }
+  100% { opacity: 1; transform: translateY(0) translateX(0) rotate(0); color: var(--send-ink); }
 }
 @keyframes send-slide-down {
-  0% { opacity: 0; transform: translateY(-20px) translateX(5px) rotate(-90deg); color: var(--send-accent); }
-  30% { opacity: 1; transform: translateY(4px) translateX(0) rotate(0); }
+  0% { opacity: 0; transform: translateY(-20px) translateX(5px) rotate(-90deg); color: var(--send-hi); }
+  30% { opacity: 1; transform: translateY(4px) translateX(0) rotate(0); color: var(--send-ink); }
   50% { opacity: 1; transform: translateY(-3px) translateX(0) rotate(0); }
   100% { opacity: 1; transform: translateY(0) translateX(0) rotate(0); }
 }
 @keyframes send-disappear {
   from { opacity: 1; }
-  to { opacity: 0; transform: translateX(5px) translateY(20px); color: var(--send-accent); }
+  to { opacity: 0; transform: translateX(5px) translateY(20px); color: var(--send-hi); }
 }
 @keyframes send-take-off {
   0% { opacity: 1; }
-  60% { opacity: 1; transform: translateX(70px) rotate(0deg) scale(2); }
-  100% { opacity: 0; transform: translateX(160px) rotate(0deg) scale(0); }
+  60% { opacity: 1; transform: translateX(70px) rotate(45deg) scale(2); }
+  100% { opacity: 0; transform: translateX(160px) rotate(45deg) scale(0); }
 }
 @keyframes send-land {
-  0% { transform: translateX(-60px) translateY(30px) rotate(-50deg) scale(2); opacity: 0; }
-  100% { transform: translateX(0) translateY(0) rotate(0); opacity: 1; }
+  0% { transform: translateX(-60px) translateY(30px) rotate(-90deg) scale(2); opacity: 0; }
+  100% { transform: translateX(0) translateY(0) rotate(-45deg); opacity: 1; }
 }
 @keyframes send-contrail {
   0% { width: 0; opacity: 1; }
@@ -3481,8 +3444,8 @@ button.lykie-send:active { transform: scale(.94); }
   100% { opacity: 0; width: 160px; }
 }
 @keyframes send-appear {
-  0% { opacity: 0; transform: scale(4) rotate(-40deg); color: var(--send-accent); }
-  30% { opacity: 1; transform: scale(0.6); }
+  0% { opacity: 0; transform: scale(4) rotate(-40deg); color: var(--send-hi); }
+  30% { opacity: 1; transform: scale(0.6); color: var(--send-ink); }
   50% { opacity: 1; transform: scale(1.2); }
   100% { opacity: 1; transform: scale(1); }
 }
