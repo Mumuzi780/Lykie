@@ -3054,7 +3054,15 @@ button.lykie-send:active { transform: scale(.94); }
   width: 150px;
   height: 150px;
   margin-bottom: 4px;
-  animation: login-peek-bob 4s ease-in-out infinite;
+}
+@keyframes login-peek-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .login-peek-wrap {
+    animation: login-peek-breathe 4.5s ease-in-out infinite;
+  }
 }
 .login-peek {
   width: 100%;
@@ -3062,10 +3070,14 @@ button.lykie-send:active { transform: scale(.94); }
   object-fit: contain;
   filter: drop-shadow(0 10px 24px rgba(13, 115, 119, .18));
 }
-@keyframes login-peek-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+/* Lykie 眨眼雪碧图：11 帧横拼，静止显示第 0 帧，JS 控制播放 */
+.login-blink {
+  background-image: url("/static/lykie/blink/lykie-blink-sheet.webp?v=1");
+  background-size: 1100% 100%;
+  background-repeat: no-repeat;
+  background-position: 0% 50%;
 }
+
 .login-brand {
   font-size: clamp(2.2rem, 5vw, 2.8rem);
   margin: 0;
