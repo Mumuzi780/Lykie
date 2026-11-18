@@ -2945,7 +2945,7 @@ button.lykie-send:active { transform: scale(.94); }
 .login-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60px);
+  /* 不用 blur 滤镜：径向渐变本身已柔和过渡，去掉后光斑动画全程走合成器 */
   opacity: 0.5;
   pointer-events: none;
   z-index: 0;
@@ -2983,7 +2983,8 @@ button.lykie-send:active { transform: scale(.94); }
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  animation: login-rise 0.7s var(--motion-ease) both;
+  /* 不用 fill-mode：入场动画结束后需把 transform 交还给 JS 写入的倾斜变换 */
+  animation: login-rise 0.7s var(--motion-ease);
 }
 @keyframes login-rise {
   from { opacity: 0; transform: translateY(18px); }
@@ -3013,9 +3014,9 @@ button.lykie-send:active { transform: scale(.94); }
 
 .login-card {
   width: 100%;
-  background: color-mix(in srgb, var(--card) 90%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* 不用 backdrop-filter：卡片随倾斜每帧移动时背景模糊要逐帧重采样，非常吃 CPU；
+     背景不透明度提到 97% 补偿去掉模糊后的通透感损失 */
+  background: color-mix(in srgb, var(--card) 97%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: var(--radius-xl);
   display: grid;
@@ -3025,6 +3026,28 @@ button.lykie-send:active { transform: scale(.94); }
 }
 [data-theme="dark"] .login-card {
   box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+}
+
+/* 登录卡片 3D 倾斜：仅支持悬停的精确指针设备启用，触屏保持静止（避免原效果在移动端的卡顿）。
+   变换挂在 .login-shell 上，让主题切换按钮与卡片整体一起倾斜。 */
+@media (hover: hover) and (pointer: fine) {
+  .login-shell {
+    will-change: transform;
+    transition: transform 0.5s var(--motion-ease);
+  }
+  .login-shell.is-tilting {
+    transition: transform 0.08s linear;
+  }
+  .login-card {
+    transition: filter var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  }
+  .login-shell.is-tilting .login-card {
+    filter: brightness(1.03);
+    box-shadow: 0 30px 70px rgba(26, 42, 46, 0.2), 0 6px 40px color-mix(in srgb, var(--primary) 28%, transparent);
+  }
+  [data-theme="dark"] .login-shell.is-tilting .login-card {
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55), 0 6px 40px color-mix(in srgb, var(--primary) 35%, transparent);
+  }
 }
 
 /* 左侧视觉区 */
@@ -3197,22 +3220,255 @@ button.lykie-send:active { transform: scale(.94); }
 .login-input-wrap:focus-within .login-input-icon {
   color: var(--primary);
 }
-.login-submit {
-  margin-top: 18px;
-  display: inline-flex;
+/* 登录提交按钮：起飞式动效按钮（配色跟随主题） */
+.login-send {
+  --send-accent: var(--primary);
+  --send-n1: #f6f8f7;
+  --send-n2: #e4e8e6;
+  --send-ink: #2c403b;
+  position: relative;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  margin-top: 18px;
+  width: 100%;
+  height: 64px;
+  padding: 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 18px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  color: var(--send-ink);
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.35);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    0 0.5px 0.5px 1px rgba(255, 255, 255, 0.2),
+    0 10px 20px rgba(0, 0, 0, 0.14),
+    0 4px 5px 0 rgba(0, 0, 0, 0.05);
+  transition: transform 0.3s ease;
 }
-.login-submit-arrow {
+[data-theme="dark"] .login-send {
+  --send-n1: #2a3531;
+  --send-n2: #1b2421;
+  --send-ink: #dce8e4;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+.login-send:active {
+  transform: scale(1);
+}
+.login-send:active .send-glow {
+  opacity: 1;
+  transform: scale(0.94);
+}
+
+/* 悬停光晕：预渲染的静态渐变层，hover 只过渡 opacity（合成器动画，不触发重绘） */
+.send-glow {
+  position: absolute;
+  inset: -14px;
+  border-radius: 26px;
+  background: radial-gradient(65% 60% at 50% 68%, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.1) 55%, transparent 78%);
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  will-change: opacity;
+}
+
+/* 表面：渐变底 + 描边（border-box 双层渐变） */
+.login-send::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: var(--radius-md);
+  border: 2.5px solid transparent;
+  background:
+    linear-gradient(var(--send-n1), var(--send-n2)) padding-box,
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.45)) border-box;
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+/* 内层高光 */
+.login-send::before {
+  content: "";
+  position: absolute;
+  inset: 7px 6px 6px 6px;
+  z-index: 2;
+  background: linear-gradient(to top, var(--send-n1), var(--send-n2));
+  border-radius: 30px;
+  pointer-events: none;
+}
+
+/* 悬停光环：旋转锥形渐变描边 */
+.send-outline {
+  position: absolute;
+  inset: -2px -3.5px;
+  z-index: 1;
+  border-radius: inherit;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.send-outline::before {
+  content: "";
+  position: absolute;
+  inset: -100%;
+  background: conic-gradient(from 180deg, transparent 60%, #fff 80%, transparent 100%);
+  will-change: transform;
+  animation: send-spin 2s linear infinite;
+  animation-play-state: paused;
+}
+@keyframes send-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .send-outline::before { animation: none; }
+}
+
+/* 状态与文字 */
+.send-state {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  padding-left: 29px;
+}
+.send-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.send-text span { display: block; }
+.send-state--sent { display: none; }
+.login-send:focus .send-state--default { position: absolute; }
+.login-send:focus .send-state--sent { display: flex; }
+/* 焦点时默认态文字退场；减弱动态时直接隐藏，避免两套文字重叠 */
+.login-send:focus .send-state--default .send-text span { opacity: 0; }
+
+/* 图标 */
+.send-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(1.25);
+  transition: transform 0.3s ease;
+}
+.send-icon svg {
   width: 18px;
   height: 18px;
-  transition: transform var(--motion-fast) var(--motion-ease);
+  overflow: visible;
+}
+/* 默认态箭头斜向上；悬停转正指向右，点击起飞（见 send-take-off） */
+.send-state--default .send-icon {
+  transform: rotate(-45deg) scale(1.25);
+}
+.send-state--sent .send-icon svg {
+  transform: scale(1.25);
+  margin-right: 8px;
+}
+/* 航迹线 */
+.send-state--default .send-icon::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -5px;
+  height: 2px;
+  width: 0;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.5));
+}
+.login-send:focus .send-state--default .send-icon { transform: rotate(0) scale(1.25); }
+
+/* ===== 动效（尊重减弱动态偏好） ===== */
+@media (prefers-reduced-motion: no-preference) {
+  .send-text span {
+    opacity: 0;
+    animation: send-slide-down 0.8s ease forwards calc(var(--i) * 0.03s);
+  }
+  .login-send:focus .send-state--default .send-text span {
+    opacity: 1;
+    animation: send-disappear 0.35s ease forwards calc(var(--i) * 0.03s);
+  }
+  .login-send:focus .send-state--sent .send-text span {
+    opacity: 0;
+    animation: send-slide-down 0.45s ease forwards calc(var(--i) * 0.1s);
+  }
+  .send-state--default .send-icon svg {
+    animation: send-land 0.6s ease forwards;
+  }
+  .login-send:focus .send-state--default .send-icon svg {
+    animation: send-take-off 0.45s linear forwards;
+  }
+  .login-send:focus .send-state--default .send-icon::before {
+    animation: send-contrail 0.45s linear forwards;
+  }
+  .login-send:focus .send-state--sent .send-icon svg {
+    opacity: 0;
+    animation: send-appear 0.7s ease forwards 0.4s;
+  }
 }
 @media (hover: hover) and (pointer: fine) {
-  .login-submit:hover .login-submit-arrow { transform: translateX(3px); }
+  .login-send:hover {
+    transform: scale(1.02);
+  }
+  .login-send:hover .send-glow { opacity: 1; }
+  .login-send:hover::after {
+    transform: scale(1.05, 1.1);
+    box-shadow: inset 0 -1px 3px 0 rgba(255, 255, 255, 1);
+  }
+  .login-send:hover .send-outline { opacity: 1; }
+  .login-send:hover .send-outline::before { animation-play-state: running; }
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .login-send:hover .send-text span {
+    opacity: 1;
+    animation: send-wave 0.5s ease forwards calc(var(--i) * 0.02s);
+  }
+  .login-send:hover .send-state--default .send-icon {
+    transform: rotate(0deg) scale(1.25);
+  }
+}
+
+@keyframes send-wave {
+  30% { opacity: 1; transform: translateY(4px) translateX(0) rotate(0); }
+  50% { opacity: 1; transform: translateY(-3px) translateX(0) rotate(0); color: var(--send-accent); }
+  100% { opacity: 1; transform: translateY(0) translateX(0) rotate(0); }
+}
+@keyframes send-slide-down {
+  0% { opacity: 0; transform: translateY(-20px) translateX(5px) rotate(-90deg); color: var(--send-accent); }
+  30% { opacity: 1; transform: translateY(4px) translateX(0) rotate(0); }
+  50% { opacity: 1; transform: translateY(-3px) translateX(0) rotate(0); }
+  100% { opacity: 1; transform: translateY(0) translateX(0) rotate(0); }
+}
+@keyframes send-disappear {
+  from { opacity: 1; }
+  to { opacity: 0; transform: translateX(5px) translateY(20px); color: var(--send-accent); }
+}
+@keyframes send-take-off {
+  0% { opacity: 1; }
+  60% { opacity: 1; transform: translateX(70px) rotate(0deg) scale(2); }
+  100% { opacity: 0; transform: translateX(160px) rotate(0deg) scale(0); }
+}
+@keyframes send-land {
+  0% { transform: translateX(-60px) translateY(30px) rotate(-50deg) scale(2); opacity: 0; }
+  100% { transform: translateX(0) translateY(0) rotate(0); opacity: 1; }
+}
+@keyframes send-contrail {
+  0% { width: 0; opacity: 1; }
+  8% { width: 15px; }
+  60% { opacity: 0.7; width: 80px; }
+  100% { opacity: 0; width: 160px; }
+}
+@keyframes send-appear {
+  0% { opacity: 0; transform: scale(4) rotate(-40deg); color: var(--send-accent); }
+  30% { opacity: 1; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 .beian-bar {
@@ -3246,7 +3502,7 @@ button.lykie-send:active { transform: scale(.94); }
   }
   .login-form-title { font-size: 1.35rem; }
   .login-celestial { top: -4px; right: 6px; }
-  .login-submit { min-height: 48px; }
+  .login-send { min-height: 56px; height: auto; }
 }
 
 /* ==================== 微交互：桌面悬停抬起（触摸不粘滞） ==================== */

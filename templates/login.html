@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m115">
+  <link rel="stylesheet" href="/static/style.css?v=m119">
 </head>
 <body class="login-body">
   <!-- 背景装饰：浮动光斑 -->
@@ -68,11 +68,25 @@
           </span>
         </div>
 
-        <button type="submit" class="btn primary login-submit">
-          进入
-          <svg class="login-submit-arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14M13 5l7 7-7 7"/>
-          </svg>
+        <button type="submit" class="login-send">
+          <span class="send-glow" aria-hidden="true"></span>
+          <span class="send-outline" aria-hidden="true"></span>
+          <span class="send-state send-state--default">
+            <span class="send-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M13 5l7 7-7 7"/>
+              </svg>
+            </span>
+            <span class="send-text"><span style="--i:0">进</span><span style="--i:1">入</span></span>
+          </span>
+          <span class="send-state send-state--sent" aria-hidden="true">
+            <span class="send-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6 9 17l-5-5"/>
+              </svg>
+            </span>
+            <span class="send-text"><span style="--i:0">进</span><span style="--i:1">入</span></span>
+          </span>
         </button>
       </form>
     </section>
@@ -162,6 +176,105 @@
       }
 
       schedule();
+    })();
+  </script>
+  <script>
+    /* 登录卡片 3D 倾斜：指针在卡片上的位置决定旋转角度。
+       仅桌面（精确指针）启用；触屏不启用，避免悬停网格在移动端的卡顿，同时不影响表单交互。
+       变换挂在 .login-shell 上，主题切换按钮与卡片整体一起倾斜；
+       在 window 上跟踪指针并外扩一圈余量，避免指针靠近卡片边缘时因卡片转动反复进出而抽搐。 */
+    (function () {
+      var card = document.querySelector('.login-card');
+      var shell = document.querySelector('.login-shell');
+      if (!card || !shell) return;
+      var fine = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+      var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!fine || reduced) return;
+
+      var MAX_RX = 8;       // 纵向最大倾斜（度）：顶部上仰、底部下俯
+      var MAX_RY = 4;       // 横向最大倾斜（度）：左侧左转、右侧右转
+      var PERSPECTIVE = 800;
+      var MARGIN = 24;      // 卡片外扩的跟踪余量（px），防止边缘抽搐
+      var rect = null;
+      var raf = null;
+      var active = false;
+      var settled = false;
+
+      function measure() {
+        rect = card.getBoundingClientRect(); // 静止无变换时测量，倾斜期间固定复用
+      }
+      measure();
+      setTimeout(measure, 800); // 入场动画结束后几何才稳定
+      window.addEventListener('resize', measure);
+      window.addEventListener('scroll', function () { if (!active) measure(); }, { passive: true });
+
+      function apply(x, y) {
+        var px = Math.min(Math.max((x - rect.left) / rect.width, 0), 1);
+        var py = Math.min(Math.max((y - rect.top) / rect.height, 0), 1);
+        var rx = (0.5 - py) * MAX_RX * 2;
+        var ry = (px - 0.5) * MAX_RY * 2;
+        shell.style.transform =
+          'perspective(' + PERSPECTIVE + 'px) rotateX(' + rx.toFixed(2) + 'deg) rotateY(' + ry.toFixed(2) + 'deg)';
+      }
+
+      function reset() {
+        active = false;
+        shell.classList.remove('is-tilting');
+        shell.style.transform = '';
+      }
+
+      /* 点击登录按钮后调用：卡片平滑回正（0.5s 过渡），并在提交动画期间停止倾斜跟踪 */
+      function settle() {
+        settled = true;
+        reset();
+      }
+      window.__loginTiltSettle = settle;
+
+      window.addEventListener('pointermove', function (e) {
+        if (settled) return;
+        var x = e.clientX, y = e.clientY;
+        var inside = x >= rect.left - MARGIN && x <= rect.right + MARGIN &&
+                     y >= rect.top - MARGIN && y <= rect.bottom + MARGIN;
+        if (!inside) {
+          if (active) reset();
+          return;
+        }
+        if (!active) {
+          active = true;
+          measure(); // 刚进入时无变换，重新测量保证几何准确
+          shell.classList.add('is-tilting');
+        }
+        if (raf) return;
+        raf = requestAnimationFrame(function () {
+          raf = null;
+          if (active) apply(x, y);
+        });
+      });
+      // 指针移出浏览器窗口时回正，避免卡在倾斜状态
+      document.documentElement.addEventListener('pointerleave', function () { if (active) reset(); });
+    })();
+  </script>
+  <script>
+    /* 登录提交延迟：等按钮起飞/送达动画播完再提交表单。
+       回车提交时按钮没有焦点，动画不会触发，所以先 focus 再延迟提交。 */
+    (function () {
+      var form = document.querySelector('.login-form');
+      var btn = document.querySelector('.login-send');
+      if (!form || !btn) return;
+      var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var DELAY = 1200; // 提交延迟（ms），与加速后的按钮动画总时长匹配
+      var pending = false;
+
+      form.addEventListener('submit', function (e) {
+        if (reduced || pending) return; // 减弱动态时立即提交；提交进行中不重复拦截
+        e.preventDefault();
+        pending = true;
+        if (window.__loginTiltSettle) window.__loginTiltSettle(); // 卡片平滑回正
+        btn.focus(); // 启动按钮动画（点击路径已有焦点，回车路径需要这一步）
+        setTimeout(function () {
+          form.submit();
+        }, DELAY);
+      });
     })();
   </script>
 </body>
