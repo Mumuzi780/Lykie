@@ -803,6 +803,8 @@ header h1 { font-size: 22px; text-align: center; }
   align-items: center;
   width: 100%;
 }
+/* 手机顶栏收纳专用「更多」按钮：桌面隐藏、720px 内显示（样式见底部断点块） */
+#moreMenuBtn { display: none; }
 .sfx-toggle {
   min-width: 2.4em;
   padding-left: 0.55em;
@@ -2686,11 +2688,20 @@ button.lykie-send:active { transform: scale(.94); }
   }
   header {
     flex-shrink: 0;
-    padding: 14px 0 10px;
-    gap: 6px;
+    /* 品牌 + 按钮同一行（品牌居左 margin-right:auto、按钮居右），
+       统计整行 flex-basis:100% 退到第二行，压缩顶栏纵向占用 */
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 4px;
+    padding: 12px 0 8px;
   }
   .brand-title {
-    font-size: 1.55rem;
+    font-size: 1.35rem;
+    text-align: left;
+    margin-right: auto;
   }
   .brand-sub {
     font-size: 0.45em;
@@ -2698,10 +2709,13 @@ button.lykie-send:active { transform: scale(.94); }
   }
   .stats {
     font-size: 13px;
+    order: 3;
+    flex-basis: 100%;
   }
   .actions {
     gap: 6px;
-    justify-content: center;
+    order: 2;
+    justify-content: flex-end;
   }
   .actions .btn.ghost,
   .actions a.btn.ghost {
@@ -2840,6 +2854,63 @@ button.lykie-send:active { transform: scale(.94); }
     width: min(94vw, 480px);
     max-height: min(90dvh, 640px);
     overflow-y: auto;
+  }
+
+  /* ---- 顶栏收纳（720px）：只常驻 题库/账号名/退出/更多，其余收进「更多」菜单 ----
+     * （菜单内容由 script.js 打开时动态克隆 #headerActions 里当前可见的按钮） */
+  .actions > *:not(#bankDrawerBtn):not(.account-name):not(a[href="/logout"]):not(#moreMenuBtn) {
+    display: none;
+  }
+  #moreMenuBtn {
+    display: inline-flex;
+    padding: 6px 12px;
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  /* 「更多」下拉菜单（fixed 锚定按钮下方右对齐，定位由 JS 打开时计算） */
+  .more-menu {
+    position: fixed;
+    z-index: 95;
+    display: flex;
+    flex-direction: column;
+    min-width: 172px;
+    max-width: 86vw;
+    background: var(--card);
+    border: 1px solid var(--border-fine);
+    border-radius: var(--radius-md);
+    box-shadow: var(--lift-2);
+    padding: 6px;
+  }
+  .more-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    text-align: left;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .more-menu-item:hover,
+  .more-menu-item:active {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    border-color: transparent;
+  }
+  /* 容器型控件（作答/查词开关）在菜单里整体铺开 */
+  .more-menu .rd-mode-toggle {
+    display: flex;
+    width: 100%;
+  }
+  .more-menu .rd-mode-btn {
+    flex: 1;
+    justify-content: center;
   }
 }
 

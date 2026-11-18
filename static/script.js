@@ -3874,6 +3874,68 @@ if ($('bankDrawerBtn')) {
     setBankSidebarOpen(!isBankSidebarOpen());
   };
 }
+/* ---- 手机顶栏「更多」菜单（720px 收纳）：打开时动态克隆当前可见按钮 ------------------
+ * 克隆时机=打开时（视图切换后的 hidden 显隐管理天然同步到菜单）；克隆复制文字/class/
+ * 标题、不复制事件——菜单项点击转发到原按钮（click()）后关闭菜单；点菜单外任意处关闭；
+ * 不做 Esc 关闭（全站无此先例）。 */
+if ($('moreMenuBtn') && $('headerActions')) {
+  const moreBtn = $('moreMenuBtn');
+  const actionsHost = $('headerActions');
+  // 720px 常驻项（与 style.css 收纳白名单同口径）：题库 / 账号名 / 退出 / 更多自身
+  const RESIDENT_SEL = '#bankDrawerBtn, .account-name, a[href="/logout"], #moreMenuBtn';
+  let moreMenu = null;
+
+  const closeMoreMenu = () => {
+    if (moreMenu) { moreMenu.remove(); moreMenu = null; }
+  };
+
+  const openMoreMenu = () => {
+    closeMoreMenu();
+    moreMenu = document.createElement('div');
+    moreMenu.className = 'more-menu';
+    moreMenu.setAttribute('role', 'menu');
+    const pairs = []; // 克隆元素 → 原元素 的转发对（含容器型控件内部按钮）
+    Array.from(actionsHost.children).forEach((child) => {
+      if (child.hidden || child.matches(RESIDENT_SEL)) return;
+      const item = child.cloneNode(true); // 文字/class/标题全量克隆，事件不复制
+      item.classList.add('more-menu-item');
+      moreMenu.appendChild(item);
+      pairs.push({ clone: item, orig: child });
+      // 容器型控件（作答/查词开关）：内部按钮逐个配对，点击转发到对应原按钮
+      const cloneBtns = item.querySelectorAll('button, a');
+      const origBtns = child.querySelectorAll('button, a');
+      for (let i = 0; i < cloneBtns.length; i++) {
+        if (origBtns[i]) pairs.push({ clone: cloneBtns[i], orig: origBtns[i] });
+      }
+    });
+    // 锚在「更多」按钮下方、右对齐（fixed 定位，每次打开重算）
+    const r = moreBtn.getBoundingClientRect();
+    moreMenu.style.top = `${Math.round(r.bottom + 6)}px`;
+    moreMenu.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+    document.body.appendChild(moreMenu);
+    moreMenu.addEventListener('click', (ev) => {
+      // 命中转发对里 DOM 最深的一层（点容器空白转发容器、点内部按钮转发按钮）
+      const hits = pairs.filter((p) => p.clone === ev.target || p.clone.contains(ev.target));
+      const inner = hits.find((h) => !hits.some((o) => o !== h && h.clone.contains(o.clone)));
+      if (inner) inner.orig.click();
+      closeMoreMenu();
+    });
+  };
+
+  moreBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation(); // 打开菜单的这次点击不落入下方「点外关闭」判定
+    if (moreMenu) closeMoreMenu();
+    else openMoreMenu();
+  });
+
+  // 点菜单外任意处关闭
+  document.addEventListener('click', (ev) => {
+    if (!moreMenu) return;
+    if (moreMenu.contains(ev.target)) return;
+    if (moreBtn.contains(ev.target)) return;
+    closeMoreMenu();
+  });
+}
 if ($('bankDrawerCloseBtn')) {
   $('bankDrawerCloseBtn').onclick = () => setBankSidebarOpen(false);
 }
