@@ -5,6 +5,8 @@ let userChoice = null; // 用户作答（选择题=字母，判断=对/错，填
 let editSource = 'card';  // 编辑来源：'card' 背诵卡片 / 'list' 题库列表
 let editBankId = null;    // 列表编辑时的题库 id
 let editQuestionId = null;
+let editImages = [];      // 编辑弹窗里的题目图片（images 条目副本）
+let editLastField = null; // 最近聚焦的可插标记输入框
 let viewBankId = null;    // 当前查看的题库 id
 let studyMode = 'kill';    // 'kill' | 'sa'
 /** 本张题是否已作答 / 是否答对（影响斩时是否再记连击） */
@@ -425,7 +427,21 @@ function renderBankList(allBanks) {
   if (!shown.length && !shownPapers.length) {
     const empty = document.createElement('li');
     empty.className = 'bank-empty-hint';
-    empty.textContent = cur === 'archive' ? '抽屉是空的' : '这里还没有题库，导入或从其他文件夹拖入';
+    const wholeEmpty = !(lastBanksPayload || []).length && !(papersCache || []).length;
+    if (cur === 'archive') {
+      empty.textContent = '抽屉是空的';
+    } else if (wholeEmpty && cur === 'uncategorized') {
+      // 新用户冷启动：导入自己题库或去题库市场领取官方题库
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mini-btn';
+      btn.textContent = '逛逛题库市场';
+      btn.onclick = () => openOfficialMarket();
+      empty.textContent = '题库还是空的，可以「导入」自己的，或领取官方共享题库：';
+      empty.appendChild(btn);
+    } else {
+      empty.textContent = '这里还没有题库，导入或从其他文件夹拖入';
+    }
     list.appendChild(empty);
   }
 }
@@ -1106,6 +1122,133 @@ function closeNotifModal() {
   if (typeof setModalScrollLock === 'function') setModalScrollLock(false);
 }
 
+// ---- 题库市场：官方共享题库，按需领取 ----
+let officialCache = [];
+let officialTagFilter = '全部';
+
+async function openOfficialMarket() {
+  const m = $('officialMarketModal');
+  if (!m) return;
+  m.hidden = false;
+  if (typeof setModalScrollLock === 'function') setModalScrollLock(true);
+  await loadOfficialMarket();
+}
+
+function closeOfficialMarket() {
+  const m = $('officialMarketModal');
+  if (m) m.hidden = true;
+  if (typeof setModalScrollLock === 'function') {
+    const anyOpen = ['notifModal', 'releaseModal', 'bankShareModal']
+      .some((id) => { const x = $(id); return x && !x.hidden; });
+    if (!anyOpen) setModalScrollLock(false);
+  }
+}
+
+async function loadOfficialMarket() {
+  const list = $('marketList');
+  if (!list) return;
+  list.innerHTML = '<p class="hint">加载中…</p>';
+  const res = await api('/api/official_banks');
+  if (res.ok === false) {
+    list.innerHTML = `<p class="hint">${escapeHtml(res.error || '加载失败')}</p>`;
+    return;
+  }
+  officialCache = res.official || [];
+  renderMarketTags();
+  renderMarketList();
+}
+
+function renderMarketTags() {
+  const box = $('marketTags');
+  if (!box) return;
+  const tags = ['全部'];
+  officialCache.forEach((o) => (o.tags || []).forEach((t) => {
+    if (t && !tags.includes(t)) tags.push(t);
+  }));
+  if (!tags.includes(officialTagFilter)) officialTagFilter = '全部';
+  box.innerHTML = tags.map((t) => (
+    `<button type="button" class="mini-btn market-tag${t === officialTagFilter ? ' active' : ''}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`
+  )).join('');
+  box.querySelectorAll('.market-tag').forEach((b) => {
+    b.onclick = () => {
+      officialTagFilter = b.dataset.tag || '全部';
+      renderMarketTags();
+      renderMarketList();
+    };
+  });
+}
+
+function renderMarketList() {
+  const list = $('marketList');
+  if (!list) return;
+  if (!officialCache.length) {
+    list.innerHTML = '<p class="hint">官方题库上架中，敬请期待。</p>';
+    return;
+  }
+  const shown = officialCache.filter((o) =>
+    officialTagFilter === '全部' || (o.tags || []).includes(officialTagFilter));
+  if (!shown.length) {
+    list.innerHTML = `<p class="hint">「${escapeHtml(officialTagFilter)}」分类下还没有题库。</p>`;
+    return;
+  }
+  list.innerHTML = shown.map((o) => {
+    const chips = (o.tags || []).map((t) => `<span class="market-chip">${escapeHtml(t)}</span>`).join('');
+    const isPaper = o.kind === 'paper';
+    const kindChip = `<span class="market-chip market-kind-chip">${isPaper ? '试卷' : '文件夹'}</span>`;
+    let sizeText;
+    if (isPaper) {
+      sizeText = '完整试卷';
+    } else {
+      sizeText = `${o.total_banks} 套题库`;
+      if (o.total_papers) sizeText += ` · ${o.total_papers} 套试卷`;
+    }
+    let actions;
+    if (o.update_available) {
+      actions =
+        `<button type="button" class="mini-btn" data-claim="${escapeHtml(o.id)}">领取新版 v${o.version}</button>` +
+        `<span class="market-update-hint">官方已更新（你领过 v${o.my_version}）</span>`;
+    } else if (o.claimed) {
+      actions = `<span class="market-claimed">已领取 v${o.my_version}</span>`;
+    } else {
+      actions = `<button type="button" class="mini-btn" data-claim="${escapeHtml(o.id)}">领取</button>`;
+    }
+    return (
+      `<div class="market-card">` +
+      `<div class="market-card-top"><h4>${escapeHtml(o.name)}</h4><span class="market-card-version">${kindChip}v${o.version} · ${sizeText}</span></div>` +
+      (o.description ? `<div class="market-desc">${escapeHtml(o.description)}</div>` : '') +
+      `<div class="market-meta">${chips}<span>${escapeHtml(o.published_at || '')}</span></div>` +
+      `<div class="market-actions">${actions}</div>` +
+      `</div>`
+    );
+  }).join('');
+  list.querySelectorAll('[data-claim]').forEach((b) => {
+    b.onclick = async () => {
+      const o = officialCache.find((x) => String(x.id) === b.dataset.claim);
+      if (o) await claimOfficial(o);
+    };
+  });
+}
+
+async function claimOfficial(o) {
+  const list = $('marketList');
+  if (list) list.querySelectorAll('[data-claim]').forEach((b) => { b.disabled = true; });
+  try {
+    const res = await api('/api/official_banks/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: o.id }),
+    });
+    if (res.ok === false) {
+      await uiAlert(res.error || '领取失败');
+      return;
+    }
+    await refreshBanks();
+    await uiAlert(`已领取文件夹「${res.folder_name}」，出现在你的题库侧栏。`);
+  } finally {
+    await loadOfficialMarket();
+  }
+}
+
 function closeReleaseModal() {
   const m = $('releaseModal');
   if (m) m.hidden = true;
@@ -1398,6 +1541,8 @@ function renderQuestionList(questions, bankId) {
     const optText = q.type === 'choice'
       ? q.options.map((o, i) => `${'ABCDEFGH'[i]}.${o}`).join('　')
       : '';
+    const stemHtml = window.qimgRender(q.stem, q.images, bankId);
+    const optHtml = optText ? window.qimgRender(optText, q.images, bankId) : '';
     div.innerHTML =
       `<div class="q-head">` +
         `<span class="q-type">${TYPE_MAP[q.type] || q.type}</span>` +
@@ -1405,8 +1550,8 @@ function renderQuestionList(questions, bankId) {
         `<button class="mini-btn q-edit">编辑</button>` +
         `<button class="mini-btn q-del">删除</button>` +
       `</div>` +
-      `<div class="q-stem">${escapeHtml(q.stem)}</div>` +
-      (optText ? `<div class="q-options">${escapeHtml(optText)}</div>` : '') +
+      `<div class="q-stem">${stemHtml}</div>` +
+      (optHtml ? `<div class="q-options">${optHtml}</div>` : '') +
       `<div class="q-answer">答案：${escapeHtml(q.answer)}</div>` +
       `<div class="q-analysis">解析：${escapeHtml(q.analysis || '无')}</div>`;
     div.querySelector('.q-edit').onclick = () => openEditFromList(q, bankId);
@@ -1646,7 +1791,7 @@ function renderSettleHtml(data) {
           ? `×${c.value}`
           : `${c.value}${c.unit || ''}`;
       const preview = c.preview
-        ? `<span class="settle-card-preview settle-mini-q"><span class="settle-mini-q-label">代表题</span><span class="settle-mini-q-stem">${escapeHtml(c.preview.stem || '')}</span></span>`
+        ? `<span class="settle-card-preview settle-mini-q"><span class="settle-mini-q-label">代表题</span><span class="settle-mini-q-stem">${escapeHtml(window.qimgStrip(c.preview.stem || ''))}</span></span>`
         : c.key === 'max_streak'
           ? `<span class="settle-card-preview">点开看连击曲线与打断</span>`
           : '';
@@ -1738,7 +1883,7 @@ function renderQuestionCarousel(items, opts) {
         `<article class="q-carousel-slide${i === 0 ? ' is-active' : ''}" data-idx="${i}">` +
         `<div class="q-carousel-card">` +
         `<div class="q-carousel-top">${num}${badge}</div>` +
-        `<div class="q-carousel-stem">${escapeHtml(it.stem_full || it.stem || '(无题干)')}</div>` +
+        `<div class="q-carousel-stem">${it.images ? window.qimgRender(it.stem_full || it.stem || '(无题干)', it.images, it.bank_id || currentBankId) : escapeHtml(window.qimgStrip(it.stem_full || it.stem || '(无题干)'))}</div>` +
         meta +
         `</div></article>`
       );
@@ -2029,7 +2174,7 @@ function renderQuestion() {
   $('cardType').textContent = current.type === 'choice'
     ? (current.multi ? '多选题' : '选择题')
     : (TYPE_MAP[current.type] || '');
-  $('cardStem').textContent = current.stem;
+  $('cardStem').innerHTML = window.qimgRender(current.stem, current.images, currentBankId);
   renderMeta();
 
   const optBox = $('options');
@@ -2047,7 +2192,7 @@ function renderQuestion() {
       const letter = m ? m[1].toUpperCase() : opt;
       const btn = document.createElement('button');
       btn.className = 'opt' + (current.multi ? ' multi' : '');
-      btn.textContent = opt;
+      btn.innerHTML = window.qimgRender(opt, current.images, currentBankId);
       btn.dataset.value = letter;
       btn.onclick = () => (current.multi ? toggleMultiChoice(btn, letter) : chooseChoice(btn, letter));
       optBox.appendChild(btn);
@@ -2327,6 +2472,132 @@ async function kill() {
 // ==================== 编辑题目 ====================
 const EDIT_LETTERS = 'ABCDEFGH';
 
+// ---- 题目图片管理 ----
+function editImageBankId() {
+  return editSource === 'card' ? currentBankId : editBankId;
+}
+
+function editImageUrl(img) {
+  const f = img && (img.file || img.url || '');
+  if (!f) return '';
+  if (/^(https?:|data:|blob:)/i.test(f)) return f;
+  const bid = editImageBankId();
+  return bid ? '/api/bank_images/' + encodeURIComponent(bid) + '/' + encodeURIComponent(f) : '';
+}
+
+function renderEditImages() {
+  const area = $('editImagesArea');
+  const list = $('editImagesList');
+  if (!area || !list) return;
+  area.hidden = editSource === 'new';
+  list.innerHTML = '';
+  editImages.forEach((img) => {
+    const item = document.createElement('div');
+    item.className = 'edit-img-item';
+    item.title = `点击在光标处插入 [图:${img.id}]`;
+    const im = document.createElement('img');
+    im.src = editImageUrl(img);
+    im.alt = img.alt || img.id;
+    const idEl = document.createElement('span');
+    idEl.className = 'edit-img-id';
+    idEl.textContent = img.id;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'edit-img-del';
+    del.textContent = '×';
+    del.title = '删除这张图片';
+    del.onclick = async (e) => {
+      e.stopPropagation();
+      await deleteEditImage(img.id);
+    };
+    item.appendChild(im);
+    item.appendChild(idEl);
+    item.appendChild(del);
+    item.onclick = () => insertImageMarker(img.id);
+    list.appendChild(item);
+  });
+}
+
+function insertImageMarker(imgId) {
+  const marker = `[图:${imgId}]`;
+  const field = editLastField || $('editStem');
+  if (!field) return;
+  const start = field.selectionStart != null ? field.selectionStart : String(field.value || '').length;
+  const end = field.selectionEnd != null ? field.selectionEnd : start;
+  const val = String(field.value || '');
+  field.value = val.slice(0, start) + marker + val.slice(end);
+  field.focus();
+  try { field.setSelectionRange(start + marker.length, start + marker.length); } catch (e) { /* ignore */ }
+  if (field.classList && field.classList.contains('edit-opt-input')) {
+    rebuildEditAnswerChecks(readEditOptionValues().filter(Boolean), selectedEditAnswerLetters());
+  }
+}
+
+async function uploadEditImage(file) {
+  const bankId = editImageBankId();
+  if (!bankId || !editQuestionId) { await uiAlert('保存题目后即可添加图片'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await api(`/api/bank_images/${encodeURIComponent(bankId)}/${encodeURIComponent(editQuestionId)}`, {
+    method: 'POST',
+    body: fd,
+  });
+  if (!res || res.ok === false) { await uiAlert((res && res.error) || '上传失败'); return; }
+  editImages = (res.images || []).slice();
+  renderEditImages();
+  insertImageMarker(res.marker);
+}
+
+async function deleteEditImage(imgId) {
+  const bankId = editImageBankId();
+  if (!bankId || !editQuestionId) return;
+  if (!await uiConfirm(`删除图片 ${imgId}？题干/选项/解析中的 [图:${imgId}] 标记会一并移除。`, { title: '删除图片', okText: '删除', danger: true })) return;
+  const res = await api(`/api/bank_images/${encodeURIComponent(bankId)}/${encodeURIComponent(editQuestionId)}/${encodeURIComponent(imgId)}`, { method: 'DELETE' });
+  if (!res || res.ok === false) { await uiAlert((res && res.error) || '删除失败'); return; }
+  editImages = (res.images || []).slice();
+  renderEditImages();
+  ['editStem', 'editAnalysis'].forEach((id) => {
+    const el = $(id);
+    if (el && el.value) el.value = window.qimgStripId(el.value, imgId);
+  });
+  document.querySelectorAll('#editOptionsList .edit-opt-input').forEach((inp) => {
+    if (inp.value) inp.value = window.qimgStripId(inp.value, imgId);
+  });
+}
+
+function bindEditImageUi() {
+  const btn = $('editUploadImgBtn');
+  const fileInput = $('editImageFile');
+  const modal = $('editModal');
+  if (!btn || !fileInput || !modal) return;
+  btn.onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const f = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (f) await uploadEditImage(f);
+  };
+  // 编辑弹窗内 Ctrl+V 粘贴截图
+  modal.addEventListener('paste', (e) => {
+    if (editSource === 'new') return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.kind === 'file' && it.type && it.type.indexOf('image/') === 0) {
+        const f = it.getAsFile();
+        if (f) { e.preventDefault(); uploadEditImage(f); return; }
+      }
+    }
+  });
+  // 跟踪最近聚焦的输入框，作为 [图:标记] 插入目标
+  modal.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (t && (t.id === 'editStem' || t.id === 'editAnalysis'
+      || (t.classList && t.classList.contains('edit-opt-input')))) {
+      editLastField = t;
+    }
+  });
+}
+
 function updateEditForm() {
   const t = $('editType').value;
   $('editOptionsArea').hidden = t !== 'choice';
@@ -2494,7 +2765,9 @@ function openEditFromCard() {
   editSource = 'card';
   editBankId = null;
   editQuestionId = current.id;
+  editImages = (current.images || []).slice();
   fillEditForm(currentToRaw(current));
+  renderEditImages();
   $('editModal').hidden = false;
 }
 
@@ -2502,7 +2775,9 @@ function openEditFromList(q, bankId) {
   editSource = 'list';
   editBankId = bankId;
   editQuestionId = q.id;
+  editImages = (q.images || []).slice();
   fillEditForm(q);
+  renderEditImages();
   $('editModal').hidden = false;
 }
 
@@ -2510,11 +2785,15 @@ function openEditNew(bankId) {
   editSource = 'new';
   editBankId = bankId;
   editQuestionId = null;
+  editImages = [];
   fillEditForm({ type: 'fill', stem: '', options: [], answer: '' });
+  renderEditImages();
   $('editModal').hidden = false;
 }
 
 function closeEdit() {
+  editImages = [];
+  editLastField = null;
   $('editModal').hidden = true;
 }
 
@@ -2597,11 +2876,13 @@ async function saveEdit() {
   }
   if (res.ok === false) { await uiAlert(res.error || '保存失败'); return; }
 
+  const savedImages = editImages.slice();
   closeEdit();
   if (editSource === 'card') {
     current.type = type;
     current.stem = stem;
     current.analysis = analysis;
+    current.images = savedImages;
     if (type === 'choice') {
       const r = buildChoiceRender(options, answer);
       current.options = r.options;
@@ -2656,6 +2937,13 @@ if ($('notifMarkAllBtn')) $('notifMarkAllBtn').onclick = () => markAllNotificati
 if ($('notifModal')) {
   $('notifModal').addEventListener('click', (e) => {
     if (e.target === $('notifModal')) closeNotifModal();
+  });
+}
+if ($('officialMarketBtn')) $('officialMarketBtn').onclick = () => openOfficialMarket();
+if ($('officialMarketModalClose')) $('officialMarketModalClose').onclick = () => closeOfficialMarket();
+if ($('officialMarketModal')) {
+  $('officialMarketModal').addEventListener('click', (e) => {
+    if (e.target === $('officialMarketModal')) closeOfficialMarket();
   });
 }
 if ($('releaseModalClose')) $('releaseModalClose').onclick = () => closeReleaseModal();
@@ -2745,6 +3033,7 @@ if ($('notifList')) {
 $('editBtn').onclick = openEditFromCard;
 $('editCancelBtn').onclick = closeEdit;
 $('editSaveBtn').onclick = saveEdit;
+bindEditImageUi();
 $('editType').onchange = () => {
   updateEditForm();
   if ($('editType').value === 'choice' && !$('editOptionsList').children.length) {

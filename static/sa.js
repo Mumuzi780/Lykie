@@ -579,7 +579,7 @@ function renderCard(card) {
         ? STAGE_LABEL.stem_pick
         : (STAGE_LABEL[card.stage] || card.stage);
   $('saStage').textContent = stageLabel;
-  $('saStem').textContent = card.stem || '';
+  $('saStem').innerHTML = window.qimgRender(card.stem, card.images, card.bank_id);
   $('saPrompt').textContent = card.prompt || card.message || '';
   if (card.kind === 'warmup') renderWarmup(card);
   else if (card.kind === 'match') renderMatch(card);
@@ -669,7 +669,7 @@ function highlightKeywords(text, kws) {
 
 async function openKwModal() {
   if (!current || !current.qid) return;
-  $('saKwStem').textContent = current.stem || '';
+  $('saKwStem').innerHTML = window.qimgRender(current.stem, current.images, current.bank_id);
   const list = $('saKwList');
   list.innerHTML = '<p class="hint">加载分点中…</p>';
   $('saKwModal').hidden = false;
@@ -684,7 +684,7 @@ async function openKwModal() {
       current.points = points;
       current.cloze_unordered = unordered;
       current.keywords = detail.keywords || current.keywords;
-      if (detail.stem) $('saKwStem').textContent = detail.stem;
+      if (detail.stem) $('saKwStem').innerHTML = window.qimgRender(detail.stem, detail.images, detail.bank_id);
     }
   } catch (e) {
     /* 退回卡片自带的 points */

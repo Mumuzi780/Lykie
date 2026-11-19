@@ -649,6 +649,28 @@ def delete_text(username: str, text_id: str) -> bool:
     return True
 
 
+def import_official_paper(username: str, title: str, content: str,
+                          official_id: str, official_version: int,
+                          folder_id=None) -> dict:
+    """领取官方试卷：整体落为一条 paper 记录（与站内导入试卷同构），
+    挂到领取文件夹下。"""
+    item = {
+        "id": _new_text_id(),
+        "title": str(title or "").strip()[:120],
+        "source": "官方题库市场",
+        "content": str(content or ""),
+        "created_at": now_str(),
+        "is_paper": True,
+        "folder_id": str(folder_id) if folder_id not in (None, "") else None,
+        "official_id": str(official_id),
+        "official_version": int(official_version or 1),
+    }
+    data = load_readings(username)
+    data["texts"].insert(0, item)
+    save_readings(username, data)
+    return _public_text(item, with_content=True)
+
+
 # ---------- 试卷收纳：影子卷节条目入题库侧栏（folder_id/archived/is_paper） ----------
 # 一张卷 = 一条 text 记录（原子单位）；侧栏「选词填空/段落匹配/仔细阅读一/二」是它的
 # 入口投影，不进 bank.json，斩题/模考/错题/分享管道天然不可见。

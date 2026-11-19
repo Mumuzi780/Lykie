@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 
 from lykie import accounts as lykie_accounts
+from lykie import bank_images as lykie_bank_images
 
 PROGRESS_KEYS = (
     "status",
@@ -240,6 +241,13 @@ def share_bank_to_users(
             continue
         try:
             clone = clone_bank_for_share(src_bank, me)
+            # 题目图片随行：拷贝整目录（文件名不变，克隆题沿用原 images 条目）
+            try:
+                lykie_bank_images.copy_bank_images(
+                    me, str(src_bank.get("id") or ""), target, clone["id"]
+                )
+            except Exception:
+                pass
             append_bank_to_user(target, clone)
             note = push_share_notification(
                 target, me, clone["id"], clone["name"]

@@ -40,6 +40,8 @@
   let exemplarMode = 'pool';
   /** 学习通网页粘贴：剪贴板 text/html（含学习通题目 DOM 特征时缓存，供后端直解） */
   let pasteHtml = '';
+  /** docx 提取的题目图片：{imgId: dataURL}，随 text 一起走预览与入库 */
+  let docxImages = {};
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
@@ -512,9 +514,10 @@
       return a.i - b.i;
     });
     let html = '';
+    const previewImages = (res.images && typeof res.images === 'object') ? res.images : docxImages;
     indexed.forEach(({ q, i }) => {
       const opts = (q.options || [])
-        .map((o, idx) => `<li>${String.fromCharCode(65 + idx)}. ${escapeHtml(o)}</li>`)
+        .map((o, idx) => `<li>${String.fromCharCode(65 + idx)}. ${window.qimgRender(o, previewImages, null)}</li>`)
         .join('');
       const need = !!q.needs_answer_confirm && !q._picked;
       const picked = q._picked || '';
@@ -547,7 +550,7 @@
         `<span>第 ${i + 1} 题</span>` +
         (need ? `<span class="import-q-badge">待确认</span>` : '') +
         `</div>` +
-        `<div class="import-q-stem">${escapeHtml(q.stem)}</div>` +
+        `<div class="import-q-stem">${window.qimgRender(q.stem, previewImages, null)}</div>` +
         (opts ? `<ul class="import-q-opts">${opts}</ul>` : '') +
         answerBlock +
         (q.analysis ? `<div class="import-q-analysis">解析：${escapeHtml(q.analysis)}</div>` : '') +
@@ -560,7 +563,7 @@
         html +=
           `<article class="import-q">` +
           `<div class="import-q-head"><span class="import-q-type">简答题</span><span>简答 ${i + 1}</span></div>` +
-          `<div class="import-q-stem">${escapeHtml(q.stem)}</div>` +
+          `<div class="import-q-stem">${window.qimgRender(q.stem, previewImages, null)}</div>` +
           `<div class="import-q-answer">答案：${escapeHtml(q.answer || '')}</div></article>`;
       });
       html += `</div>`;
@@ -582,6 +585,7 @@
         return;
       }
       fullText = res.text || '';
+      docxImages = (res.images && typeof res.images === 'object') ? res.images : {};
       suggestedName = res.suggested_name || file.name.replace(/\.docx$/i, '');
       $('importText').value = fullText;
       applyScanResult(res.pools || {}, res.detected_types || []);
@@ -674,6 +678,7 @@
         exemplars,
         preview: true,
         import_sa: importSa,
+        images: Object.keys(docxImages).length ? docxImages : undefined,
       }),
     });
     if (res.ok === false) {
@@ -719,6 +724,7 @@
           answer_picks: buildAnswerPicks(),
           ack_skipped_types: ackSkippedPayload(),
           import_sa: importSa,
+          images: Object.keys(docxImages).length ? docxImages : undefined,
         }),
       });
       if (res.ok === false) {
@@ -761,6 +767,7 @@
     preview = null;
     fullText = '';
     pasteHtml = '';
+    docxImages = {};
     detectedTypes = [];
     scanPools = {};
     exemplarsState = {};

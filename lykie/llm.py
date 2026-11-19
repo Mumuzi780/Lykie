@@ -86,22 +86,24 @@ def format_now_block(now=None):
 def format_question_block(question):
     if not question:
         return ""
+    from lykie import bank_images as lykie_bank_images
+
     lines = [
         f"题型：{question.get('type', '')}",
-        f"题干：{question.get('stem', '')}",
+        f"题干：{lykie_bank_images.strip_all_markers(question.get('stem', ''))}",
     ]
     opts = question.get("options") or []
     if opts:
         lines.append("选项：")
         for o in opts:
-            lines.append(f"  {o}")
+            lines.append(f"  {lykie_bank_images.strip_all_markers(o)}")
     ans = question.get("answer") or question.get("answer_text")
     # 仅当前端明确带来答案时附上（用户已揭示或主动求教）
     if question.get("include_answer") and ans:
         lines.append(f"参考答案：{ans}")
     analysis = (question.get("analysis") or "").strip()
     if analysis:
-        lines.append(f"题库解析：{analysis}")
+        lines.append(f"题库解析：{lykie_bank_images.strip_all_markers(analysis)}")
     return "\n".join(lines)
 
 

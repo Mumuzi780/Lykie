@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m128">
+  <link rel="stylesheet" href="/static/style.css?v=m130">
   <link rel="stylesheet" href="/static/sa.css?v=m5">
   <link rel="stylesheet" href="/static/reading.css?v=33">
 </head>
@@ -22,6 +22,7 @@
         <h2>题库 <button type="button" class="notif-bell" id="notifBellBtn" title="通知" aria-label="通知" hidden>🔔<span class="notif-badge" id="notifBadge" hidden>0</span></button></h2>
         <div class="sidebar-actions">
           <a id="importBtn" class="btn ghost" href="/import">导入</a>
+          <button type="button" id="officialMarketBtn" class="btn ghost" title="领取官方共享题库">市场</button>
           <button type="button" id="collectionCreateBtn" class="btn ghost">模考</button>
           <button type="button" id="bankDrawerCloseBtn" class="btn ghost bank-drawer-close">收起</button>
         </div>
@@ -57,6 +58,7 @@
           <span class="account-name" title="当前账号">{{ username }}</span>
           {% if username == 'LiZF' %}
           <button type="button" id="adminAccBtn" class="btn ghost" title="创建新账号">建号</button>
+          <a class="btn ghost" href="/publish" title="上架官方共享题库">发布</a>
           <a class="btn ghost" href="/annotations" title="// 反馈收件箱：回放她当时看到的现场">标注</a>
           {% endif %}
           <a class="btn ghost" href="/password" title="修改密码">改密</a>
@@ -254,6 +256,15 @@
         <label>解析（可选，可留空）</label>
         <textarea id="editAnalysis" rows="2" placeholder="题目解析"></textarea>
       </div>
+      <div class="form-field" id="editImagesArea" hidden>
+        <label>题目图片（上传或弹窗内 Ctrl+V 粘贴；点缩略图在光标处插入 [图:标记]）</label>
+        <div id="editImagesList" class="edit-images-list"></div>
+        <div class="edit-images-actions">
+          <button type="button" id="editUploadImgBtn" class="btn ghost">上传图片</button>
+          <span class="hint">支持 png/jpg/gif/webp，单张 ≤ 10MB</span>
+          <input type="file" id="editImageFile" accept="image/*" hidden>
+        </div>
+      </div>
       <div class="modal-actions">
         <button id="editCancelBtn" class="btn ghost">取消</button>
         <button id="editSaveBtn" class="btn primary">保存</button>
@@ -313,6 +324,18 @@
         <button type="button" class="btn ghost" id="bankShareCancel">取消</button>
         <button type="button" class="btn primary" id="bankShareSubmit">分享</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal" id="officialMarketModal" hidden>
+    <div class="modal-box market-box">
+      <div class="modal-header">
+        <h3>题库市场</h3>
+        <button type="button" class="btn ghost" id="officialMarketModalClose">关闭</button>
+      </div>
+      <p class="hint">官方共享题库，按需领取。领取的是副本，进度独立、可随时归档或删除。</p>
+      <div class="market-tags" id="marketTags"></div>
+      <div class="market-list" id="marketList"><p class="hint">加载中…</p></div>
     </div>
   </div>
 
@@ -458,13 +481,14 @@
   </div>
 
   <script src="/static/dialog.js?v=1"></script>
+  <script src="/static/qimg.js?v=1"></script>
   <script src="/static/sa.js?v=sa25"></script>
   <script src="/static/sfx.js?v=11"></script>
   <script src="/static/fx.js?v=10"></script>
   {% if rd_payload %}
   <script>window.RD_BOOT = {{ rd_payload|tojson }};</script>
   {% endif %}
-  <script src="/static/script.js?v=m102"></script>
+  <script src="/static/script.js?v=m105"></script>
   <script src="/static/mock.js?v=8"></script>
   <script src="/static/story.js?v=m6"></script>
   <script src="/static/reading.js?v=45"></script>

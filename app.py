@@ -11,7 +11,7 @@ import tempfile
 import threading
 import webbrowser
 from datetime import datetime, timedelta
-from flask import Flask, abort, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 
 from docx import Document
 
@@ -19,6 +19,7 @@ from lykie import accounts as lykie_accounts
 from lykie import annotations as lykie_annotations
 from lykie import atlas as lykie_atlas
 from lykie import author_log as lykie_author_log
+from lykie import bank_images as lykie_bank_images
 from lykie import converse as lykie_converse
 from lykie import extract as lykie_extract
 from lykie import folders as lykie_folders
@@ -34,6 +35,7 @@ from lykie import mail as lykie_mail
 from lykie import memory as lykie_memory
 from lykie import opening as lykie_opening
 from lykie import mock as lykie_mock
+from lykie import official as lykie_official
 from lykie import profile as lykie_profile
 from lykie import qq_gateway as lykie_qq_gateway
 from lykie import settle as lykie_settle
@@ -48,6 +50,9 @@ from story import load_story, list_stories
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+# 官方题库发布权：仅作者账号可上架（页面与 API 双重校验）
+OFFICIAL_AUTHORS = {"LiZF"}
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 上传上限 50MB
@@ -147,15 +152,19 @@ def parse_lines(raw):
     return questions
 
 
+def _docx_text_and_images(path):
+    """docx → (文本, 图片载荷)。文本里图片位置带 [图:imgN] 标记。"""
+    return lykie_bank_images.extract_docx_text_and_images(path)
+
+
 def parse_docx(path):
-    doc = Document(path)
-    raw = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    return parse_lines(lykie_import_noise.filter_noise_lines(raw))
+    text, _images = _docx_text_and_images(path)
+    return parse_lines(lykie_import_noise.filter_noise_lines(text.splitlines()))
 
 
 def docx_to_text(path) -> str:
-    doc = Document(path)
-    return "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+    text, _images = _docx_text_and_images(path)
+    return text
 
 
 def parse_text(text):
@@ -174,6 +183,7 @@ def _preview_questions_payload(questions, **extra):
             "options": q.get("options", []),
             "answer": q["answer"],
             "analysis": q.get("analysis", ""),
+            "images": q.get("images") or [],
         }
         if q.get("needs_answer_confirm"):
             item["needs_answer_confirm"] = True
@@ -1735,6 +1745,7 @@ def render_question(q, bank=None):
         "answer_count": q.get("answer_count", 0),
         "correct_count": q.get("correct_count", 0),
         "analysis": q.get("analysis", ""),
+        "images": q.get("images") or [],
     }
     if q["type"] == "choice":
         contents = q["options"]
@@ -1803,6 +1814,14 @@ def import_page():
     return render_template("import.html", username=g.store.username)
 
 
+@app.route("/publish")
+def publish_page():
+    """官方题库发布台：仅作者可进（题库 / 文件夹 / 试卷三类对象）。"""
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return redirect(url_for("index") + f"?_={int(time.time())}")
+    return render_template("publish.html", username=g.store.username)
+
+
 @app.route("/translate")
 def translate_page():
     """翻译专项练习：聚合所有已导入卷的翻译题，独立大屏作答界面。"""
@@ -1847,6 +1866,7 @@ def _sa_build_card(q, item, qs=None):
         "stage": stage,
         "lane": lane,
         "stem": q.get("stem") or "",
+        "images": q.get("images") or [],
         "keywords": kws,
         "keywords_count": len(kws),
         "points": lykie_sa.points_editor_payload(q),
@@ -1988,6 +2008,7 @@ def api_sa_next():
         })
     item = lykie_sa.ensure_item(progress, str(chosen.get("id")), chosen)
     card = _sa_build_card(chosen, item, qs)
+    card["bank_id"] = str(bank.get("id") or "")
     pair = progress.get("active_pair") or []
     card["pair"] = pair
     if card.get("review") or lykie_sa.is_review_stage(item.get("stage") or ""):
@@ -2103,8 +2124,10 @@ def api_sa_question_detail():
     return jsonify({
         "ok": True,
         "qid": qid,
+        "bank_id": str(bank.get("id") or ""),
         "stem": q.get("stem") or "",
         "answer": q.get("answer") or "",
+        "images": q.get("images") or [],
         "keywords": lykie_sa.keywords_of(q),
         "points": lykie_sa.points_editor_payload(q),
         "cloze_unordered": lykie_sa.cloze_is_unordered(q),
@@ -2443,6 +2466,74 @@ def api_banks_share():
         "ok": True,
         "shared": (result or {}).get("ok") or [],
         "failed": (result or {}).get("failed") or [],
+    })
+
+
+@app.route("/api/official_banks")
+def api_official_banks():
+    return jsonify_user({
+        "ok": True,
+        "official": lykie_official.list_official(g.store.username),
+    })
+
+
+@app.route("/api/official_banks/claim", methods=["POST"])
+def api_official_banks_claim():
+    data = request.get_json(force=True) or {}
+    oid = str(data.get("id") or "")
+    result, err = lykie_official.claim_official(g.store.username, oid)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify_user({
+        "ok": True,
+        "folder_id": result.get("folder_id") or "",
+        "folder_name": result.get("name") or "未命名文件夹",
+        "kind": result.get("kind") or "folder",
+    })
+
+
+@app.route("/api/official_publishables")
+def api_official_publishables():
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return jsonify({"ok": False, "error": "只有作者可以发布"}), 403
+    return jsonify_user({
+        "ok": True,
+        **lykie_official.publishables(g.store.username),
+    })
+
+
+@app.route("/api/official_banks/publish", methods=["POST"])
+def api_official_banks_publish():
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return jsonify({"ok": False, "error": "只有作者可以发布"}), 403
+    data = request.get_json(force=True) or {}
+    kind = str(data.get("kind") or "")
+    src_id = str(data.get("id") or "")
+    name = data.get("name") or ""
+    description = data.get("description") or ""
+    tags = data.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    if kind == "folder":
+        entry, err = lykie_official.publish_folder(
+            g.store.username, src_id, name, description, tags
+        )
+    elif kind == "paper":
+        entry, err = lykie_official.publish_paper(
+            g.store.username, src_id, name, description, tags
+        )
+    else:
+        return jsonify({"ok": False, "error": "发布类型无效"}), 400
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify_user({
+        "ok": True,
+        "official_id": entry["id"],
+        "version": entry.get("version") or 1,
+        "name": entry.get("name") or "",
+        "kind": entry.get("kind") or "folder",
+        "total_banks": len(entry.get("banks") or []),
+        "total_papers": len(entry.get("papers") or []),
     })
 
 
@@ -3030,9 +3121,10 @@ def api_import():
     fd, tmp = tempfile.mkstemp(suffix=".docx")
     os.close(fd)
     f.save(tmp)
+    docx_images = {}
     try:
+        text, docx_images = _docx_text_and_images(tmp)
         if exemplar.strip():
-            text = docx_to_text(tmp)
             text, platform = lykie_import_platform.normalize_if_known(text)
             questions, err, meta = _resolve_import_questions(text, exemplar)
             meta = dict(meta or {})
@@ -3061,11 +3153,13 @@ def api_import():
         answer_picks = {}
 
     if preview:
-        return jsonify(_preview_questions_payload(
+        payload = _preview_questions_payload(
             questions,
             suggested_name=name,
             meta=meta,
-        ))
+        )
+        payload["images"] = lykie_bank_images.to_data_urls(docx_images)
+        return jsonify(payload)
 
     pending = _apply_answer_picks(questions, answer_picks)
     if pending:
@@ -3083,6 +3177,11 @@ def api_import():
         "questions": questions,
         "folder_id": None,
     }
+    if docx_images:
+        lykie_bank_images.attach_images(
+            questions, docx_images,
+            lykie_bank_images.bank_dir(g.store.username, b["id"]),
+        )
     g.store.banks.append(b)
     g.store.current_bank_id = b["id"]
     lykie_settle.ensure_bank_runs(b)
@@ -3092,7 +3191,7 @@ def api_import():
 
 @app.route("/api/import/extract", methods=["POST"])
 def api_import_extract():
-    """仅抽出 docx 纯文本，供导入页进入样板步骤。"""
+    """抽出 docx 纯文本（含 [图:imgN] 标记）与图片预览载荷，供导入页进入样板步骤。"""
     f = request.files.get("file")
     if not f:
         return jsonify({"ok": False, "error": "未收到文件"}), 400
@@ -3103,7 +3202,7 @@ def api_import_extract():
     os.close(fd)
     f.save(tmp)
     try:
-        text = docx_to_text(tmp)
+        text, images = _docx_text_and_images(tmp)
     except Exception as e:
         return jsonify({"ok": False, "error": f"读取失败：{e}"}), 400
     finally:
@@ -3119,6 +3218,7 @@ def api_import_extract():
         "suggested_name": suggested,
         "detected_types": result.get("detected_types") or [],
         "pools": result.get("pools") or {},
+        "images": lykie_bank_images.to_data_urls(images),
     })
 
 
@@ -3199,6 +3299,10 @@ def api_import_text():
             }
             for q in (meta.get("sa_questions") or [])[:20]
         ]
+        # 原样回传图片载荷（dataURL），供预览渲染 [图:imgN] 标记
+        img_payload = data.get("images")
+        if isinstance(img_payload, dict) and img_payload:
+            payload["images"] = img_payload
         return jsonify(payload)
 
     gate_err = _gate_uncovered_types(meta, ack_skipped, import_sa)
@@ -3256,6 +3360,20 @@ def api_import_text():
         bank_id = b["id"]
     elif sa_bank_id:
         g.store.current_bank_id = sa_bank_id
+
+    # docx 通道随文本带来的图片：按 [图:imgN] 标记落盘到各题库图片目录
+    import_images = lykie_bank_images.decode_image_payload(data.get("images"))
+    if import_images:
+        if bank_id:
+            lykie_bank_images.attach_images(
+                questions, import_images,
+                lykie_bank_images.bank_dir(g.store.username, bank_id),
+            )
+        if sa_bank_id:
+            lykie_bank_images.attach_images(
+                sa_questions, import_images,
+                lykie_bank_images.bank_dir(g.store.username, sa_bank_id),
+            )
 
     g.store.save()
     out = {
@@ -3425,8 +3543,87 @@ def api_bank_questions():
             "status": q.get("status", "active"),
             "answer_count": q.get("answer_count", 0),
             "correct_count": q.get("correct_count", 0),
+            "images": q.get("images") or [],
         })
     return jsonify({"bank_id": bid, "name": b.get("name"), "questions": result})
+
+
+# ==================== 题目图片 ====================
+
+@app.route("/api/bank_images/<bank_id>/<path:filename>")
+def api_bank_image(bank_id, filename):
+    """按题库解析图片目录：个人题库查当前账号，官方条目查 _official。"""
+    bid = str(bank_id)
+    if any(x["id"] == bid for x in g.store.banks):
+        scope = g.store.username
+    else:
+        try:
+            official = lykie_official.load_official().get("official") or []
+        except Exception:
+            official = []
+        if any(str(o.get("id")) == bid for o in official):
+            scope = "_official"
+        else:
+            abort(404)
+    d = lykie_bank_images.bank_dir(scope, bid)
+    if not os.path.isfile(os.path.join(d, filename)):
+        abort(404)
+    return send_from_directory(d, filename, max_age=31536000, conditional=True)
+
+
+@app.route("/api/bank_images/<bank_id>/<qid>", methods=["POST"])
+def api_bank_image_upload(bank_id, qid):
+    """手动补图：上传图片挂到题目，返回 [图:imgN] 标记供插入文本。"""
+    b = next((x for x in g.store.banks if x["id"] == str(bank_id)), None)
+    if not b:
+        return jsonify({"ok": False, "error": "题库不存在"}), 404
+    q = find_question(b, str(qid))
+    if not q:
+        return jsonify({"ok": False, "error": "题目不存在"}), 404
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "未收到图片"}), 400
+    ext = (os.path.splitext(f.filename or "")[1] or "").lower().lstrip(".")
+    if ext == "jpeg":
+        ext = "jpg"
+    if ext not in lykie_bank_images.ALLOWED_EXTS:
+        return jsonify({"ok": False, "error": "仅支持 png/jpg/gif/webp/bmp 图片"}), 400
+    data = f.read(lykie_bank_images.MAX_UPLOAD_BYTES + 1)
+    if len(data) > lykie_bank_images.MAX_UPLOAD_BYTES:
+        return jsonify({"ok": False, "error": "图片超过 10MB"}), 400
+    img_id = lykie_bank_images.next_image_id(q.get("images") or [])
+    filename = lykie_bank_images.write_image(
+        lykie_bank_images.bank_dir(g.store.username, str(bank_id)),
+        data, ext, img_id,
+    )
+    entry = {"id": img_id, "file": filename, "alt": ""}
+    q.setdefault("images", []).append(entry)
+    g.store.save()
+    return jsonify({"ok": True, "marker": f"[图:{img_id}]", "image": entry, "images": q["images"]})
+
+
+@app.route("/api/bank_images/<bank_id>/<qid>/<img_id>", methods=["DELETE"])
+def api_bank_image_delete(bank_id, qid, img_id):
+    """删除题目图片：清文件、去条目，并从文本字段移除对应 [图:imgId] 标记。"""
+    b = next((x for x in g.store.banks if x["id"] == str(bank_id)), None)
+    if not b:
+        return jsonify({"ok": False, "error": "题库不存在"}), 404
+    q = find_question(b, str(qid))
+    if not q:
+        return jsonify({"ok": False, "error": "题目不存在"}), 404
+    imgs = q.get("images") or []
+    entry = next((e for e in imgs if str(e.get("id")) == str(img_id)), None)
+    if not entry:
+        return jsonify({"ok": False, "error": "图片不存在"}), 404
+    lykie_bank_images.remove_question_images(g.store.username, str(bank_id), {"images": [entry]})
+    q["images"] = [e for e in imgs if e is not entry]
+    for field in ("stem", "analysis"):
+        if q.get(field):
+            q[field] = lykie_bank_images.strip_marker(q[field], img_id)
+    if isinstance(q.get("options"), list):
+        q["options"] = [lykie_bank_images.strip_marker(o, img_id) for o in q["options"]]
+    g.store.save()
+    return jsonify({"ok": True, "images": q["images"]})
 
 
 @app.route("/api/rename_bank", methods=["POST"])
@@ -3455,6 +3652,7 @@ def api_delete_question():
     q = find_question(b, qid)
     if not q:
         return jsonify({"ok": False, "error": "题目不存在"}), 404
+    lykie_bank_images.remove_question_images(g.store.username, bid, q)
     b["questions"] = [x for x in b["questions"] if x["id"] != qid]
     g.store.save()
     return jsonify({"ok": True})
@@ -3467,6 +3665,7 @@ def api_delete_bank():
     b = next((x for x in g.store.banks if x["id"] == bid), None)
     if not b:
         return jsonify({"ok": False, "error": "题库不存在"}), 404
+    lykie_bank_images.remove_bank_images(g.store.username, bid)
     g.store.banks.remove(b)
     if g.store.current_bank_id == bid:
         g.store.current_bank_id = g.store.banks[0]["id"] if g.store.banks else None

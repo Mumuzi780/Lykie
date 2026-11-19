@@ -597,7 +597,7 @@
       $('cardType').textContent =
         q.type === 'choice' ? (q.multi ? '多选题' : '选择题') : q.type === 'judge' ? '判断题' : '填空题';
     }
-    if ($('cardStem')) $('cardStem').textContent = q.stem;
+    if ($('cardStem')) $('cardStem').innerHTML = global.qimgRender(q.stem, q.images, q.source_bank_id || global.currentBankId);
     if ($('cardMeta')) {
       $('cardMeta').textContent = q.bank_name ? `来自：${q.bank_name}` : '';
       $('cardMeta').hidden = !q.bank_name;
@@ -630,7 +630,7 @@
         const letter = text.includes('.') ? text.split('.')[0] : text;
         const btn = document.createElement('button');
         btn.className = 'opt';
-        btn.textContent = text;
+        btn.innerHTML = global.qimgRender(text, q.images, q.source_bank_id || global.currentBankId);
         btn.dataset.value = letter;
         if (q.multi) {
           btn.onclick = () => btn.classList.toggle('selected');
@@ -791,7 +791,7 @@
           `<div class="mock-wrong-top">#${i + 1}` +
           (w.bank_name ? ` · ${escapeHtml(w.bank_name)}` : '') +
           `</div>` +
-          `<div class="mock-wrong-stem">${escapeHtml(w.stem)}</div></article>`
+          `<div class="mock-wrong-stem">${escapeHtml(global.qimgStrip(w.stem))}</div></article>`
       )
       .join('');
     empty.innerHTML =

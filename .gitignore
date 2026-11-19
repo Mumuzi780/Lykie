@@ -5,6 +5,8 @@ data/upload.docx
 data/users.json
 data/qq_lykie.json
 data/users/
+data/bank_assets/
+data/official_banks.json
 data/secret_key
 .venv/
 venv/

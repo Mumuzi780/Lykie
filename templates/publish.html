@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <title>发布台 · Lykie</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m130">
+  <link rel="stylesheet" href="/static/import.css?v=13">
+  <link rel="stylesheet" href="/static/publish.css?v=1">
+</head>
+<body class="import-page publish-page">
+  <div class="import-shell publish-shell">
+    <header class="import-top">
+      <h1 class="brand-title">Lykie <span class="brand-sub">发布台</span></h1>
+      <div class="actions">
+        <a class="btn ghost" href="/">返回背题</a>
+        <span class="account-name" title="当前账号">{{ username }}</span>
+        <a class="btn ghost" href="/logout">退出</a>
+      </div>
+    </header>
+
+    <nav class="import-switch" id="publishSwitch" aria-label="发布类型">
+      <button type="button" class="import-switch-btn is-active" data-kind="folder">发布文件夹</button>
+      <button type="button" class="import-switch-btn" data-kind="paper">发布试卷</button>
+    </nav>
+
+    <main class="import-main">
+      <p class="import-lead" id="publishLead">发布后进入题库市场，所有账号都能按需领取；再次发布同一对象 = 更新版本。</p>
+      <section class="publish-list" id="publishList"><p class="hint">加载中…</p></section>
+    </main>
+  </div>
+
+  <div class="modal" id="publishFormModal" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="publishFormTitle">发布题库</h3>
+        <button type="button" class="btn ghost" id="publishFormClose">关闭</button>
+      </div>
+      <div class="form-field">
+        <label for="publishName">名称（显示在题库市场）</label>
+        <input id="publishName" maxlength="120">
+      </div>
+      <div class="form-field">
+        <label for="publishDesc">简介（可选）</label>
+        <textarea id="publishDesc" rows="3" maxlength="300" placeholder="一句话说明适合谁、怎么用"></textarea>
+      </div>
+      <div class="form-field">
+        <label for="publishTags">标签（逗号分隔，用于市场筛选）</label>
+        <input id="publishTags" placeholder="如：四六级,英语">
+      </div>
+      <p class="hint" id="publishFormHint"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="publishFormCancel">取消</button>
+        <button type="button" class="btn primary" id="publishFormSubmit">发布</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dialog.js?v=2"></script>
+  <script src="/static/publish.js?v=2"></script>
+</body>
+</html>
