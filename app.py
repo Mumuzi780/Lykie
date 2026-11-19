@@ -615,8 +615,8 @@ def password_page():
     error = ""
     if not must and not lykie_accounts.verify_user(username, old):
         error = "当前密码不对"
-    elif len(new) < 4:
-        error = "密码至少 4 位"
+    elif len(new) < 8:
+        error = "密码至少 8 位"
     elif new != new2:
         error = "两次密码不一致"
     elif email:

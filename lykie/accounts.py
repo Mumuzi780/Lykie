@@ -187,8 +187,8 @@ def add_user(username, password, email="", must_reset=False):
     if not valid_username(n):
         raise ValueError("用户名须为 2–24 个字，可用中文、字母、数字、下划线、短横线")
     pwd = str(password or "")
-    if len(pwd) < 4:
-        raise ValueError("密码至少 4 位")
+    if len(pwd) < 8:
+        raise ValueError("密码至少 8 位")
     mail = normalize_email(email)
     if mail and not valid_email(mail):
         raise ValueError("邮箱格式不对")
@@ -264,8 +264,8 @@ def find_by_email(email):
 def _set_password_hash(username, password):
     n = normalize_username(username)
     pwd = str(password or "")
-    if len(pwd) < 4:
-        raise ValueError("密码至少 4 位")
+    if len(pwd) < 8:
+        raise ValueError("密码至少 8 位")
     data = _load_users()
     for u in data["users"]:
         if u.get("username") == n:
