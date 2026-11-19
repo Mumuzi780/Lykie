@@ -26,7 +26,7 @@
       <!-- 左侧：角色 + 品牌 -->
       <div class="login-visual" aria-hidden="true">
         <div class="login-peek-wrap">
-          <div class="login-peek" draggable="false"></div>
+          <div class="login-peek login-blink" id="lykieBlink" draggable="false"></div>
         </div>
         <h1 class="brand-title login-brand">Lykie</h1>
         <p class="login-tagline">把学会的，变成自己的。</p>
@@ -146,6 +146,52 @@
           syncCelestial(next);
         });
       }
+    })();
+  </script>
+  <script>
+    /* Lykie 眨眼：雪碧图逐帧 + 随机间隔调度（与登录页一致） */
+    (function () {
+      var el = document.getElementById('lykieBlink');
+      if (!el) return;
+
+      var FRAME_MS = [70, 45, 45, 50, 50, 50, 40, 40, 40, 50]; // 帧01..10 每帧停留时长
+      var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var timer = null;
+      var playing = false;
+
+      function setFrame(i) {
+        el.style.backgroundPosition = (i * 10) + '% 50%'; // 11 帧，每帧步进 10%
+      }
+
+      function play(i) {
+        if (i >= FRAME_MS.length) {
+          setFrame(0); // 回到睁眼静止帧
+          playing = false;
+          schedule();
+          return;
+        }
+        setFrame(i + 1); // 播放 01..10
+        timer = setTimeout(function () { play(i + 1); }, FRAME_MS[i]);
+      }
+
+      function schedule() {
+        if (REDUCED) return;
+        timer = setTimeout(blink, 2500 + Math.random() * 3500); // 2.5~6s 随机
+      }
+
+      function blink() {
+        if (document.hidden) { schedule(); return; } // 页面不可见时不播
+        if (playing) return;
+        playing = true;
+        play(0);
+        if (Math.random() < 0.12) { // 12% 概率连眨两下
+          timer = setTimeout(function () {
+            if (!playing) blink();
+          }, 560);
+        }
+      }
+
+      schedule();
     })();
   </script>
   <script>
