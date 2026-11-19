@@ -391,27 +391,28 @@ def publish_folder(username: str, folder_id: str, name: str, description: str, t
                 })
     if not banks_out and not papers_out:
         return None, "这个文件夹是空的，没有可发布的内容"
+    # 题目图片随行：拷到官方条目目录，文件名加 bN_ 前缀避免跨题库撞名。
+    # 必须在 _upsert_entry 落盘之前改名，否则落盘条目里是无前缀旧名，领取时按名找不到文件。
+    entry_id = f"off_folder_{folder_id}"
+    lykie_bank_images.remove_bank_images("_official", entry_id)
+    for bi, (b_out, src_bid) in enumerate(zip(banks_out, src_bank_ids)):
+        if not src_bid:
+            continue
+        prefix = f"b{bi}_"
+        lykie_bank_images.copy_bank_images(
+            username, src_bid, "_official", entry_id, prefix=prefix
+        )
+        for q in (b_out.get("questions") or []):
+            for e in (q.get("images") or []):
+                fname = e.get("file")
+                if fname:
+                    e["file"] = prefix + fname
     entry = _upsert_entry(
         username, "folder", str(folder_id),
         banks=banks_out,
         papers=papers_out,
         **_meta(name, description, tags),
     )
-    # 题目图片随行：拷到官方条目目录，文件名加 bN_ 前缀避免跨题库撞名
-    if entry:
-        entry_id = str(entry.get("id") or "")
-        for bi, (b_out, src_bid) in enumerate(zip(banks_out, src_bank_ids)):
-            if not src_bid:
-                continue
-            prefix = f"b{bi}_"
-            lykie_bank_images.copy_bank_images(
-                username, src_bid, "_official", entry_id, prefix=prefix
-            )
-            for q in (b_out.get("questions") or []):
-                for e in (q.get("images") or []):
-                    fname = e.get("file")
-                    if fname:
-                        e["file"] = prefix + fname
     return entry, ""
 
 
