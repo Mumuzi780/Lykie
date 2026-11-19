@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import itertools
 import time
 import random
 import tempfile
@@ -336,8 +337,12 @@ def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+_bank_id_counter = itertools.count(1)
+
+
 def new_bank_id():
-    return str(int(time.time() * 1000))
+    """时间戳 + 进程内递增序号：批量连续建库（如循环导入）不会撞 id。"""
+    return f"{int(time.time() * 1000)}{next(_bank_id_counter):03d}"
 
 
 def ensure_question_defaults(q):

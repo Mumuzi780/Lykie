@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import itertools
 import json
 import os
 import tempfile
@@ -87,8 +88,12 @@ def list_share_targets(except_user: str) -> list[str]:
     return out
 
 
+_id_counter = itertools.count(1)
+
+
 def _new_id(prefix: str = "") -> str:
-    base = str(int(time.time() * 1000))
+    """时间戳 + 进程内递增序号：连续快速调用（如领取文件夹循环克隆多套题库）不会撞 id。"""
+    base = f"{int(time.time() * 1000)}{next(_id_counter):03d}"
     return f"{prefix}{base}" if prefix else base
 
 
