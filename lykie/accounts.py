@@ -19,8 +19,19 @@ LEGACY_BANK = os.path.join(DATA_DIR, "bank.json")
 LEGACY_LYKIE = os.path.join(DATA_DIR, "lykie_state.json")
 
 _USERNAME_RE = re.compile(r"^[\w\u4e00-\u9fff-]{2,24}$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 def normalize_username(name):
     return str(name or "").strip()
+
+
+def normalize_email(email):
+    return str(email or "").strip().lower()
+
+
+def valid_email(email):
+    return bool(_EMAIL_RE.match(normalize_email(email)))
 
 
 def valid_username(name):
@@ -171,23 +182,30 @@ def _copy_if_exists(src, dest):
     return False
 
 
-def add_user(username, password):
+def add_user(username, password, email="", must_reset=False):
     n = normalize_username(username)
     if not valid_username(n):
         raise ValueError("用户名须为 2–24 个字，可用中文、字母、数字、下划线、短横线")
     pwd = str(password or "")
     if len(pwd) < 4:
         raise ValueError("密码至少 4 位")
+    mail = normalize_email(email)
+    if mail and not valid_email(mail):
+        raise ValueError("邮箱格式不对")
 
     data = _load_users()
     if any(u.get("username") == n for u in data["users"]):
         raise ValueError("这个用户名已经存在")
+    if mail and any((u.get("email") or "") == mail for u in data["users"]):
+        raise ValueError("这个邮箱已经注册过了")
 
     first = not data["users"]
     data["users"].append({
         "username": n,
         "password_hash": generate_password_hash(pwd),
+        "email": mail,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "must_reset": bool(must_reset),
     })
     os.makedirs(user_dir(n), exist_ok=True)
 
@@ -219,6 +237,91 @@ def verify_user(username, password):
     return False
 
 
+def _find_user(username):
+    n = normalize_username(username)
+    for u in _load_users().get("users") or []:
+        if u.get("username") == n:
+            return u
+    return None
+
+
+def user_must_reset(username):
+    u = _find_user(username)
+    return bool(u and u.get("must_reset"))
+
+
+def find_by_email(email):
+    """按邮箱找账号名（不区分大小写）；未绑定返回 None。"""
+    mail = normalize_email(email)
+    if not mail:
+        return None
+    for u in _load_users().get("users") or []:
+        if (u.get("email") or "") == mail:
+            return u.get("username")
+    return None
+
+
+def _set_password_hash(username, password):
+    n = normalize_username(username)
+    pwd = str(password or "")
+    if len(pwd) < 4:
+        raise ValueError("密码至少 4 位")
+    data = _load_users()
+    for u in data["users"]:
+        if u.get("username") == n:
+            u["password_hash"] = generate_password_hash(pwd)
+            u["must_reset"] = False
+            _save_users(data)
+            return True
+    return False
+
+
+def set_password(username, password):
+    """完善临时密码 / 找回重置：不需要旧密码。"""
+    return _set_password_hash(username, password)
+
+
+def change_password(username, old_password, new_password):
+    """日常改密：先验证旧密码。"""
+    if not verify_user(username, old_password):
+        raise ValueError("当前密码不对")
+    return _set_password_hash(username, new_password)
+
+
+def set_email(username, email):
+    """绑定邮箱（完善密码页可选填）。空串视为跳过。"""
+    n = normalize_username(username)
+    mail = normalize_email(email)
+    if not mail:
+        return True
+    if not valid_email(mail):
+        raise ValueError("邮箱格式不对")
+    data = _load_users()
+    if any(u.get("username") != n and (u.get("email") or "") == mail for u in data["users"]):
+        raise ValueError("这个邮箱已经注册过了")
+    for u in data["users"]:
+        if u.get("username") == n:
+            u["email"] = mail
+            _save_users(data)
+            return True
+    return False
+
+
+def mark_all_must_reset(excludes=()):
+    """把除 excludes 外的全部账号标记为待完善密码。返回新标记数量。"""
+    skip = set(excludes or ())
+    data = _load_users()
+    marked = 0
+    for u in data["users"]:
+        if u.get("username") in skip or u.get("must_reset"):
+            continue
+        u["must_reset"] = True
+        marked += 1
+    if marked:
+        _save_users(data)
+    return marked
+
+
 def main(argv=None):
     import getpass
     import sys
@@ -229,6 +332,7 @@ def main(argv=None):
         print("  python add_user.py 用户名")
         print("  python add_user.py 用户名 密码")
         print("  python add_user.py list")
+        print("  python add_user.py mark-reset [排除的账号...]")
         return 1
     if argv[0] == "list":
         names = list_usernames()
@@ -237,7 +341,17 @@ def main(argv=None):
             return 0
         print("已有账号：")
         for n in names:
-            print("  " + n)
+            mark = "（待完善密码）" if user_must_reset(n) else ""
+            print("  " + n + mark)
+        return 0
+    if argv[0] == "mark-reset":
+        excludes = argv[1:]
+        marked = mark_all_must_reset(excludes)
+        skip = "、".join(sorted(set(excludes))) if excludes else ""
+        if marked:
+            print("已标记 %d 个账号需要完善密码%s" % (marked, "（跳过：" + skip + "）" if skip else ""))
+        else:
+            print("没有新标记的账号" + ("（跳过：" + skip + "）" if skip else ""))
         return 0
     if argv[0] == "add":
         argv = argv[1:]

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>找回密码 · Lykie</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m128">
+</head>
+<body class="login-body">
+  <!-- 背景装饰：浮动光斑 -->
+  <div class="login-orb login-orb-a" aria-hidden="true"></div>
+  <div class="login-orb login-orb-b" aria-hidden="true"></div>
+  <div class="login-orb login-orb-c" aria-hidden="true"></div>
+
+  <main class="login-shell">
+    <!-- 深浅色切换 -->
+    <button type="button" class="login-celestial" id="loginCelestial" aria-label="切换深浅色" title="切换深浅色">
+      <img class="celestial-icon celestial-sun" id="loginSun" src="/static/lykie/sun-solid-teal.png?v=6" alt="" draggable="false" hidden>
+      <img class="celestial-icon celestial-moon" id="loginMoon" src="/static/lykie/moon-teal.png?v=1" alt="" draggable="false" hidden>
+    </button>
+
+    <section class="login-card">
+      <!-- 左侧：角色 + 品牌 -->
+      <div class="login-visual" aria-hidden="true">
+        <div class="login-peek-wrap">
+          <div class="login-peek" draggable="false"></div>
+        </div>
+        <h1 class="brand-title login-brand">Lykie</h1>
+        <p class="login-tagline">把学会的，变成自己的。</p>
+        <div class="login-visual-line"></div>
+        <p class="login-visual-quote">用注册时绑定的邮箱找回密码。</p>
+      </div>
+
+      <!-- 右侧：表单 -->
+      <form class="login-form" method="post" action="/forgot" autocomplete="on">
+        <h2 class="login-form-title">找回密码</h2>
+        <p class="login-form-sub">输入注册时绑定的邮箱，验证码会发到那里。</p>
+
+        {% if error %}
+        <p class="login-error">{{ error }}</p>
+        {% endif %}
+        <p class="login-error" id="sendErr" hidden></p>
+
+        <div class="login-field">
+          <label class="login-label" for="email">邮箱</label>
+          <span class="login-input-wrap">
+            <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <path d="m22 7-10 6L2 7"/>
+            </svg>
+            <input id="email" name="email" type="email" required maxlength="64" autofocus placeholder="注册时绑定的邮箱" autocomplete="email">
+          </span>
+        </div>
+
+        <div class="login-field">
+          <label class="login-label" for="code">验证码</label>
+          <span class="login-input-wrap login-code-wrap">
+            <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+            </svg>
+            <input id="code" name="code" type="text" inputmode="numeric" required maxlength="6" placeholder="6 位验证码" autocomplete="one-time-code">
+            <button type="button" class="login-code-btn" id="sendCodeBtn">发送验证码</button>
+          </span>
+        </div>
+
+        <div class="login-field">
+          <label class="login-label" for="password">新密码</label>
+          <span class="login-input-wrap">
+            <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input id="password" name="password" type="password" required minlength="4" maxlength="64" placeholder="至少 4 位" autocomplete="new-password">
+          </span>
+        </div>
+
+        <div class="login-field">
+          <label class="login-label" for="password2">确认新密码</label>
+          <span class="login-input-wrap">
+            <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input id="password2" name="password2" type="password" required minlength="4" maxlength="64" placeholder="再输入一次" autocomplete="new-password">
+          </span>
+        </div>
+
+        <button type="submit" class="login-submit">重置密码</button>
+
+        <p class="login-links">
+          <a href="/login">想起密码了？去登录</a>
+        </p>
+      </form>
+    </section>
+
+    <div class="beian-bar">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>
+      <a href="https://beian.mps.gov.cn/#/query/webSearch?code=13030202004263" target="_blank" rel="noreferrer"><img src="/static/beian.png" alt="" class="beian-badge">冀公网安备13030202004263号</a>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+        syncCelestial(theme);
+      } catch (e) { /* ignore */ }
+
+      function syncCelestial(theme) {
+        var sun = document.getElementById('loginSun');
+        var moon = document.getElementById('loginMoon');
+        if (!sun || !moon) return;
+        if (theme === 'dark') {
+          sun.hidden = true;
+          moon.hidden = false;
+        } else {
+          sun.hidden = false;
+          moon.hidden = true;
+        }
+      }
+
+      var btn = document.getElementById('loginCelestial');
+      if (btn) {
+        btn.addEventListener('click', function () {
+          var cur = document.documentElement.getAttribute('data-theme') || 'light';
+          var next = cur === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', next);
+          document.documentElement.style.colorScheme = next;
+          try { localStorage.setItem('theme', next); } catch (e) {}
+          syncCelestial(next);
+        });
+      }
+    })();
+  </script>
+  <script>
+    /* 发验证码：调 /api/email/code，成功后按钮进入 60 秒倒计时 */
+    (function () {
+      var btn = document.getElementById('sendCodeBtn');
+      var email = document.getElementById('email');
+      var err = document.getElementById('sendErr');
+      if (!btn || !email || !err) return;
+      var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+      var timer = null;
+      var left = 0;
+
+      function show(msg) {
+        err.textContent = msg || '';
+        err.hidden = !msg;
+      }
+
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        var val = (email.value || '').trim();
+        if (!EMAIL_RE.test(val)) {
+          show('先填好邮箱再发验证码');
+          email.focus();
+          return;
+        }
+        btn.disabled = true;
+        show('');
+        fetch('/api/email/code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: val, scene: 'forgot' })
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; });
+        }).then(function (data) {
+          if (data && data.ok) {
+            left = 60;
+            btn.textContent = left + ' 秒后重发';
+            timer = setInterval(function () {
+              left -= 1;
+              if (left <= 0) {
+                clearInterval(timer);
+                timer = null;
+                btn.disabled = false;
+                btn.textContent = '发送验证码';
+              } else {
+                btn.textContent = left + ' 秒后重发';
+              }
+            }, 1000);
+          } else {
+            show((data && data.error) || '发送失败，请稍后再试');
+            btn.disabled = false;
+          }
+        }).catch(function () {
+          show('网络出错了，请稍后再试');
+          btn.disabled = false;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

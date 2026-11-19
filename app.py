@@ -30,6 +30,7 @@ from lykie import import_rules as lykie_import_rules
 from lykie import import_scan as lykie_import_scan
 from lykie import llm as lykie_llm
 from lykie import lookup as lykie_lookup
+from lykie import mail as lykie_mail
 from lykie import memory as lykie_memory
 from lykie import opening as lykie_opening
 from lykie import mock as lykie_mock
@@ -42,6 +43,7 @@ from lykie import assets as lykie_assets
 from lykie import readings as lykie_readings
 from lykie import short_answer as lykie_sa
 from lykie import typo as lykie_typo
+from lykie import verify_codes
 from story import load_story, list_stories
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -443,7 +445,7 @@ def jsonify_user(payload):
 # ==================== 登录 ====================
 @app.before_request
 def require_login():
-    if request.endpoint in ("login", "logout", "static"):
+    if request.endpoint in ("login", "logout", "static", "register", "forgot", "api_email_code"):
         return None
     # QQ 网关：AstrBot 无登录态，走自身 Bearer Token 鉴权（见 lykie/qq_gateway.py）
     if request.endpoint == "api_lykie_openai_compat":
@@ -451,8 +453,16 @@ def require_login():
     username = current_user()
     if username and lykie_accounts.user_exists(username):
         g.store = UserData(username)
+        # 临时密码门禁：先完善自己的密码才能用主界面；「稍后再说」放行一次，提醒条常驻
+        if lykie_accounts.user_must_reset(username) and not session.get("password_grace"):
+            if request.endpoint in ("password_page", "logout", "static"):
+                return None
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "请先完善账号密码", "need_password": True}), 403
+            return redirect(url_for("password_page"))
         return None
     session.pop("username", None)
+    session.pop("password_grace", None)
     if request.path.startswith("/api/"):
         return jsonify({"ok": False, "error": "未登录", "need_login": True}), 401
     return redirect(url_for("login"))
@@ -461,6 +471,8 @@ def require_login():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user() and lykie_accounts.user_exists(current_user()):
+        if lykie_accounts.user_must_reset(current_user()) and not session.get("password_grace"):
+            return redirect(url_for("password_page"))
         return redirect(url_for("index") + f"?_={int(time.time())}")
     error = ""
     if request.method == "POST":
@@ -470,13 +482,14 @@ def login():
             session.clear()
             session.permanent = True
             session["username"] = lykie_accounts.normalize_username(username)
+            # 临时密码：先带去完善密码，完成后再进主界面
+            if lykie_accounts.user_must_reset(username):
+                return redirect(url_for("password_page"))
             # 带时间戳，逼手机浏览器丢掉上一账号缓存的 HTML 壳
             return redirect(url_for("index") + f"?_={int(time.time())}")
-        if not lykie_accounts.has_users():
-            error = "还没有账号。先在电脑运行：python add_user.py 用户名"
-        else:
-            error = "用户名或密码不对"
-    return render_template("login.html", error=error, has_users=lykie_accounts.has_users())
+        error = "用户名或密码不对"
+    notice = request.args.get("notice") or ""
+    return render_template("login.html", error=error, notice=notice)
 
 
 @app.route("/logout")
@@ -485,6 +498,141 @@ def logout():
     resp = redirect(url_for("login") + f"?_={int(time.time())}")
     resp.headers["Clear-Site-Data"] = '"cache"'
     return resp
+
+
+# ==================== 注册 / 找回密码 / 完善密码 ====================
+def _fresh_index_redirect():
+    return redirect(url_for("index") + f"?_={int(time.time())}")
+
+
+def _start_session(username):
+    session.clear()
+    session.permanent = True
+    session["username"] = username
+    session.pop("password_grace", None)
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user() and lykie_accounts.user_exists(current_user()):
+        return _fresh_index_redirect()
+    error = ""
+    if request.method == "POST":
+        username = request.form.get("username") or ""
+        email = request.form.get("email") or ""
+        code = request.form.get("code") or ""
+        password = request.form.get("password") or ""
+        password2 = request.form.get("password2") or ""
+        if not lykie_accounts.valid_email(email):
+            error = "邮箱格式不对"
+        elif not code or not verify_codes.check(email, "register", code):
+            error = "验证码不对或已过期"
+        elif password != password2:
+            error = "两次密码不一致"
+        else:
+            try:
+                info = lykie_accounts.add_user(username, password, email=email)
+            except ValueError as e:
+                error = str(e)
+            else:
+                _start_session(info["username"])
+                return _fresh_index_redirect()
+    return render_template("register.html", error=error)
+
+
+@app.route("/api/email/code", methods=["POST"])
+def api_email_code():
+    """发验证码：注册 / 找回共用。未登录可用（require_login 已放行）。"""
+    data = request.get_json(silent=True) or {}
+    email = data.get("email") or ""
+    scene = data.get("scene") or ""
+    if not lykie_accounts.valid_email(email):
+        return jsonify({"ok": False, "error": "邮箱格式不对"}), 400
+    if scene not in ("register", "forgot"):
+        return jsonify({"ok": False, "error": "场景不对"}), 400
+    if scene == "register" and lykie_accounts.find_by_email(email):
+        return jsonify({"ok": False, "error": "这个邮箱已经注册过了"}), 400
+    if scene == "forgot" and not lykie_accounts.find_by_email(email):
+        # 不泄露邮箱是否注册：与成功同文案，也不真发信
+        return jsonify({"ok": True})
+    if not verify_codes.can_send(email, scene):
+        return jsonify({"ok": False, "error": "发送太频繁，请 1 分钟后再试"}), 429
+    if not lykie_mail.smtp_ready():
+        return jsonify({"ok": False, "error": "邮件服务还没配置好，请联系站长"}), 503
+    code = verify_codes.create(email, scene)
+    try:
+        lykie_mail.send_code(email, code, scene)
+    except Exception:
+        return jsonify({"ok": False, "error": "邮件发送失败，请稍后再试"}), 502
+    return jsonify({"ok": True})
+
+
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    if current_user() and lykie_accounts.user_exists(current_user()):
+        return _fresh_index_redirect()
+    error = ""
+    if request.method == "POST":
+        email = request.form.get("email") or ""
+        code = request.form.get("code") or ""
+        password = request.form.get("password") or ""
+        password2 = request.form.get("password2") or ""
+        username = lykie_accounts.find_by_email(email)
+        if not username:
+            error = "这个邮箱没有绑定账号"
+        elif not code or not verify_codes.check(email, "forgot", code):
+            error = "验证码不对或已过期"
+        elif password != password2:
+            error = "两次密码不一致"
+        else:
+            try:
+                lykie_accounts.set_password(username, password)
+            except ValueError as e:
+                error = str(e)
+            else:
+                return redirect(url_for("login", notice="密码已重置，请用新密码登录"))
+    return render_template("forgot.html", error=error)
+
+
+@app.route("/password", methods=["GET", "POST"])
+def password_page():
+    """完善临时密码（无旧密码）或日常改密（需旧密码），同一页两种形态。"""
+    username = current_user()
+    if not username or not lykie_accounts.user_exists(username):
+        return redirect(url_for("login"))
+    must = lykie_accounts.user_must_reset(username)
+    if request.method == "GET":
+        if request.args.get("later"):
+            # 「稍后再说」：放行进入主界面，顶栏提醒条常驻，下次登录仍先来这里
+            session["password_grace"] = True
+            return _fresh_index_redirect()
+        return render_template("password.html", username=username, must_reset=must)
+    # POST
+    old = request.form.get("old") or ""
+    new = request.form.get("new") or ""
+    new2 = request.form.get("new2") or ""
+    email = request.form.get("email") or ""
+    error = ""
+    if not must and not lykie_accounts.verify_user(username, old):
+        error = "当前密码不对"
+    elif len(new) < 4:
+        error = "密码至少 4 位"
+    elif new != new2:
+        error = "两次密码不一致"
+    elif email:
+        try:
+            lykie_accounts.set_email(username, email)
+        except ValueError as e:
+            error = str(e)
+    if not error:
+        try:
+            lykie_accounts.set_password(username, new)
+        except ValueError as e:
+            error = str(e)
+        else:
+            session.pop("password_grace", None)
+            return _fresh_index_redirect()
+    return render_template("password.html", username=username, must_reset=must, error=error)
 
 
 # ==================== 管理员建号 ====================
@@ -498,7 +646,8 @@ def api_admin_create_account():
         return jsonify({"ok": False, "error": "只有管理员可以建号"}), 403
     data = request.get_json(force=True) or {}
     try:
-        info = lykie_accounts.add_user(data.get("username") or "", data.get("password") or "")
+        # 管理员预建 = 临时密码，用户首次登录需自行完善
+        info = lykie_accounts.add_user(data.get("username") or "", data.get("password") or "", must_reset=True)
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     # 注意：jsonify_user 会用当前登录者覆盖 username，新账号名放 created
@@ -1644,6 +1793,7 @@ def index():
     return render_template(
         "index.html",
         username=g.store.username,
+        must_reset=lykie_accounts.user_must_reset(g.store.username),
         rd_payload=rd_payload,
     )
 

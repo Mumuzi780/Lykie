@@ -3450,6 +3450,81 @@ button.lykie-send:active { transform: scale(.94); }
   100% { opacity: 1; transform: scale(1); }
 }
 
+/* ===== 注册 / 找回 / 完善密码页共用扩展 ===== */
+.login-links {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.login-links a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.login-links a:hover { text-decoration: underline; }
+.login-notice {
+  color: var(--primary);
+  background: var(--tag-primary-bg);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.login-submit {
+  margin-top: 18px;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter .15s ease, transform .15s ease;
+}
+.login-submit:hover { filter: brightness(1.08); }
+.login-submit:active { transform: scale(0.99); }
+.login-code-btn {
+  position: absolute;
+  right: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.login-code-btn:hover:not(:disabled) { background: var(--primary); color: #fff; }
+.login-code-btn:disabled { opacity: .55; cursor: default; }
+.login-code-wrap input { padding-right: 112px; }
+
+/* 主界面顶栏提醒条：临时密码未完善（常驻，完成前不消失） */
+.pwd-banner {
+  margin: 0 18px 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--tag-primary-bg);
+  color: var(--text);
+  font-size: 14px;
+  text-align: center;
+}
+.pwd-banner a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .beian-bar {
   text-align: center;
   padding: 8px 0 0;

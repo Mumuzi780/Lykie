@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m127">
+  <link rel="stylesheet" href="/static/style.css?v=m128">
 </head>
 <body class="login-body">
   <!-- 背景装饰：浮动光斑 -->
@@ -37,13 +37,13 @@
       <!-- 右侧：表单 -->
       <form class="login-form" method="post" action="/login" autocomplete="on">
         <h2 class="login-form-title">欢迎回来</h2>
-        <p class="login-form-sub">内测账号登录。没有账号的话，让开号的人给你建一个。</p>
+        <p class="login-form-sub">没有账号？注册一个，几秒就好。</p>
 
         {% if error %}
         <p class="login-error">{{ error }}</p>
         {% endif %}
-        {% if not has_users %}
-        <p class="login-hint">还没有账号。在项目目录运行：<code>python add_user.py 用户名</code></p>
+        {% if notice %}
+        <p class="login-notice">{{ notice }}</p>
         {% endif %}
 
         <div class="login-field">
@@ -85,6 +85,12 @@
             <span class="send-text"><span style="--i:0">进</span><span style="--i:1">入</span></span>
           </span>
         </button>
+
+        <p class="login-links">
+          <a href="/register">注册新账号</a>
+          <span aria-hidden="true">·</span>
+          <a href="/forgot">忘记密码</a>
+        </p>
       </form>
     </section>
 
