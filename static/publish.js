@@ -1,4 +1,4 @@
-/* 官方题库发布台：文件夹 → 题库市场（一套试卷 = 一个文件夹，无独立"试卷"入口） */
+/* 官方题库发布台：发布文件夹 + 已上架管理（一套试卷 = 一个文件夹，无独立"试卷"入口） */
 (function () {
   const $ = (id) => document.getElementById(id);
 
@@ -6,9 +6,12 @@
     '发布文件夹：内部题库与试卷保持独立、原样打包；试卷名与文件夹名一致。领取者会收到一个同名文件夹。';
   const EMPTY =
     '还没有文件夹。去背题页侧栏新建文件夹，把题库/试卷拖进去，再回来上架。';
+  const MANAGE_EMPTY =
+    '还没有上架内容。切到「发布文件夹」发布第一套内容。';
 
-  let data = { folders: [] };
+  let data = { folders: [], published: [] };
   let formTarget = null; // { id }
+  let editTarget = null; // { id }
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
@@ -27,6 +30,13 @@
     window.alert(msg);
   }
 
+  async function uiConfirm(msg, opts) {
+    if (window.LykieDialog && typeof LykieDialog.confirm === 'function') {
+      return LykieDialog.confirm(msg, opts);
+    }
+    return window.confirm(msg);
+  }
+
   async function fetchAuth(path, opts) {
     const res = await fetch(path, opts);
     if (res.status === 401) {
@@ -41,6 +51,20 @@
     return res.json();
   }
 
+  // ---- Tab 切换 ----
+
+  function switchTab(tab) {
+    const isManage = tab === 'manage';
+    $('publishPane').hidden = isManage;
+    $('managePane').hidden = !isManage;
+    document.querySelectorAll('#publishSwitch .import-switch-btn').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.tab === tab);
+    });
+    if (isManage && !data.published.length) loadManage();
+  }
+
+  // ---- 发布文件夹 Tab ----
+
   async function loadData() {
     const list = $('publishList');
     list.innerHTML = '<p class="hint">加载中…</p>';
@@ -49,7 +73,7 @@
       list.innerHTML = `<p class="hint">${escapeHtml(res.error || '加载失败')}</p>`;
       return;
     }
-    data = { folders: res.folders || [] };
+    data = { folders: res.folders || [], published: data.published || [] };
     renderList();
   }
 
@@ -155,14 +179,157 @@
     }
   }
 
+  // ---- 已上架管理 Tab ----
+
+  async function loadManage() {
+    const list = $('manageList');
+    list.innerHTML = '<p class="hint">加载中…</p>';
+    const res = await apiJson('/api/official_published');
+    if (res.ok === false) {
+      list.innerHTML = `<p class="hint">${escapeHtml(res.error || '加载失败')}</p>`;
+      return;
+    }
+    data.published = res.published || [];
+    renderManage();
+  }
+
+  function manageRowHtml(item) {
+    const parts = [];
+    if (item.total_banks) parts.push(`${item.total_banks} 套题库`);
+    if (item.total_papers) parts.push(`${item.total_papers} 套试卷`);
+    const sizeText = parts.join(' · ') || '空内容';
+    const srcHint = item.source_folder
+      ? ''
+      : `<span class="publish-badge is-gone">来源文件夹已删除，无法再更新内容</span>`;
+    return (
+      `<div class="publish-row">` +
+      `<div class="publish-row-main">` +
+      `<span class="publish-row-title">${escapeHtml(item.name)}</span>` +
+      `<span class="publish-row-meta">` +
+      `<span class="publish-badge is-live">v${item.version}</span>` +
+      `<span>${sizeText}</span>` +
+      `<span>${escapeHtml(item.published_at || '')}</span>` +
+      srcHint +
+      `</span>` +
+      `</div>` +
+      `<div class="publish-row-actions">` +
+      `<button type="button" class="btn ghost" data-edit="${escapeHtml(item.id)}">修改</button>` +
+      `<button type="button" class="btn ghost danger" data-remove="${escapeHtml(item.id)}">下架</button>` +
+      `</div></div>`
+    );
+  }
+
+  function renderManage() {
+    const list = $('manageList');
+    const items = data.published || [];
+    if (!items.length) {
+      list.innerHTML = `<p class="hint">${MANAGE_EMPTY}</p>`;
+      return;
+    }
+    list.innerHTML = items.map(manageRowHtml).join('');
+    list.querySelectorAll('[data-edit]').forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.edit;
+        const item = items.find((x) => String(x.id) === id);
+        if (item) openEditForm(item);
+      };
+    });
+    list.querySelectorAll('[data-remove]').forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.remove;
+        const item = items.find((x) => String(x.id) === id);
+        if (item) removeEntry(item);
+      };
+    });
+  }
+
+  function openEditForm(item) {
+    editTarget = { id: String(item.id) };
+    $('manageEditTitle').textContent = `修改「${item.name}」`;
+    $('manageEditName').value = item.name || '';
+    $('manageEditDesc').value = item.description || '';
+    $('manageEditTags').value = (item.tags || []).join(',');
+    $('manageEditHint').textContent =
+      '只修改市场展示信息，不影响已领取用户；题目内容更新请回「发布文件夹」重新发布。';
+    $('manageEditModal').hidden = false;
+    $('manageEditName').focus();
+  }
+
+  function closeEditForm() {
+    $('manageEditModal').hidden = true;
+    editTarget = null;
+  }
+
+  async function submitEdit() {
+    if (!editTarget) return;
+    const name = $('manageEditName').value.trim();
+    if (!name) {
+      await uiAlert('请填写名称');
+      return;
+    }
+    const tags = $('manageEditTags').value.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+    const btn = $('manageEditSubmit');
+    btn.disabled = true;
+    try {
+      const res = await apiJson('/api/official_banks/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editTarget.id,
+          name: name,
+          description: $('manageEditDesc').value.trim(),
+          tags: tags,
+        }),
+      });
+      if (res.ok === false) {
+        await uiAlert(res.error || '修改失败');
+        return;
+      }
+      closeEditForm();
+      await uiAlert(`已保存「${res.name}」的市场展示信息。`);
+      await loadManage();
+      await loadData();
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function removeEntry(item) {
+    const yes = await uiConfirm(
+      `确定把「${item.name}」从题库市场下架吗？已领取用户不受影响，但新用户将看不到它。`,
+      { title: '下架确认', danger: true, okText: '下架' }
+    );
+    if (!yes) return;
+    const res = await apiJson('/api/official_banks/unpublish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: String(item.id) }),
+    });
+    if (res.ok === false) {
+      await uiAlert(res.error || '下架失败');
+      return;
+    }
+    await uiAlert(`「${item.name}」已从市场下架。`);
+    await loadManage();
+    await loadData();
+  }
+
+  // ---- 初始化 ----
+
   document.querySelectorAll('#publishSwitch .import-switch-btn').forEach((b) => {
-    b.onclick = () => {}; // 仅"发布文件夹"一种类型，无切换
+    b.onclick = () => switchTab(b.dataset.tab || 'publish');
   });
   $('publishFormClose').onclick = () => closePublishForm();
   $('publishFormCancel').onclick = () => closePublishForm();
   $('publishFormSubmit').onclick = () => submitPublish();
   $('publishFormModal').addEventListener('click', (e) => {
     if (e.target === $('publishFormModal')) closePublishForm();
+  });
+  $('manageEditClose').onclick = () => closeEditForm();
+  $('manageEditCancel').onclick = () => closeEditForm();
+  $('manageEditSubmit').onclick = () => submitEdit();
+  $('manageEditModal').addEventListener('click', (e) => {
+    if (e.target === $('manageEditModal')) closeEditForm();
   });
 
   loadData();

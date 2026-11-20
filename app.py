@@ -2555,6 +2555,55 @@ def api_official_banks_publish():
     })
 
 
+@app.route("/api/official_published")
+def api_official_published():
+    """发布台管理：作者名下已上架条目列表。"""
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return jsonify({"ok": False, "error": "只有作者可以管理市场"}), 403
+    return jsonify_user({
+        "ok": True,
+        "published": lykie_official.my_published(g.store.username),
+    })
+
+
+@app.route("/api/official_banks/edit", methods=["POST"])
+def api_official_banks_edit():
+    """修改已上架条目的名称/简介/标签（不升版本、不动内容）。"""
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return jsonify({"ok": False, "error": "只有作者可以修改"}), 403
+    data = request.get_json(force=True) or {}
+    oid = str(data.get("id") or "")
+    tags = data.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    entry, err = lykie_official.edit_official(
+        g.store.username, oid,
+        data.get("name") or "",
+        data.get("description") or "",
+        tags,
+    )
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify_user({
+        "ok": True,
+        "id": entry["id"],
+        "name": entry.get("name") or "",
+    })
+
+
+@app.route("/api/official_banks/unpublish", methods=["POST"])
+def api_official_banks_unpublish():
+    """下架（从市场删除）：仅发布者可操作。"""
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return jsonify({"ok": False, "error": "只有作者可以下架"}), 403
+    data = request.get_json(force=True) or {}
+    oid = str(data.get("id") or "")
+    ok, err = lykie_official.unpublish(g.store.username, oid)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify_user({"ok": True, "id": oid})
+
+
 @app.route("/api/notifications")
 def api_notifications():
     lykie_releases.ensure_release_notification(g.store.username)

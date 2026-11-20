@@ -20,7 +20,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=m130">
   <link rel="stylesheet" href="/static/import.css?v=13">
-  <link rel="stylesheet" href="/static/publish.css?v=1">
+  <link rel="stylesheet" href="/static/publish.css?v=2">
 </head>
 <body class="import-page publish-page">
   <div class="import-shell publish-shell">
@@ -34,12 +34,19 @@
     </header>
 
     <nav class="import-switch" id="publishSwitch" aria-label="发布类型">
-      <button type="button" class="import-switch-btn is-active" data-kind="folder">发布文件夹</button>
+      <button type="button" class="import-switch-btn is-active" data-tab="publish">发布文件夹</button>
+      <button type="button" class="import-switch-btn" data-tab="manage">已上架管理</button>
     </nav>
 
     <main class="import-main">
-      <p class="import-lead" id="publishLead">发布后进入题库市场，所有账号都能按需领取；再次发布同一文件夹 = 更新版本。</p>
-      <section class="publish-list" id="publishList"><p class="hint">加载中…</p></section>
+      <div id="publishPane">
+        <p class="import-lead" id="publishLead">发布后进入题库市场，所有账号都能按需领取；再次发布同一文件夹 = 更新版本。</p>
+        <section class="publish-list" id="publishList"><p class="hint">加载中…</p></section>
+      </div>
+      <div id="managePane" hidden>
+        <p class="import-lead">已上架内容：可修改市场展示信息（名称/简介/标签）或下架；更新题目内容请回「发布文件夹」重新发布。</p>
+        <section class="publish-list" id="manageList"><p class="hint">加载中…</p></section>
+      </div>
     </main>
   </div>
 
@@ -69,7 +76,33 @@
     </div>
   </div>
 
+  <div class="modal" id="manageEditModal" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="manageEditTitle">修改已上架内容</h3>
+        <button type="button" class="btn ghost" id="manageEditClose">关闭</button>
+      </div>
+      <div class="form-field">
+        <label for="manageEditName">名称（显示在题库市场）</label>
+        <input id="manageEditName" maxlength="120">
+      </div>
+      <div class="form-field">
+        <label for="manageEditDesc">简介（可选）</label>
+        <textarea id="manageEditDesc" rows="3" maxlength="300" placeholder="一句话说明适合谁、怎么用"></textarea>
+      </div>
+      <div class="form-field">
+        <label for="manageEditTags">标签（逗号分隔，用于市场筛选）</label>
+        <input id="manageEditTags" placeholder="如：四六级,英语">
+      </div>
+      <p class="hint" id="manageEditHint"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="manageEditCancel">取消</button>
+        <button type="button" class="btn primary" id="manageEditSubmit">保存</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/dialog.js?v=2"></script>
-  <script src="/static/publish.js?v=3"></script>
+  <script src="/static/publish.js?v=4"></script>
 </body>
 </html>

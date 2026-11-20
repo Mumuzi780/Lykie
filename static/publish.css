@@ -53,6 +53,11 @@
   border-color: var(--green);
 }
 
+.publish-badge.is-gone {
+  color: var(--red);
+  border-color: var(--red);
+}
+
 .publish-row-actions {
   flex-shrink: 0;
   display: flex;

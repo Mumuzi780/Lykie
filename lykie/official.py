@@ -726,14 +726,78 @@ def _load_user_folder_meta(username: str) -> list:
     return out
 
 
-def unpublish(oid: str) -> tuple[bool, str]:
+def my_published(username: str) -> list:
+    """管理台：作者名下已上架条目（含来源文件夹是否还在，供前端提示）。"""
+    me = lykie_accounts.normalize_username(username)
     data = load_official()
-    before = len(data.get("official") or [])
-    data["official"] = [
-        o for o in data.get("official") or [] if str(o.get("id")) != str(oid)
-    ]
-    if len(data["official"]) == before:
+    folder_ids = {
+        str(f.get("id"))
+        for f in _load_user_bank_raw(username).get("folders") or []
+        if isinstance(f, dict) and f.get("id") is not None
+    }
+    out = []
+    for o in data.get("official") or []:
+        if not isinstance(o, dict):
+            continue
+        src = o.get("source") or {}
+        if not isinstance(src, dict) or src.get("user") != me:
+            continue
+        try:
+            version = int(o.get("version") or 1)
+        except (TypeError, ValueError):
+            version = 1
+        src_id = str(src.get("src_id") or "")
+        out.append({
+            "id": str(o.get("id") or ""),
+            "name": o.get("name") or "未命名文件夹",
+            "description": o.get("description") or "",
+            "tags": o.get("tags") if isinstance(o.get("tags"), list) else [],
+            "version": version,
+            "total_banks": len(o.get("banks") or []),
+            "total_papers": len(o.get("papers") or []),
+            "published_at": o.get("published_at") or "",
+            "source_folder": src_id if src_id in folder_ids else "",
+        })
+    out.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+    return out
+
+
+def edit_official(username: str, oid: str, name: str, description: str,
+                  tags: list) -> tuple[dict | None, str]:
+    """修改已上架条目的市场元数据（名称/简介/标签）。仅发布者可操作；
+    不升版本、不动内容（版本只随内容发布升级，避免惊扰已领取用户）。"""
+    me = lykie_accounts.normalize_username(username)
+    data = load_official()
+    o = next(
+        (x for x in data.get("official") or []
+         if isinstance(x, dict) and str(x.get("id") or "") == str(oid)),
+        None,
+    )
+    if not o:
+        return None, "这套官方内容不存在"
+    if (o.get("source") or {}).get("user") != me:
+        return None, "只有发布者可以修改"
+    o.update(_meta(name, description, tags))
+    save_official(data)
+    return o, ""
+
+
+def unpublish(username: str, oid: str) -> tuple[bool, str]:
+    """下架（从市场删除）：仅发布者可操作，同时清理官方图片目录。"""
+    me = lykie_accounts.normalize_username(username)
+    data = load_official()
+    o = next(
+        (x for x in data.get("official") or []
+         if isinstance(x, dict) and str(x.get("id") or "") == str(oid)),
+        None,
+    )
+    if not o:
         return False, "没有这套官方内容"
+    if (o.get("source") or {}).get("user") != me:
+        return False, "只有发布者可以下架"
+    data["official"] = [
+        x for x in data.get("official") or [] if str(x.get("id")) != str(oid)
+    ]
     save_official(data)
     lykie_bank_images.remove_bank_images("_official", str(oid))
     return True, ""
