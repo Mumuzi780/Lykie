@@ -1617,7 +1617,7 @@
         // 原文存 data-orig，每次从原文重建（选题后徽章即时更新；重写 innerHTML 毁掉的查词标记由 markBodyMarks 补放）
         if (!p.dataset.orig) p.dataset.orig = p.textContent;
         const orig = p.dataset.orig;
-        const m = /^([A-O])\)/.exec(orig.trim());
+        const m = /^([A-Z])\)/.exec(orig.trim());
         if (!m) return;
         const letter = m[1];
         const nums = byPara[letter] || [];
@@ -1628,7 +1628,7 @@
           return `<span class="${cls}" data-tip="${escapeHtml(stems[n] || '')}">${escapeHtml(n)}</span>`;
         }).join('');
         let html = escapeHtml(orig);
-        html = html.replace(/^(\s*)([A-O])\)/, '$1<span class="rd-para-letter" data-letter="$2">$2)</span>');
+        html = html.replace(/^(\s*)([A-Z])\)/, '$1<span class="rd-para-letter" data-letter="$2">$2)</span>');
         p.innerHTML = `<span class="rd-para-marks">${marks}</span>` + html;
       });
     };

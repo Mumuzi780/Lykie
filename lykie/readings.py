@@ -77,9 +77,10 @@ def save_readings(username: str, data: dict) -> None:
 _QUESTION_RE = re.compile(
     r"^\s*(?:\d{1,3}[\.\)]\s*(?!\d)\S|(?:2[6-9]|[3-5]\d)\s+[A-Z])"
 )
-# 行首「字母+括号」起新段：扩到 A-O——C 节选项(A-D)与 B 节段落标记(A-K)同形，
-# 后者也是段边界（防相邻段被短行启发合并）；词库行的行中词条(I) word)不受行首规则影响
-_OPTION_RE = re.compile(r"^\s*[A-O][\.\)]\s*\S")
+# 行首「字母+括号」起新段：扩到 A-Z——C 节选项(A-D)与 B 节段落标记同形（六级
+# 实卷段落可达 A-R，2025.12/2026.06 第三套），后者也是段边界（防相邻段被短行
+# 启发合并）；词库行的行中词条(I) word)不受行首规则影响
+_OPTION_RE = re.compile(r"^\s*[A-Z][\.\)]\s*\S")
 _MARKER_RE = re.compile(
     r"^(Part\s+(?:[IVX]+|[A-E])\b|Section\s+[A-E]\b"
     r"|Passage\s+(?:One|Two|Three|Four|Five|\d+)\b"
@@ -331,9 +332,11 @@ def _bank_items(p: str) -> list[tuple[str, str]]:
 
 
 def _extract_bank_block(paragraphs: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
-    """全局摘除词库块：连续的纯词条短行段（合计 ≥10 词条才认）。
+    """全局摘除词库块：连续的纯词条行段（合计 ≥10 词条才认）。
     2024 套的 PDF 文本流里词库区会被 Section B 标记提前截走、归错节——
     词库特征极强（A-O 单词短行），全局识别比节内识别可靠。
+    整行纯词条不限行长：标准化真题模板词库单行 15 词（~180 字符），
+    _BANK_LINE_FULL_RE 整行匹配本身已是强特征（C 节选项句/B 节正文段不匹配）。
     返回 (剩余段落, 词库)。"""
     keep: list[str] = []
     bank: list[tuple[str, str]] = []
@@ -341,12 +344,12 @@ def _extract_bank_block(paragraphs: list[str]) -> tuple[list[str], list[tuple[st
     while i < n:
         p = paragraphs[i]
         s = p.strip()
-        if len(s) < 100 and _BANK_LINE_FULL_RE.match(s):
+        if _BANK_LINE_FULL_RE.match(s):
             j = i
             block: list[tuple[str, str]] = []
             while j < n:
                 q = paragraphs[j].strip()
-                if len(q) >= 100 or not _BANK_LINE_FULL_RE.match(q):
+                if not _BANK_LINE_FULL_RE.match(q):
                     break
                 block.extend(_bank_items(q))
                 j += 1
@@ -385,7 +388,9 @@ def _blank_nums(sentence: str) -> list[str]:
     """句中裸空格数字。两种形式分开认，避免宽正则的吞并副作用：
     1. `___33___` 下划线包裹——必为空格标记（年份/数量词不会带下划线），直接收；
     2. 空格包裹且两侧贴文字/标点——lookbehind 拒数字（防 `20,000` 尾 0 吞掉 `___`），
-       lookahead 放宽数字（兼容 `for 29 40,000 words`），26-55 区间过滤误伤（19xx 年份、40,000）。"""
+       lookahead 放宽数字（兼容 `for 29 40,000 words`）。仅限选词填空空号 26-35：
+       正文数量词（"42 countries"、"42 female lawmakers"）天然排除，19xx 年份、
+       40,000 也不在区间。"""
     out: list[str] = []
     seen: set[str] = set()
     for m in re.finditer(r"_+(\d{1,2})_+", sentence):
@@ -395,7 +400,7 @@ def _blank_nums(sentence: str) -> list[str]:
             out.append(n)
     for m in re.finditer(r"(?<=[a-zA-Z,\"\(\u201c\u2018])\s(\d{1,2})\s(?=[a-zA-Z,\.\"\)\u201d\u2019\d])", sentence):
         n = m.group(1)
-        if 26 <= int(n) <= 55 and n not in seen:
+        if 26 <= int(n) <= 35 and n not in seen:
             seen.add(n)
             out.append(n)
     return out
@@ -439,7 +444,7 @@ def _section_b(paras: list[str]) -> tuple[list[str], list[dict]]:
     for p in paras:
         if _is_directions(p):
             continue
-        m = re.match(r"^([A-O])\)\s*(.{80,})", p, re.DOTALL)
+        m = re.match(r"^([A-Z])\)\s*(.{80,})", p, re.DOTALL)
         if m and m.group(2).count(" ") > 10:
             para_letters.append(m.group(1).upper())
             articles.append(p)
@@ -1052,8 +1057,9 @@ def get_notes(username: str, text_id: str) -> list[dict]:
 
 # ==================== 站内作答：答案键 / 作答 / 判分 ====================
 
-_ANSWER_RANGE_RE = re.compile(r"(\d{1,2})\s*[-–~]\s*(\d{1,2})\s*[:：]?\s*([A-Oa-o][\sA-Oa-o\-]*)")
-_ANSWER_PAIR_RE = re.compile(r"(\d{1,2})\s*[\.\,:：\)）]?\s*([A-Oa-o])\b")
+# 答案字母 A-Z：段落匹配答案可超 O（六级实卷 16/18 段，A-P/A-R）
+_ANSWER_RANGE_RE = re.compile(r"(\d{1,2})\s*[-–~]\s*(\d{1,2})\s*[:：]?\s*([A-Za-z][\sA-Za-z\-]*)")
+_ANSWER_PAIR_RE = re.compile(r"(\d{1,2})\s*[\.\,:：\)）]?\s*([A-Za-z])\b")
 
 
 def parse_answer_key(raw) -> dict:
@@ -1068,7 +1074,7 @@ def parse_answer_key(raw) -> dict:
     # 连写区间：26-35 ABCDEFGHIJ
     def expand_range(m: re.Match) -> str:
         start, end = int(m.group(1)), int(m.group(2))
-        letters = re.findall(r"[A-Oa-o]", m.group(3))
+        letters = re.findall(r"[A-Za-z]", m.group(3))
         if letters and 1 <= end - start + 1 <= 20:
             for i, ch in enumerate(letters[: end - start + 1]):
                 key[str(start + i)] = ch.upper()
