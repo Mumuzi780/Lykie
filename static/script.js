@@ -444,6 +444,9 @@ function renderBankList(allBanks) {
     }
     list.appendChild(empty);
   }
+
+  // 阅读期间侧栏重渲染：滚动联动高亮需要重放
+  if (document.body.classList.contains('mode-reading')) syncReadingSidebar();
 }
 
 // ---- 试卷影子条目：一卷多节入口投影（数据在 readings.json，不进题库管道） ----
@@ -502,6 +505,7 @@ function makePaperLi(p, opts) {
   const li = document.createElement('li');
   li.className = 'bank-item paper-item' + (opts.archived ? ' bank-item-archived' : '');
   li.dataset.textId = String(p.id);
+  li.dataset.sec = String(opts.sec || ''); // 试卷节 key（C1/bank/match/translation），滚动联动高亮用
   li.innerHTML =
     `<div class="bank-name">${opts.badge ? `<span class="paper-badge">${escapeHtml(opts.badge)}</span>` : ''}${escapeHtml(opts.name)}</div>` +
     `<div class="bank-meta">${escapeHtml(opts.meta)}</div>`;
@@ -546,6 +550,7 @@ async function applyReadingView(textId, sec, paper) {
   if (rv) rv.hidden = false;
   document.querySelectorAll('.rd-bubble, .rd-toast').forEach((el) => el.remove());
   if (window.RD) window.RD.init(res, { sec: sec || '', paper: paper || '' });
+  syncReadingSidebar(sec || undefined); // 进入即联动侧栏高亮（有 sec 先亮目标节）
   const assetsLink = $('assetsLink');
   if (assetsLink) assetsLink.href = '/assets?back=' + encodeURIComponent(`/?read=${textId}`);
 }
@@ -565,7 +570,58 @@ function showStudyView() {
   document.querySelectorAll('.rd-bubble, .rd-picker-panel, .rd-toast').forEach((el) => el.remove());
   const assetsLink = $('assetsLink');
   if (assetsLink) assetsLink.href = '/assets';
+  syncReadingSidebar(); // 恢复盘高亮、清掉试卷节高亮
 }
+
+// ---- 阅读态滚动联动：正文滚到哪一节，侧栏对应试卷节条目亮起 ----
+function syncReadingSidebar(preferSec) {
+  const reading = document.body.classList.contains('mode-reading');
+  // 先清试卷节高亮
+  document.querySelectorAll('#bankList .bank-item.paper-item').forEach((li) => li.classList.remove('active'));
+  if (!reading) {
+    // 非阅读态：恢复题库条目自身的选中态（阅读期间被压灭；模考激活时同样不亮）
+    const mockCol =
+      window.LykieMock && typeof LykieMock.getActiveCollectionId === 'function'
+        ? LykieMock.getActiveCollectionId()
+        : null;
+    document.querySelectorAll('#bankList .bank-item:not(.paper-item)').forEach((li) => {
+      li.classList.toggle('active', !mockCol && !!currentBankId && li.dataset.bankId === String(currentBankId));
+    });
+    return;
+  }
+  // 阅读态：题库条目不亮（此时亮的是试卷节）
+  document.querySelectorAll('#bankList .bank-item:not(.paper-item)').forEach((li) => li.classList.remove('active'));
+  const textId = new URLSearchParams(location.search).get('read') || '';
+  if (!textId) return;
+  const matchLi = (sec) => document.querySelector(
+    `#bankList .paper-item[data-text-id="${CSS.escape(textId)}"][data-sec="${CSS.escape(String(sec))}"]`
+  );
+  // 点侧栏节条目进入时优先亮目标节（smooth 滚动完成前先给即时反馈）
+  if (preferSec !== undefined) {
+    const li = matchLi(preferSec);
+    if (li) { li.classList.add('active'); return; }
+  }
+  // 滚动侦测：找阈值线（140px，标题区之下）所在的节
+  const passes = Array.from(document.querySelectorAll('#rdPassHost .rd-pass'));
+  if (!passes.length) return;
+  const TH = 140;
+  let cur = passes[0];
+  for (const p of passes) {
+    if (p.getBoundingClientRect().top <= TH) cur = p; else break;
+  }
+  const li = matchLi(cur.dataset.key || '');
+  if (li) li.classList.add('active');
+}
+
+// 正文区滚动 → rAF 节流联动（capture 捕获 .card-area 滚动；其他容器滚动不触发）
+let rdSpyTick = false;
+window.addEventListener('scroll', (ev) => {
+  if (rdSpyTick || !document.body.classList.contains('mode-reading')) return;
+  const t = ev.target;
+  if (t !== document && !(t.classList && t.classList.contains('card-area'))) return;
+  rdSpyTick = true;
+  requestAnimationFrame(() => { rdSpyTick = false; syncReadingSidebar(); });
+}, true);
 
 window.addEventListener('popstate', () => {
   const params = new URLSearchParams(location.search);
@@ -4328,6 +4384,8 @@ function refreshCelestial() {
     if (rv) rv.hidden = false;
     const a = $('assetsLink');
     if (a) a.href = '/assets?back=' + encodeURIComponent(`/?read=${window.RD_BOOT.text.id}`);
+    // reading.js 稍后自举渲染正文，load 后联动一次初始侧栏高亮（后续滚动由 scroll 侦测接管）
+    window.addEventListener('load', () => syncReadingSidebar());
   }
 
   const replay = $('lykieReplayStoryBtn');
