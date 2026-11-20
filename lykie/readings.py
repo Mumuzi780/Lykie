@@ -70,7 +70,13 @@ def save_readings(username: str, data: dict) -> None:
 
 
 # CET 感知分段：题号/选项/题区标记行识别（只插段落边界，不动任何正文字符）
-_QUESTION_RE = re.compile(r"^\s*\d{1,3}[\.\)]\s*(?!\d)\S")
+# 题号行两种形态：数字+点/括号（46. 46)），或 PDF 文本层漏点号的裸数字+空格+大写字母
+# （实卷存在："48 What may..."、"43 People ate..."、"40 Leah's..."——2024.06/2017.06 四级、
+# 2013.06 六级）。裸数字限定阅读题号区间 26-55：排除小数/年份与行首数字正文
+# （"50 percent" 小写不认；331 份真题 PDF 全量扫描无区间内误伤）
+_QUESTION_RE = re.compile(
+    r"^\s*(?:\d{1,3}[\.\)]\s*(?!\d)\S|(?:2[6-9]|[3-5]\d)\s+[A-Z])"
+)
 # 行首「字母+括号」起新段：扩到 A-O——C 节选项(A-D)与 B 节段落标记(A-K)同形，
 # 后者也是段边界（防相邻段被短行启发合并）；词库行的行中词条(I) word)不受行首规则影响
 _OPTION_RE = re.compile(r"^\s*[A-O][\.\)]\s*\S")
@@ -82,8 +88,23 @@ _MARKER_RE = re.compile(
 )
 _SENT_END_RE = re.compile(r"[.!?][\"')\]]?$")
 
-_QUESTION_HEAD_RE = re.compile(r"^\s*(\d{1,3})[\.\)]\s*(?!\d)\S")
+_QUESTION_HEAD_RE = re.compile(
+    r"^\s*(?:(\d{1,3})[\.\)]\s*(?!\d)\S|((?:2[6-9]|[3-5]\d))\s+[A-Z])"
+)
 _OPTION_HEAD_RE = re.compile(r"^\s*[A-F][\.\)]\s*\S")
+# 题干前缀剥离（stem 提取用）：题号+点/括号（46. 46)）或裸数字（"48 What..."）
+_QUESTION_PREFIX_RE = re.compile(
+    r"^\s*(?:\d{1,3}[\.\)]|(?:2[6-9]|[3-5]\d))[\s\.\)]*"
+)
+
+
+def _question_head_num(p: str) -> str | None:
+    """题号行 → 题号字符串；非题号行返回 None。兼容漏点号的裸数字题号
+    （"48 What..." 组 1 为空、组 2 命中）。"""
+    m = _QUESTION_HEAD_RE.match(p)
+    if not m:
+        return None
+    return m.group(1) or m.group(2)
 
 # 节感知（全题型）：词库词条（A) word，一行可两词）、Directions 段、Part/Section 标记
 _BANK_ITEM_RE = re.compile(r"([A-O])\)\s*([A-Za-z][A-Za-z\-\'\.]*)")
@@ -147,7 +168,7 @@ def _split_legacy(paragraphs: list[str], kind: str = "", options_all: bool = Fal
     while i < n:
         p = paragraphs[i]
         if is_question_start(p) and not is_body(p):
-            num = _QUESTION_HEAD_RE.match(p).group(1)
+            num = _question_head_num(p)
             q: dict = {"num": num, "paras": [p]}
             j = i + 1
             while j < n:
@@ -167,12 +188,14 @@ def _split_legacy(paragraphs: list[str], kind: str = "", options_all: bool = Fal
                     if not m:
                         break
                     # 两栏 PDF 排版：A/C 同行、B/D 同行——行内出现更大的选项标记时切开。
-                    # 条件：标记字母距行首 key ≥2（两栏排版必然跳档；相邻字母如正文里
-                    # "plan B) " 的字面量是 A→B 差 1，不切，防误伤）。
+                    # 括号后接空格与否都认（实卷排版 "C)Our..." 无空格，331 份扫描
+                    # 89 处内联标记无一在 ) 后带空格）。条件：标记字母距行首 key ≥2
+                    # （两栏排版必然跳档；相邻字母如正文里 "plan B) " 的字面量是 A→B
+                    # 差 1，不切，防误伤）。
                     pieces = [(m.group(1), m.group(2).strip())]
                     while True:
                         k, t = pieces[-1]
-                        im = re.search(r"\s+([B-F])[\.\)]\s+(\S.*)$", t)
+                        im = re.search(r"\s+([B-F])[\.\)]\s*(\S.*)$", t)
                         if not im or ord(im.group(1)) - ord(k) < 2:
                             break
                         pieces[-1] = (k, t[:im.start()].rstrip())
@@ -180,8 +203,9 @@ def _split_legacy(paragraphs: list[str], kind: str = "", options_all: bool = Fal
                     for k, t in reversed(pieces):
                         opts.insert(0, {"key": k, "text": t})
                     stem_end -= 1
+                opts.sort(key=lambda x: x["key"])
                 raw_stem = " ".join(q["paras"][:stem_end]) if stem_end else q["paras"][0]
-                q["stem"] = re.sub(r"^\s*\d{1,3}[\.\)]\s*", "", raw_stem.strip()) or raw_stem
+                q["stem"] = _QUESTION_PREFIX_RE.sub("", raw_stem.strip()) or raw_stem
                 q["options"] = opts
             questions.append(q)
             i = j
@@ -420,9 +444,9 @@ def _section_b(paras: list[str]) -> tuple[list[str], list[dict]]:
             para_letters.append(m.group(1).upper())
             articles.append(p)
         elif _QUESTION_HEAD_RE.match(p):
-            questions.append({"num": _QUESTION_HEAD_RE.match(p).group(1),
+            questions.append({"num": _question_head_num(p),
                               "kind": "match",
-                              "stem": re.sub(r"^\s*\d{1,3}[\.\)]\s*", "", p.strip()) or p,
+                              "stem": _QUESTION_PREFIX_RE.sub("", p.strip()) or p,
                               "paras": [p]})
         elif questions and len(p) < 120:
             questions[-1].setdefault("paras", []).append(p)
