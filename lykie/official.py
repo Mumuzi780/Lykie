@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """官方题库库：全站共享内容，用户按需领取为「文件夹」。
 
-官方条目统一为文件夹形态：
-- kind=folder：作者整理的文件夹，内含若干独立题库（banks）和/或试卷（papers）。
-- kind=paper ：一套英语试卷 = 一个单试卷文件夹（papers 只有一项）。
+官方条目统一为文件夹形态（kind=folder）：作者整理的文件夹，内含若干独立题库
+（banks）和/或试卷（papers）。一套英语试卷 = 一个含单张试卷的文件夹，试卷命名
+唯一来源 = 文件夹名。历史 kind=paper 条目由 _migrate_paper_to_folder 惰性转换。
 
 领取 = 在领取者侧栏创建同名文件夹，把每套题库深拷贝挂进去（进度归零、
 id 重排），每套试卷整体落为对方 readings.json 里的试卷记录并挂同一文件夹。
@@ -41,7 +41,8 @@ def _empty() -> dict:
 
 
 def _migrate_entry(o: dict) -> bool:
-    """旧结构 → 文件夹形态：questions/mode 聚合成单套题库；paper_content 转为单试卷。"""
+    """第一层迁移：旧结构 → 文件夹形态。questions/mode 聚合成单套题库；
+    paper_content 转为单试卷。"""
     if "banks" in o or "papers" in o:
         return False
     o["banks"] = []
@@ -62,6 +63,59 @@ def _migrate_entry(o: dict) -> bool:
     return True
 
 
+def _find_paper_folder_id(username: str, text_id: str) -> str | None:
+    """在作者 readings 中找源卷的有效文件夹（folder_id 指向现存文件夹）。"""
+    if not username or not text_id:
+        return None
+    data = lykie_readings.load_readings(username)
+    t = next(
+        (x for x in data.get("texts") or []
+         if isinstance(x, dict) and x.get("is_paper")
+         and str(x.get("id") or "") == str(text_id)),
+        None,
+    )
+    if not t:
+        return None
+    fid = t.get("folder_id")
+    if fid in (None, ""):
+        return None
+    bank = _load_user_bank_raw(username)
+    valid = {str(f.get("id")) for f in bank.get("folders") or [] if f.get("id") is not None}
+    return str(fid) if str(fid) in valid else None
+
+
+def _migrate_paper_to_folder(o: dict) -> bool:
+    """第二层迁移：废弃 kind=paper，转文件夹形态（幂等：转后 kind=folder 不再命中）。
+    源卷文件夹仍有效则绑定 folder_id（保住发布台更新链），否则以 text_id 为稳定键
+    （条目继续在市场供领取）。旧 id 记入 legacy_id 供用户侧 claimed 映射。"""
+    if not isinstance(o, dict) or o.get("kind") != "paper":
+        return False
+    src = o.get("source") or {}
+    if not isinstance(src, dict) or src.get("kind") != "paper":
+        return False
+    text_id = str(src.get("src_id") or "")
+    if not text_id:
+        return False
+    author = src.get("user") or ""
+    old_id = str(o.get("id") or "")
+    fid = _find_paper_folder_id(author, text_id)
+    new_key = fid or text_id
+    o["legacy_id"] = old_id
+    o["id"] = f"off_folder_{new_key}"
+    o["kind"] = "folder"
+    o["source"] = {"user": author, "kind": "folder", "src_id": new_key}
+    return True
+
+
+def legacy_official_id_map() -> dict:
+    """旧官方条目 id → 迁移后 id（供用户侧 claimed 记录映射）。"""
+    out: dict = {}
+    for o in load_official().get("official") or []:
+        if isinstance(o, dict) and o.get("legacy_id"):
+            out[str(o["legacy_id"])] = str(o.get("id") or "")
+    return out
+
+
 def load_official() -> dict:
     if not os.path.exists(OFFICIAL_FILE):
         return _empty()
@@ -77,6 +131,9 @@ def load_official() -> dict:
     dirty = False
     for o in data.get("official") or []:
         if isinstance(o, dict) and _migrate_entry(o):
+            dirty = True
+    for o in data.get("official") or []:
+        if _migrate_paper_to_folder(o):
             dirty = True
     if dirty:
         save_official(data)
@@ -100,6 +157,137 @@ def save_official(data: dict) -> None:
         except OSError:
             pass
         raise
+
+
+# ==================== 用户存量迁移：试卷归文件夹 ====================
+
+def _unique_paper_folder_name(folders: list, name: str) -> str:
+    """重名唯一化（区别于 ensure_folder 的同名复用：迁移必须新建专属夹）。"""
+    base = str(name or "").strip() or "未命名试卷"
+    taken = {str(f.get("name") or "") for f in folders if isinstance(f, dict)}
+    if base not in taken:
+        return base
+    i = 2
+    while f"{base} {i}" in taken:
+        i += 1
+    return f"{base} {i}"
+
+
+def _new_migrate_folder(folders: list, name: str, official_id=None,
+                        official_version=None) -> str:
+    """迁移建夹并返回 id；official_id/official_version 用于修复 claimed 记录。"""
+    fid = _new_id()
+    folder = {
+        "id": fid,
+        "name": _unique_paper_folder_name(folders, name),
+        "created_at": now_str(),
+    }
+    if official_id:
+        folder["official_id"] = str(official_id)
+        try:
+            folder["official_version"] = int(official_version or 1)
+        except (TypeError, ValueError):
+            folder["official_version"] = 1
+    folders.append(folder)
+    return fid
+
+
+def migrate_user_papers(username: str, bank_data: dict, readings_data: dict,
+                        official_map: dict) -> bool:
+    """用户存量迁移（幂等）：试卷命名/归属统一到文件夹。
+    - 挂夹正常 → title 同步为文件夹名（命名唯一来源）
+    - 无夹/失效夹 → 建专属夹（重名唯一化）；官方卷同步修复 claimed 记录
+    - 多卷同夹（防御）→ 拆分，除第一张外各建专属夹
+    - folders 的 official_id 按官方条目迁移映射更新
+    返回是否有改动（落盘由调用方负责）。"""
+    changed = False
+    folders = bank_data.get("folders")
+    if not isinstance(folders, list):
+        folders = []
+        bank_data["folders"] = folders
+    fmap = {str(f.get("id")): f for f in folders
+            if isinstance(f, dict) and f.get("id") is not None}
+
+    # 官方 id 映射：folder.official_id 跟随官方条目迁移
+    for f in folders:
+        if not isinstance(f, dict):
+            continue
+        oid = f.get("official_id")
+        if oid and str(oid) in official_map:
+            f["official_id"] = official_map[str(oid)]
+            changed = True
+
+    texts = readings_data.get("texts")
+    if not isinstance(texts, list):
+        texts = []
+        readings_data["texts"] = texts
+
+    for t in texts:
+        if not isinstance(t, dict) or not t.get("is_paper"):
+            continue
+        fid = t.get("folder_id")
+        f = fmap.get(str(fid)) if fid not in (None, "") else None
+        if f is not None:
+            fname = str(f.get("name") or "")
+            if fname and t.get("title") != fname:
+                t["title"] = fname
+                changed = True
+            continue
+        # 无夹或失效夹：建专属夹
+        oid = t.get("official_id")
+        if oid and str(oid) in official_map:
+            oid = official_map[str(oid)]
+            t["official_id"] = oid
+            changed = True
+        new_fid = _new_migrate_folder(
+            folders,
+            str(t.get("title") or "").strip() or "未命名试卷",
+            official_id=oid,
+            official_version=t.get("official_version"),
+        )
+        t["folder_id"] = new_fid
+        fmap[new_fid] = next(f2 for f2 in folders if str(f2.get("id")) == new_fid)
+        changed = True
+
+    # 多卷同夹拆分（防御）：组内 >1 张 → 除第一张外各建专属夹
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for t in texts:
+        if isinstance(t, dict) and t.get("is_paper"):
+            fid = t.get("folder_id")
+            if fid not in (None, ""):
+                groups[str(fid)].append(t)
+    for members in groups.values():
+        if len(members) <= 1:
+            continue
+        for t in members[1:]:
+            oid = t.get("official_id")
+            if oid and str(oid) in official_map:
+                oid = official_map[str(oid)]
+                t["official_id"] = oid
+                changed = True
+            new_fid = _new_migrate_folder(
+                folders,
+                str(t.get("title") or "").strip() or "未命名试卷",
+                official_id=oid,
+                official_version=t.get("official_version"),
+            )
+            t["folder_id"] = new_fid
+            changed = True
+    return changed
+
+
+def migrate_user(username: str) -> bool:
+    """文件层用户迁移封装（供无 store 上下文入口调用，如发布台）。"""
+    bank_data = _load_user_bank_raw(username)
+    readings_data = lykie_readings.load_readings(username)
+    changed = migrate_user_papers(
+        username, bank_data, readings_data, legacy_official_id_map()
+    )
+    if changed:
+        _save_user_bank_raw(username, bank_data)
+        lykie_readings.save_readings(username, readings_data)
+    return changed
 
 
 def _load_user_bank_raw(username: str) -> dict:
@@ -297,7 +485,7 @@ def claim_official(username: str, oid: str) -> tuple[dict | None, str]:
     return {"folder_id": folder_id, "name": folder["name"], "kind": kind}, ""
 
 
-# ==================== 发布（文件夹 / 试卷） ====================
+# ==================== 发布（文件夹） ====================
 
 def _strip_progress(questions: list) -> list:
     out = []
@@ -361,8 +549,17 @@ def _upsert_entry(username: str, kind: str, src_id: str, **fields) -> dict:
     return out
 
 
+def _folder_name(username: str, folder_id) -> str:
+    """查文件夹实际名称（发布打包试卷命名用：命名唯一来源 = 文件夹名）。"""
+    data = _load_user_bank_raw(username)
+    for f in data.get("folders") or []:
+        if isinstance(f, dict) and str(f.get("id") or "") == str(folder_id):
+            return str(f.get("name") or "")
+    return ""
+
+
 def publish_folder(username: str, folder_id: str, name: str, description: str, tags: list) -> tuple[dict | None, str]:
-    """发布文件夹：内部题库 / 试卷保持独立，原样打包。"""
+    """发布文件夹：内部题库 / 试卷保持独立，原样打包。试卷命名取文件夹名。"""
     banks_out = []
     src_bank_ids = []  # 与 banks_out 平行：来源题库 id（图片随行用）
     members = [
@@ -381,14 +578,18 @@ def publish_folder(username: str, folder_id: str, name: str, description: str, t
         })
         src_bank_ids.append(str(b.get("id") or ""))
     papers_out = []
+    src_text_ids = []  # 本次打包卷 text_id（发布后清理历史"试卷"条目用）
+    folder_name = _folder_name(username, folder_id)
     for p in _user_papers(username):
         if str(p.get("folder_id") or "") == str(folder_id) and not p.get("archived"):
             content = p.get("content") or ""
             if content.strip():
                 papers_out.append({
-                    "name": p.get("title") or "未命名试卷",
+                    "name": folder_name or p.get("title") or "未命名试卷",
                     "content": content,
+                    "_src_text_id": str(p.get("id") or ""),
                 })
+                src_text_ids.append(str(p.get("id") or ""))
     if not banks_out and not papers_out:
         return None, "这个文件夹是空的，没有可发布的内容"
     # 题目图片随行：拷到官方条目目录，文件名加 bN_ 前缀避免跨题库撞名。
@@ -413,24 +614,36 @@ def publish_folder(username: str, folder_id: str, name: str, description: str, t
         papers=papers_out,
         **_meta(name, description, tags),
     )
+    _cleanup_legacy_paper_entries(username, folder_id, src_text_ids)
     return entry, ""
 
 
-def publish_paper(username: str, text_id: str, name: str, description: str, tags: list) -> tuple[dict | None, str]:
-    """发布试卷：一套试卷 = 一个单试卷文件夹。"""
-    paper = lykie_readings.get_text(username, text_id)
-    if not paper or not paper.get("is_paper"):
-        return None, "试卷不存在"
-    content = paper.get("content") or ""
-    if not content.strip():
-        return None, "试卷内容为空，无法发布"
-    entry = _upsert_entry(
-        username, "paper", str(text_id),
-        banks=[],
-        papers=[{"name": paper.get("title") or "未命名试卷", "content": content}],
-        **_meta(name or paper.get("title"), description, tags),
-    )
-    return entry, ""
+def _cleanup_legacy_paper_entries(username: str, folder_id: str, src_text_ids: list) -> int:
+    """发布文件夹后清理历史"试卷"条目：作者名下 kind=folder 且 src_id 为本次打包卷
+    text_id（非当前 folder_id）的条目——即 kind=paper 迁移产物，避免市场重复上架。"""
+    if not src_text_ids:
+        return 0
+    me = lykie_accounts.normalize_username(username)
+    data = load_official()
+    ids = set(src_text_ids)
+    cur = str(folder_id)
+    doomed_ids = {
+        str(o.get("id") or "")
+        for o in data.get("official") or []
+        if isinstance(o, dict)
+        and o.get("kind") == "folder"
+        and (o.get("source") or {}).get("user") == me
+        and str((o.get("source") or {}).get("src_id") or "") in ids
+        and str((o.get("source") or {}).get("src_id") or "") != cur
+    }
+    if not doomed_ids:
+        return 0
+    data["official"] = [
+        o for o in data.get("official") or []
+        if not (isinstance(o, dict) and str(o.get("id") or "") in doomed_ids)
+    ]
+    save_official(data)
+    return len(doomed_ids)
 
 
 # ==================== 发布台数据 ====================
@@ -457,7 +670,7 @@ def _published_map(username: str) -> dict:
 
 
 def publishables(username: str) -> dict:
-    """发布台可选对象：我的文件夹 / 我的试卷（带已上架版本与 meta）。"""
+    """发布台可选对象：我的文件夹（试卷随文件夹发布，无独立"试卷"入口）。"""
     published = _published_map(username)
 
     def _pub(kind: str, src_id) -> dict:
@@ -481,16 +694,7 @@ def publishables(username: str) -> dict:
             "paper_count": f.get("paper_count", 0),
             **_pub("folder", f.get("id")),
         })
-    papers = []
-    for p in _user_papers(username):
-        sections = lykie_readings._paper_sections(p)
-        papers.append({
-            "id": p.get("id"),
-            "title": p.get("title") or "未命名试卷",
-            "section_count": len(sections),
-            **_pub("paper", p.get("id")),
-        })
-    return {"folders": folders, "papers": papers}
+    return {"folders": folders}
 
 
 def _load_user_folder_meta(username: str) -> list:

@@ -784,8 +784,9 @@ async function onBankDragEnd(e) {
       await refreshBanks();
       return;
     }
-    // 活跃卷：移入文件夹/移出
-    const targetFolderId = navTargetId === 'uncategorized' ? null : navTargetId;
+    // 活跃卷：试卷必须归属文件夹，只能移入文件夹，不能拖到「未分类」
+    if (navTargetId === 'uncategorized') return;
+    const targetFolderId = navTargetId;
     if (String(folderId || '') !== String(targetFolderId || '')) {
       const res = await api('/api/reading/paper/move', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1193,15 +1194,9 @@ function renderMarketList() {
   }
   list.innerHTML = shown.map((o) => {
     const chips = (o.tags || []).map((t) => `<span class="market-chip">${escapeHtml(t)}</span>`).join('');
-    const isPaper = o.kind === 'paper';
-    const kindChip = `<span class="market-chip market-kind-chip">${isPaper ? '试卷' : '文件夹'}</span>`;
-    let sizeText;
-    if (isPaper) {
-      sizeText = '完整试卷';
-    } else {
-      sizeText = `${o.total_banks} 套题库`;
-      if (o.total_papers) sizeText += ` · ${o.total_papers} 套试卷`;
-    }
+    const kindChip = `<span class="market-chip market-kind-chip">文件夹</span>`;
+    let sizeText = `${o.total_banks} 套题库`;
+    if (o.total_papers) sizeText += ` · ${o.total_papers} 套试卷`;
     let actions;
     if (o.update_available) {
       actions =

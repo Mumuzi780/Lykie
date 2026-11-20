@@ -1,19 +1,14 @@
-/* 官方题库发布台：文件夹 / 试卷 → 题库市场（领取者得到同名文件夹） */
+/* 官方题库发布台：文件夹 → 题库市场（一套试卷 = 一个文件夹，无独立"试卷"入口） */
 (function () {
   const $ = (id) => document.getElementById(id);
 
-  const LEAD = {
-    folder: '发布文件夹：内部题库与试卷保持独立、原样打包；领取者会收到一个同名文件夹。',
-    paper: '一套试卷 = 一个文件夹：发布后领取者收到一个文件夹，里面是这张完整试卷。',
-  };
-  const EMPTY = {
-    folder: '还没有文件夹。去背题页侧栏新建文件夹，把题库/试卷拖进去，再回来上架。',
-    paper: '还没有试卷。去「导入 → 导入试卷」生成试卷，再回来上架。',
-  };
+  const LEAD =
+    '发布文件夹：内部题库与试卷保持独立、原样打包；试卷名与文件夹名一致。领取者会收到一个同名文件夹。';
+  const EMPTY =
+    '还没有文件夹。去背题页侧栏新建文件夹，把题库/试卷拖进去，再回来上架。';
 
-  let data = { folders: [], papers: [] };
-  let activeKind = 'folder';
-  let formTarget = null; // { kind, id, meta }
+  let data = { folders: [] };
+  let formTarget = null; // { id }
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
@@ -54,19 +49,7 @@
       list.innerHTML = `<p class="hint">${escapeHtml(res.error || '加载失败')}</p>`;
       return;
     }
-    data = {
-      folders: res.folders || [],
-      papers: res.papers || [],
-    };
-    renderList();
-  }
-
-  function switchKind(kind) {
-    activeKind = kind;
-    document.querySelectorAll('#publishSwitch .import-switch-btn').forEach((b) => {
-      b.classList.toggle('is-active', b.dataset.kind === kind);
-    });
-    $('publishLead').textContent = LEAD[kind] || LEAD.folder;
+    data = { folders: res.folders || [] };
     renderList();
   }
 
@@ -96,51 +79,33 @@
     );
   }
 
-  function paperRowHtml(item) {
-    const v = item.published_version || 0;
-    return (
-      `<div class="publish-row">` +
-      `<div class="publish-row-main">` +
-      `<span class="publish-row-title">${escapeHtml(item.title)}</span>` +
-      `<span class="publish-row-meta"><span>${item.section_count} 个节</span>${liveBadge(v)}</span>` +
-      `</div>` +
-      `<div class="publish-row-actions">` +
-      `<button type="button" class="btn ghost" data-publish="paper" data-id="${escapeHtml(item.id)}">${v ? '更新' : '发布'}</button>` +
-      `</div></div>`
-    );
-  }
-
   function renderList() {
     const list = $('publishList');
-    const items = data[activeKind + 's'] || [];
+    const items = data.folders || [];
     if (!items.length) {
-      list.innerHTML = `<p class="hint">${EMPTY[activeKind] || '没有可发布的内容'}</p>`;
+      list.innerHTML = `<p class="hint">${EMPTY}</p>`;
       return;
     }
-    list.innerHTML = items
-      .map((it) => (activeKind === 'folder' ? folderRowHtml(it) : paperRowHtml(it)))
-      .join('');
+    list.innerHTML = items.map(folderRowHtml).join('');
     list.querySelectorAll('[data-publish]').forEach((b) => {
       b.onclick = () => {
         const id = b.dataset.id;
         const item = items.find((x) => String(x.id) === id);
-        if (item) openPublishForm(activeKind, item);
+        if (item) openPublishForm(item);
       };
     });
   }
 
-  function openPublishForm(kind, item) {
-    formTarget = { kind, id: String(item.id) };
+  function openPublishForm(item) {
+    formTarget = { id: String(item.id) };
     const v = item.published_version || 0;
     $('publishFormTitle').textContent =
-      `${kind === 'paper' ? '发布试卷' : '发布文件夹'}${v ? `（更新 v${v} → v${v + 1}）` : ''}`;
-    $('publishName').value = item.published_name || item.name || item.title || '';
+      `发布文件夹${v ? `（更新 v${v} → v${v + 1}）` : ''}`;
+    $('publishName').value = item.published_name || item.name || '';
     $('publishDesc').value = item.published_description || '';
     $('publishTags').value = (item.published_tags || []).join(',');
     $('publishFormHint').textContent =
-      kind === 'folder'
-        ? `「${item.name}」将按原结构上架（${item.bank_count} 套题库、${item.paper_count} 套试卷）。领取者收到同名文件夹。`
-        : '领取者会在侧栏收到一个文件夹，里面是这张完整试卷。';
+      `「${item.name}」将按原结构上架（${item.bank_count} 套题库、${item.paper_count} 套试卷）。领取者收到同名文件夹。`;
     $('publishFormModal').hidden = false;
     $('publishName').focus();
   }
@@ -165,7 +130,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: formTarget.kind,
+          kind: 'folder',
           id: formTarget.id,
           name: name,
           description: $('publishDesc').value.trim(),
@@ -191,7 +156,7 @@
   }
 
   document.querySelectorAll('#publishSwitch .import-switch-btn').forEach((b) => {
-    b.onclick = () => switchKind(b.dataset.kind);
+    b.onclick = () => {}; // 仅"发布文件夹"一种类型，无切换
   });
   $('publishFormClose').onclick = () => closePublishForm();
   $('publishFormCancel').onclick = () => closePublishForm();

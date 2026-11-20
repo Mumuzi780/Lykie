@@ -707,16 +707,17 @@ def _paper_sections(item: dict) -> list[dict]:
     return out
 
 
-def list_papers(username: str) -> list[dict]:
+def list_papers(username: str, valid_folder_ids: set[str] | None = None) -> list[dict]:
     """侧栏合并渲染用：全部阅读条目（试卷+普通文章），带收纳状态与节摘要。
-    旧记录无 folder_id/archived/is_paper 字段 → 未分类/未归档/普通文章。"""
+    旧记录无 folder_id/archived/is_paper 字段 → 未分类/未归档/普通文章。
+    valid_folder_ids：传入时对 is_paper 且 folder_id 不在集合中的卷加 folder_missing 标记（防御）。"""
     data = load_readings(username)
     out = []
     for t in data["texts"]:
         if not isinstance(t, dict):
             continue
         is_paper = bool(t.get("is_paper"))
-        out.append({
+        item = {
             "id": t.get("id") or "",
             "title": t.get("title") or "",
             "created_at": t.get("created_at") or "",
@@ -724,7 +725,11 @@ def list_papers(username: str) -> list[dict]:
             "archived": bool(t.get("archived", False)),
             "is_paper": is_paper,
             "sections": _paper_sections(t) if is_paper else [],
-        })
+        }
+        if (is_paper and valid_folder_ids is not None
+                and str(item["folder_id"] or "") not in valid_folder_ids):
+            item["folder_missing"] = True
+        out.append(item)
     return out
 
 
@@ -771,18 +776,55 @@ def restore_paper(username: str, text_id: str) -> bool:
     return True
 
 
-def clear_folder_refs(username: str, folder_id) -> int:
-    """文件夹被删时清试卷引用（回未分类）。返回清除条数。"""
+def sync_paper_titles(username: str, folder_id, name: str) -> int:
+    """文件夹重命名后同步其下所有试卷 title（命名唯一来源 = 文件夹名）。返回改动条数。"""
     data = load_readings(username)
     fid = str(folder_id or "")
+    name = str(name or "").strip()
     n = 0
     for t in data["texts"]:
-        if isinstance(t, dict) and str(t.get("folder_id") or "") == fid:
-            t["folder_id"] = None
+        if (isinstance(t, dict) and t.get("is_paper")
+                and str(t.get("folder_id") or "") == fid
+                and t.get("title") != name):
+            t["title"] = name
             n += 1
     if n:
         save_readings(username, data)
     return n
+
+
+def paper_in_folder(username: str, folder_id, exclude_text_id=None) -> dict | None:
+    """该夹下（排除自身）任一未归档试卷，用于"一夹最多一卷"校验。"""
+    data = load_readings(username)
+    fid = str(folder_id or "")
+    for t in data["texts"]:
+        if (isinstance(t, dict) and t.get("is_paper") and not t.get("archived")
+                and str(t.get("folder_id") or "") == fid
+                and str(t.get("id") or "") != str(exclude_text_id or "")):
+            return t
+    return None
+
+
+def delete_papers_in_folder(username: str, folder_id) -> int:
+    """删除文件夹时一并删除其下全部试卷（含归档），同步清 lookups。返回删除条数。"""
+    data = load_readings(username)
+    fid = str(folder_id or "")
+    doomed = [
+        str(t.get("id") or "") for t in data["texts"]
+        if isinstance(t, dict) and t.get("is_paper") and str(t.get("folder_id") or "") == fid
+    ]
+    if not doomed:
+        return 0
+    data["texts"] = [
+        t for t in data["texts"]
+        if not (isinstance(t, dict) and str(t.get("id") or "") in doomed)
+    ]
+    data["lookups"] = [
+        l for l in data["lookups"]
+        if not (isinstance(l, dict) and str(l.get("text_id") or "") in doomed)
+    ]
+    save_readings(username, data)
+    return len(doomed)
 
 
 def append_lookup(username: str, text_id: str, selection: str, sentence: str,

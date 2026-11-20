@@ -943,17 +943,21 @@ def api_reading_texts_delete(text_id):
 
 @app.route("/api/reading/paper/move", methods=["POST"])
 def api_reading_paper_move():
-    """整卷移动（影子条目拖拽）：folder_id 为空 = 移回未分类。"""
+    """整卷移动（影子条目拖拽）。试卷必须归属文件夹，且一夹最多一卷。"""
     data = request.get_json(force=True) or {}
     text_id = str(data.get("text_id") or "")
     folder_id = data.get("folder_id")
-    if folder_id not in (None, "") and not lykie_folders.find_folder(g.store, str(folder_id)):
+    if folder_id in (None, ""):
+        return jsonify({"ok": False, "error": "试卷必须归属一个文件夹"}), 400
+    if not lykie_folders.find_folder(g.store, str(folder_id)):
         return jsonify({"ok": False, "error": "文件夹不存在"}), 400
     t = lykie_readings.get_text(g.store.username, text_id)
     if not t:
         return jsonify({"ok": False, "error": "未找到"}), 404
     if t.get("archived"):
         return jsonify({"ok": False, "error": "先恢复再移动"}), 400
+    if lykie_readings.paper_in_folder(g.store.username, folder_id, exclude_text_id=text_id):
+        return jsonify({"ok": False, "error": "每个文件夹只能放一套试卷"}), 400
     if not lykie_readings.set_paper_folder(g.store.username, text_id, folder_id):
         return jsonify({"ok": False, "error": "未找到"}), 404
     return jsonify({"ok": True})
@@ -2412,6 +2416,18 @@ def api_sa_reset():
 @app.route("/api/banks")
 def api_banks():
     lykie_folders.ensure_sort_defaults(g.store)
+    # 存量迁移（幂等）：试卷命名/归属统一到文件夹。内存装配，改动回写 store + readings。
+    bank_data = {"folders": g.store.folders, "banks": g.store.banks}
+    readings_data = lykie_readings.load_readings(g.store.username)
+    changed = lykie_official.migrate_user_papers(
+        g.store.username, bank_data, readings_data,
+        lykie_official.legacy_official_id_map(),
+    )
+    if changed:
+        g.store.folders = bank_data["folders"]
+        g.store.save()
+        lykie_readings.save_readings(g.store.username, readings_data)
+    valid_folder_ids = {str(f.get("id")) for f in g.store.folders if f.get("id") is not None}
     result = []
     for b in g.store.banks:
         qs = b["questions"]
@@ -2432,7 +2448,7 @@ def api_banks():
         })
     return jsonify_user({
         "banks": result,
-        "papers": lykie_readings.list_papers(g.store.username),
+        "papers": lykie_readings.list_papers(g.store.username, valid_folder_ids),
         "current_bank_id": g.store.current_bank_id,
         "folders": lykie_folders.list_folders(g.store),
         "collections": lykie_mock.list_collections(g.store),
@@ -2501,6 +2517,8 @@ def api_official_banks_claim():
 def api_official_publishables():
     if g.store.username not in OFFICIAL_AUTHORS:
         return jsonify({"ok": False, "error": "只有作者可以发布"}), 403
+    # 发布前先做存量迁移（幂等），保证发布台看到的是统一后的文件夹
+    lykie_official.migrate_user(g.store.username)
     return jsonify_user({
         "ok": True,
         **lykie_official.publishables(g.store.username),
@@ -2513,22 +2531,17 @@ def api_official_banks_publish():
         return jsonify({"ok": False, "error": "只有作者可以发布"}), 403
     data = request.get_json(force=True) or {}
     kind = str(data.get("kind") or "")
+    if kind != "folder":
+        return jsonify({"ok": False, "error": "发布类型无效"}), 400
     src_id = str(data.get("id") or "")
     name = data.get("name") or ""
     description = data.get("description") or ""
     tags = data.get("tags") or []
     if isinstance(tags, str):
         tags = [tags]
-    if kind == "folder":
-        entry, err = lykie_official.publish_folder(
-            g.store.username, src_id, name, description, tags
-        )
-    elif kind == "paper":
-        entry, err = lykie_official.publish_paper(
-            g.store.username, src_id, name, description, tags
-        )
-    else:
-        return jsonify({"ok": False, "error": "发布类型无效"}), 400
+    entry, err = lykie_official.publish_folder(
+        g.store.username, src_id, name, description, tags
+    )
     if err:
         return jsonify({"ok": False, "error": err}), 400
     return jsonify_user({
@@ -2603,12 +2616,14 @@ def api_folders_create():
 @app.route("/api/folders/rename", methods=["POST"])
 def api_folders_rename():
     data = request.get_json(force=True) or {}
-    ok, err = lykie_folders.rename_folder(
-        g.store, str(data.get("id") or ""), data.get("name") or ""
-    )
+    fid = str(data.get("id") or "")
+    new_name = data.get("name") or ""
+    ok, err = lykie_folders.rename_folder(g.store, fid, new_name)
     if not ok:
         return jsonify({"ok": False, "error": err}), 400
     g.store.save()
+    # 文件夹名 = 试卷命名唯一来源：改名同步其下试卷标题
+    lykie_readings.sync_paper_titles(g.store.username, fid, new_name)
     return jsonify_user({"ok": True, "folders": lykie_folders.list_folders(g.store)})
 
 
@@ -2620,8 +2635,8 @@ def api_folders_delete():
     if not ok:
         return jsonify({"ok": False, "error": err}), 400
     g.store.save()
-    # 文件夹没了，挂在其下的试卷引用一并清（回未分类）
-    lykie_readings.clear_folder_refs(g.store.username, fid)
+    # 文件夹就是试卷：删除文件夹时一并删除其下试卷（含归档）
+    lykie_readings.delete_papers_in_folder(g.store.username, fid)
     return jsonify_user({
         "ok": True,
         "folders": lykie_folders.list_folders(g.store),
