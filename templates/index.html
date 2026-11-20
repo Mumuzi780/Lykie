@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m130">
+  <link rel="stylesheet" href="/static/style.css?v=m132">
   <link rel="stylesheet" href="/static/sa.css?v=m5">
   <link rel="stylesheet" href="/static/reading.css?v=33">
   <link rel="stylesheet" href="/static/vendor/driver.css?v=1">
@@ -31,6 +31,7 @@
       </div>
       <div class="sidebar-cols">
         <nav class="folder-nav" id="folderNav" aria-label="文件夹导航"></nav>
+        <div class="sidebar-resizer" id="folderNavResizer" role="separator" aria-orientation="vertical" aria-label="拖拽调整文件夹栏宽度" title="拖拽调整宽度"></div>
         <ul class="bank-list" id="bankList"></ul>
       </div>
     </aside>
@@ -527,7 +528,7 @@
   {% if rd_payload %}
   <script>window.RD_BOOT = {{ rd_payload|tojson }};</script>
   {% endif %}
-  <script src="/static/script.js?v=m106"></script>
+  <script src="/static/script.js?v=m107"></script>
   <script src="/static/mock.js?v=8"></script>
   <script src="/static/story.js?v=m6"></script>
   <script src="/static/reading.js?v=45"></script>

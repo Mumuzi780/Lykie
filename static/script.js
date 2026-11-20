@@ -4340,6 +4340,45 @@ function refreshCelestial() {
   }
   applyOpeningFromState(state);
 
+  // 侧栏双栏分隔拖拽：拉宽文件夹导航栏，长文件夹名不再截断（宽度持久化）
+  (function initFolderNavResize() {
+    const resizer = $('folderNavResizer');
+    const nav = $('folderNav');
+    const cols = resizer ? resizer.parentElement : null;
+    if (!resizer || !nav || !cols) return;
+    const MIN = 104;
+    const MAX = 320;
+    const KEY = 'folderNavWidth';
+    const saved = parseFloat(localStorage.getItem(KEY));
+    if (saved >= MIN && saved <= MAX) {
+      cols.style.setProperty('--folder-nav-w', saved + 'px');
+    }
+    resizer.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      resizer.classList.add('dragging');
+      document.body.classList.add('folder-resizing');
+      resizer.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startW = nav.getBoundingClientRect().width;
+      const onMove = (ev) => {
+        const w = Math.min(MAX, Math.max(MIN, startW + ev.clientX - startX));
+        cols.style.setProperty('--folder-nav-w', w + 'px');
+      };
+      const onUp = () => {
+        resizer.classList.remove('dragging');
+        document.body.classList.remove('folder-resizing');
+        resizer.removeEventListener('pointermove', onMove);
+        resizer.removeEventListener('pointerup', onUp);
+        resizer.removeEventListener('pointercancel', onUp);
+        const m = cols.style.getPropertyValue('--folder-nav-w');
+        if (m) localStorage.setItem(KEY, m);
+      };
+      resizer.addEventListener('pointermove', onMove);
+      resizer.addEventListener('pointerup', onUp);
+      resizer.addEventListener('pointercancel', onUp);
+    });
+  })();
+
   // 新手演示编排器（demo-tour.js）需要的只读钩子：
   // 演示本身全部通过真实 DOM 点击触发，不直接调用闭包函数
   window.LykieDemo = {

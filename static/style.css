@@ -213,17 +213,48 @@ body.login-body::after {
   padding-bottom: 8px;
 }
 
-/* ---- 双栏侧栏：左栏文件夹导航 + 右栏题库列表 ---- */
+/* ---- 双栏侧栏：左栏文件夹导航 + 右栏题库列表；左栏宽度可拖拽调整 ---- */
 .sidebar-cols {
   display: flex;
-  gap: 12px;
+  gap: 0;
   flex: 1 1 auto;
   min-height: 0;
   margin-top: 16px;
+  --folder-nav-w: 213px;
+}
+
+.sidebar-resizer {
+  width: 12px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+  border-radius: 2px;
+}
+.sidebar-resizer:hover::before,
+.sidebar-resizer.dragging::before {
+  background: var(--primary);
+  opacity: .45;
+}
+body.folder-resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 .folder-nav {
-  width: 148px;
+  width: var(--folder-nav-w, 213px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2699,6 +2730,9 @@ button.lykie-send:active { transform: scale(.94); }
   .sidebar-cols {
     flex-direction: column;
     gap: 10px;
+  }
+  .sidebar-resizer {
+    display: none;
   }
   .folder-nav {
     width: auto;
