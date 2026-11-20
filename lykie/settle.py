@@ -99,21 +99,21 @@ def can_kill_by_counts_replay(answer_count: int, correct_count: int) -> tuple[bo
     return False, "答对一次即可斩"
 
 
-def can_kill_for_run(run: dict, answer_count: int, correct_count: int) -> tuple[bool, str]:
+def can_kill_for_run(run: dict, answer_count: int, correct_count: int, easy: bool = False) -> tuple[bool, str]:
     idx = int((run or {}).get("index") or 1)
-    if idx >= 2:
+    if idx >= 2 or easy:
         return can_kill_by_counts_replay(answer_count, correct_count)
     return can_kill_by_counts(answer_count, correct_count)
 
 
-def kill_gate(q: dict, run: dict) -> tuple[bool, str]:
-    """本轮作答次数 / 正确率 / 答错相位。"""
+def kill_gate(q: dict, run: dict, easy: bool = False) -> tuple[bool, str]:
+    """本轮作答次数 / 正确率 / 答错相位。easy=示例库：答对一次即可斩。"""
     st = run_qstat(run, str(q["id"]))
     ac = int(st.get("answer_count") or 0)
     cc = int(st.get("correct_count") or 0)
     if q.get("phase") == "wrong":
         return False, "答错后需先答对才能斩"
-    return can_kill_for_run(run, ac, cc)
+    return can_kill_for_run(run, ac, cc, easy=easy)
 
 
 def record_answer(bank: dict, q: dict, correct: bool) -> dict:
@@ -166,10 +166,11 @@ def record_answer(bank: dict, q: dict, correct: bool) -> dict:
     return run
 
 
-def apply_kill(bank: dict, q: dict, *, as_correct: bool) -> tuple[bool, str, dict | None]:
+def apply_kill(bank: dict, q: dict, *, as_correct: bool, easy: bool = False) -> tuple[bool, str, dict | None]:
     """
     斩题。as_correct=True：未先作答的直接斩，先记一次答对再斩。
     答对后再斩：as_correct=False，连击不变。
+    easy=示例库：答对一次即可斩（答错相位仍拦截）。
     """
     run = ensure_bank_runs(bank)
     assert run is not None
@@ -184,7 +185,7 @@ def apply_kill(bank: dict, q: dict, *, as_correct: bool) -> tuple[bool, str, dic
         st = run_qstat(run, qid)
         preview_ac = int(st.get("answer_count") or 0) + 1
         preview_cc = int(st.get("correct_count") or 0) + 1
-        ok, reason = can_kill_for_run(run, preview_ac, preview_cc)
+        ok, reason = can_kill_for_run(run, preview_ac, preview_cc, easy=easy)
         if not ok:
             run_index = int(run.get("index") or 1)
             if run_index < 2 and preview_ac < MIN_ANSWERS_FAST_KILL:
@@ -195,7 +196,7 @@ def apply_kill(bank: dict, q: dict, *, as_correct: bool) -> tuple[bool, str, dic
             return False, reason, run
         record_answer(bank, q, True)
     else:
-        ok, reason = kill_gate(q, run)
+        ok, reason = kill_gate(q, run, easy=easy)
         if not ok:
             return False, reason, run
 

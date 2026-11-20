@@ -457,6 +457,17 @@ def jsonify_user(payload):
     return jsonify(data)
 
 
+def _mark_onboarding_task(username, task):
+    """新手任务达成标记（幂等，只在 False→True 时写盘；失败不阻断主流程）。"""
+    try:
+        state = lykie_accounts.get_onboarding(username)
+        if not state["tasks"].get(task):
+            state["tasks"][task] = True
+            lykie_accounts.update_onboarding(username, {"tasks": state["tasks"]})
+    except Exception:
+        pass
+
+
 # ==================== 登录 ====================
 @app.before_request
 def require_login():
@@ -1755,6 +1766,7 @@ def render_question(q, bank=None):
         "correct_count": q.get("correct_count", 0),
         "analysis": q.get("analysis", ""),
         "images": q.get("images") or [],
+        "easy_kill": bool((bank or {}).get("demo")),
     }
     if q["type"] == "choice":
         contents = q["options"]
@@ -1815,6 +1827,7 @@ def index():
         username=g.store.username,
         must_reset=lykie_accounts.user_must_reset(g.store.username),
         rd_payload=rd_payload,
+        onboarding=lykie_accounts.get_onboarding(g.store.username),
     )
 
 
@@ -2490,6 +2503,54 @@ def api_banks_share():
     })
 
 
+@app.route("/api/onboarding", methods=["GET", "POST"])
+def api_onboarding():
+    """新手引导进度：GET 查询；POST 更新弹窗/导览/清单的开闭状态。"""
+    if request.method == "GET":
+        return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
+    data = request.get_json(force=True) or {}
+    patch = {k: data.get(k) for k in ("welcome_done", "tour_done", "checklist_dismissed") if isinstance(data.get(k), bool)}
+    if not patch:
+        return jsonify({"ok": False, "error": "没有可更新的字段"}), 400
+    lykie_accounts.update_onboarding(g.store.username, patch)
+    return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
+
+
+@app.route("/api/onboarding/reset", methods=["POST"])
+def api_onboarding_reset():
+    """重置新手引导状态，重新体验完整流程（仅站长账号可用，用于测试）。"""
+    if g.store.username not in OFFICIAL_AUTHORS:
+        return jsonify({"ok": False, "error": "只有站长可以重置新手引导"}), 403
+    lykie_accounts.update_onboarding(g.store.username, {
+        "welcome_done": False,
+        "tour_done": False,
+        "checklist_dismissed": False,
+        "tasks": {"claim": False, "study": False, "kill": False},
+    })
+    return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
+
+
+@app.route("/api/onboarding/newbie", methods=["POST"])
+def api_onboarding_newbie():
+    """一键变回刚注册的新手（测试用，所有账号可用）。
+
+    清空全部题库与作答进度、重装全新示例库、重置引导状态；不可恢复。
+    危险操作，前端必须先做二次确认。
+    """
+    from lykie import demo as lykie_demo
+    try:
+        lykie_demo.reset_to_newbie(g.store.username)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"重置题库失败：{e}"}), 500
+    lykie_accounts.update_onboarding(g.store.username, {
+        "welcome_done": False,
+        "tour_done": False,
+        "checklist_dismissed": False,
+        "tasks": {"claim": False, "study": False, "kill": False},
+    })
+    return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
+
+
 @app.route("/api/official_banks")
 def api_official_banks():
     return jsonify_user({
@@ -2505,6 +2566,7 @@ def api_official_banks_claim():
     result, err = lykie_official.claim_official(g.store.username, oid)
     if err:
         return jsonify({"ok": False, "error": err}), 400
+    _mark_onboarding_task(g.store.username, "claim")
     return jsonify_user({
         "ok": True,
         "folder_id": result.get("folder_id") or "",
@@ -2671,7 +2733,7 @@ def api_folders_rename():
     if not ok:
         return jsonify({"ok": False, "error": err}), 400
     g.store.save()
-    # 文件夹名 = 试卷命名唯一来源：改名同步其下试卷标题
+    # 命名唯一来源 = 文件夹名：同步其下试卷 title
     lykie_readings.sync_paper_titles(g.store.username, fid, new_name)
     return jsonify_user({"ok": True, "folders": lykie_folders.list_folders(g.store)})
 
@@ -3504,8 +3566,9 @@ def api_answer():
     b["last_studied_at"] = lykie_folders.now_str()
     run = lykie_settle.record_answer(b, q, correct)
     st = lykie_settle.run_qstat(run, str(q["id"]))
-    can, reason = lykie_settle.kill_gate(q, run)
+    can, reason = lykie_settle.kill_gate(q, run, easy=bool(b.get("demo")))
     g.store.save()
+    _mark_onboarding_task(g.store.username, "study")
     return jsonify({
         "ok": True,
         "run_streak": int(run.get("streak") or 0),
@@ -3562,10 +3625,11 @@ def api_kill():
     if not q:
         return jsonify({"ok": False, "error": "题目不存在"}), 404
     as_correct = bool(data.get("as_correct"))
-    ok, reason, run = lykie_settle.apply_kill(b, q, as_correct=as_correct)
+    ok, reason, run = lykie_settle.apply_kill(b, q, as_correct=as_correct, easy=bool(b.get("demo")))
     if not ok:
         return jsonify({"ok": False, "error": reason}), 400
     g.store.save()
+    _mark_onboarding_task(g.store.username, "kill")
     return jsonify({
         "ok": True,
         "run_streak": int((run or {}).get("streak") or 0),

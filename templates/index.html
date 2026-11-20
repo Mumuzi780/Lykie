@@ -13,8 +13,10 @@
   <link rel="stylesheet" href="/static/style.css?v=m130">
   <link rel="stylesheet" href="/static/sa.css?v=m5">
   <link rel="stylesheet" href="/static/reading.css?v=33">
+  <link rel="stylesheet" href="/static/vendor/driver.css?v=1">
+  <link rel="stylesheet" href="/static/onboarding.css?v=1">
 </head>
-<body class="mode-kill" data-username="{{ username }}">
+<body class="mode-kill" data-username="{{ username }}" data-onboarding='{{ onboarding|tojson }}'>
   <div class="bank-drawer-backdrop" id="bankDrawerBackdrop"></div>
   <div class="app">
     <aside class="sidebar" id="bankSidebar">
@@ -60,8 +62,10 @@
           <button type="button" id="adminAccBtn" class="btn ghost" title="创建新账号">建号</button>
           <a class="btn ghost" href="/publish" title="上架官方共享题库">发布</a>
           <a class="btn ghost" href="/annotations" title="// 反馈收件箱：回放她当时看到的现场">标注</a>
+          <button type="button" id="replayOnboardingBtn" class="btn ghost" title="重置新手引导状态，重新体验完整流程（仅自己可见）">重看引导</button>
           {% endif %}
           <a class="btn ghost" href="/password" title="修改密码">改密</a>
+          <button type="button" id="newbieResetBtn" class="btn ghost" title="测试用：清空全部题库与进度，变回刚注册的新手">变回新手</button>
           <a class="btn ghost" href="/logout">退出</a>
           <button type="button" id="moreMenuBtn" class="btn ghost more-menu-btn" aria-haspopup="menu" title="更多功能">⋯</button>
         </div>
@@ -84,7 +88,7 @@
         </div>
         <div class="empty" id="emptyState">
           <p>还没有题库</p>
-          <p class="hint">点「题库」→「导入」，粘贴文本或上传 .docx 开始背题</p>
+          <p class="hint">点侧栏「市场」领取共享题库，即可开始背题</p>
         </div>
 
         <div class="study-host" id="studyHost" hidden>
@@ -327,6 +331,24 @@
     </div>
   </div>
 
+  <!-- 新手欢迎弹窗 -->
+  <div class="modal" id="onboardingModal" hidden>
+    <div class="modal-box onboarding-box">
+      <h3>欢迎来到 Lykie</h3>
+      <p class="hint">已经为你准备了「示例 · 四题上手」题库，答完顺便学会背题三件事：</p>
+      <ul class="onboarding-intro">
+        <li><b>抽背</b>：每天抽题作答，答错的会自动多安排复习</li>
+        <li><b>斩题</b>：背熟的题点「斩」，从此不再出现，越背越少</li>
+        <li><b>领题库</b>：到「市场」领取共享题库副本，进度独立、随取随用</li>
+      </ul>
+      <div class="modal-actions">
+        <button type="button" id="onboardingSkipBtn" class="btn ghost">先自己逛逛</button>
+        <button type="button" id="onboardingMarketBtn" class="btn ghost">直接开始背题</button>
+        <button type="button" id="onboardingDemoBtn" class="btn primary">看一遍演示</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="officialMarketModal" hidden>
     <div class="modal-box market-box">
       <div class="modal-header">
@@ -480,6 +502,23 @@
     <div class="rd-qcard-body" id="rdQCardBody"></div>
   </div>
 
+  <!-- 新手任务清单 -->
+  <aside class="onboarding-card" id="onboardingCard" hidden>
+    <div class="onboarding-card-head">
+      <span class="onboarding-card-title">新手任务 <span class="onboarding-progress-text" id="onboardingProgressText">0/3</span></span>
+      <button type="button" class="onboarding-icon-btn" id="onboardingCollapseBtn" title="收起，完成全部任务后不再打扰" aria-label="收起新手任务">×</button>
+    </div>
+    <div class="onboarding-progress"><div class="onboarding-progress-fill" id="onboardingProgressFill"></div></div>
+    <ul class="onboarding-tasks" id="onboardingTasks">
+      <li data-task="claim"><span class="ob-check" aria-hidden="true">✓</span><span class="ob-label">从市场领取一个题库</span><button type="button" class="btn ghost ob-action" data-action="market">去领取</button></li>
+      <li data-task="study"><span class="ob-check" aria-hidden="true">✓</span><span class="ob-label">完成第一次抽背</span></li>
+      <li data-task="kill"><span class="ob-check" aria-hidden="true">✓</span><span class="ob-label">斩掉第一道题</span></li>
+    </ul>
+    <div class="onboarding-card-foot">
+      <button type="button" class="onboarding-link-btn" id="onboardingReplayBtn">重看新手引导</button>
+    </div>
+  </aside>
+
   <script src="/static/dialog.js?v=1"></script>
   <script src="/static/qimg.js?v=1"></script>
   <script src="/static/sa.js?v=sa25"></script>
@@ -492,6 +531,9 @@
   <script src="/static/mock.js?v=8"></script>
   <script src="/static/story.js?v=m6"></script>
   <script src="/static/reading.js?v=45"></script>
+  <script src="/static/vendor/driver.min.js?v=1"></script>
+  <script src="/static/onboarding.js?v=1"></script>
+  <script src="/static/demo-tour.js?v=1"></script>
 
   <div class="beian-bar">
     <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>

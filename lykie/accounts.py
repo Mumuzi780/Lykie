@@ -206,6 +206,7 @@ def add_user(username, password, email="", must_reset=False):
         "email": mail,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "must_reset": bool(must_reset),
+        "onboarding": _default_onboarding(),
     })
     os.makedirs(user_dir(n), exist_ok=True)
 
@@ -217,6 +218,14 @@ def add_user(username, password, email="", must_reset=False):
             migrated.append("Lykie 记忆")
     ensure_user_files(n)
     _save_users(data)
+    if not migrated:
+        # 新用户预置示例题库（单机版迁移来的老玩家不加）；
+        # 失败不影响建号，只是少了示例库
+        try:
+            from lykie import demo as lykie_demo
+            lykie_demo.install_demo_bank(n)
+        except Exception:
+            pass
     return {"username": n, "first": first, "migrated": migrated}
 
 
@@ -248,6 +257,72 @@ def _find_user(username):
 def user_must_reset(username):
     u = _find_user(username)
     return bool(u and u.get("must_reset"))
+
+
+def _default_onboarding():
+    return {
+        "welcome_done": False,
+        "tasks": {"claim": False, "study": False, "kill": False},
+        "tour_done": False,
+        "checklist_dismissed": False,
+    }
+
+
+def _done_onboarding():
+    """老账号（无 onboarding 字段）的默认态：视为已引导完，不打扰。"""
+    state = _default_onboarding()
+    state["welcome_done"] = True
+    state["tasks"] = {"claim": True, "study": True, "kill": True}
+    state["tour_done"] = True
+    state["checklist_dismissed"] = True
+    return state
+
+
+def get_onboarding(username):
+    """新手引导进度；功能上线前的老账号无该字段，一律视为已引导完。"""
+    u = _find_user(username)
+    if not u:
+        return _done_onboarding()
+    raw = u.get("onboarding")
+    if not isinstance(raw, dict):
+        return _done_onboarding()
+    result = _default_onboarding()
+    for key in ("welcome_done", "tour_done", "checklist_dismissed"):
+        if isinstance(raw.get(key), bool):
+            result[key] = raw[key]
+    tasks = raw.get("tasks")
+    if isinstance(tasks, dict):
+        for key in result["tasks"]:
+            if isinstance(tasks.get(key), bool):
+                result["tasks"][key] = tasks[key]
+    return result
+
+
+def update_onboarding(username, patch):
+    """合并式更新引导进度（patch 只覆盖给定键）。找不到用户返回 False。"""
+    n = normalize_username(username)
+    data = _load_users()
+    for u in data["users"]:
+        if u.get("username") == n:
+            raw = u.get("onboarding")
+            if not isinstance(raw, dict):
+                raw = dict(_default_onboarding())
+            for key in ("welcome_done", "tour_done", "checklist_dismissed"):
+                if isinstance(patch.get(key), bool):
+                    raw[key] = patch[key]
+            tasks = raw.get("tasks")
+            if not isinstance(tasks, dict):
+                tasks = {"claim": False, "study": False, "kill": False}
+                raw["tasks"] = tasks
+            patch_tasks = patch.get("tasks")
+            if isinstance(patch_tasks, dict):
+                for key in tasks:
+                    if isinstance(patch_tasks.get(key), bool):
+                        tasks[key] = patch_tasks[key]
+            u["onboarding"] = raw
+            _save_users(data)
+            return True
+    return False
 
 
 def find_by_email(email):

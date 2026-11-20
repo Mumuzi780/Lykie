@@ -1,0 +1,192 @@
+/* ==================== 新手引导：欢迎弹窗 + 任务清单 ==================== */
+
+/* 新手演示：顶部横幅 + 全屏防误点遮罩 */
+.demo-tour-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 10040;
+  background: transparent;
+}
+.demo-tour-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(680px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border-radius: var(--radius-md, 12px);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-fine);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+.demo-tour-tag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--primary);
+  color: #fff;
+}
+.demo-tour-text {
+  flex: 1 1 auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.demo-tour-skip { flex: none; }
+
+/* 欢迎弹窗 */
+.onboarding-box { max-width: 460px; }
+.onboarding-intro { list-style: none; margin: 12px 0 4px; padding: 0; display: grid; gap: 10px; }
+.onboarding-intro li {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.onboarding-intro b { color: var(--primary); }
+
+/* 任务清单卡片（右下角常驻） */
+.onboarding-card {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 900;
+  width: 264px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--lift-2);
+  font-family: var(--font-body);
+}
+.onboarding-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.onboarding-card-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.onboarding-progress-text { font-weight: 400; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.onboarding-icon-btn {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.onboarding-icon-btn:hover { color: var(--text); background: var(--surface-hover); }
+
+/* 进度条 */
+.onboarding-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border-fine);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.onboarding-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width var(--motion-fast) var(--motion-ease);
+}
+
+/* 任务行 */
+.onboarding-tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.onboarding-tasks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  min-height: 30px;
+}
+.ob-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  color: transparent;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  background: var(--surface);
+}
+.onboarding-tasks li.done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--border); }
+.onboarding-tasks li.done .ob-check {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.ob-label { flex: 1; }
+.ob-action { padding: 2px 8px; font-size: 12px; flex: none; }
+
+/* 底部：重看引导 */
+.onboarding-card-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  text-align: right;
+}
+.onboarding-link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.onboarding-link-btn:hover { color: var(--primary); }
+
+/* 折叠态：只留标题行，点标题展开 */
+.onboarding-card.is-collapsed { padding: 8px 14px; cursor: pointer; }
+.onboarding-card.is-collapsed .onboarding-progress,
+.onboarding-card.is-collapsed .onboarding-tasks,
+.onboarding-card.is-collapsed .onboarding-card-foot { display: none; }
+.onboarding-card.is-collapsed .onboarding-card-head { margin-bottom: 0; cursor: pointer; }
+
+/* 完成态 */
+.onboarding-card.is-complete .onboarding-progress-fill { background: var(--green); }
+.onboarding-card.is-complete .onboarding-card-title::after { content: ' 🎉'; }
+
+/* 小屏：贴底全宽，避开底栏 */
+@media (max-width: 640px) {
+  .onboarding-card { right: 10px; left: 10px; bottom: 10px; width: auto; }
+}
+
+/* driver.js 气泡配色贴合站点主题 */
+.driver-popover {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--lift-2);
+  font-family: var(--font-body);
+}
+.driver-popover-title { color: var(--text); font-weight: 600; }
+.driver-popover-description { color: var(--muted); }
+.driver-popover-close-btn { color: var(--muted); }
+.driver-popover-progress-text { color: var(--muted); }
+.driver-popover-prev-btn, .driver-popover-next-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  text-shadow: none;
+}
+.driver-popover-prev-btn { background: var(--surface); color: var(--text); border: 1px solid var(--border); }

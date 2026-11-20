@@ -784,8 +784,8 @@ async function onBankDragEnd(e) {
       await refreshBanks();
       return;
     }
-    // 活跃卷：试卷必须归属文件夹，只能移入文件夹，不能拖到「未分类」
-    if (navTargetId === 'uncategorized') return;
+    // 活跃卷：试卷必须归属文件夹，只能移入文件夹，不能拖到"未分类"
+    if (navTargetId === 'uncategorized') return; // 无操作
     const targetFolderId = navTargetId;
     if (String(folderId || '') !== String(targetFolderId || '')) {
       const res = await api('/api/reading/paper/move', {
@@ -1238,6 +1238,7 @@ async function claimOfficial(o) {
       return;
     }
     await refreshBanks();
+    document.dispatchEvent(new CustomEvent('lykie:onboarding-activity', { detail: { task: 'claim' } }));
     await uiAlert(`已领取文件夹「${res.folder_name}」，出现在你的题库侧栏。`);
   } finally {
     await loadOfficialMarket();
@@ -2129,7 +2130,7 @@ async function loadNext() {
   answeredCorrectThisDraw = false;
   if (!current) {
     if (data.reason === 'empty') {
-      showState('还没有题库', '点击侧栏「导入」，粘贴文本或上传 .docx 开始背题');
+      showState('还没有题库', '点侧栏「市场」领取共享题库，即可开始背题');
     } else if (data.reason === 'done') {
       await showSettle(data.run_index || null);
     }
@@ -2222,7 +2223,7 @@ function renderMeta() {
     const rate = Math.round((runCc / runAc) * 100);
     meta.textContent = `本轮已答 ${runAc} 次 · 正确率 ${rate}%`;
     meta.hidden = false;
-  } else if (runIndex >= 2) {
+  } else if (runIndex >= 2 || current.easy_kill) {
     meta.textContent = '本轮尚未作答 · 答对一次即可斩（答错需再对才能斩）';
     meta.hidden = false;
   } else {
@@ -2406,6 +2407,7 @@ async function apiAnswer(correct) {
       if (res.run_correct_count != null) current.run_correct_count = res.run_correct_count;
     }
     syncKillButton();
+    document.dispatchEvent(new CustomEvent('lykie:onboarding-activity', { detail: { task: 'study' } }));
     await refreshStatus();
   } catch (e) {
     console.error('提交作答失败', e);
@@ -2441,6 +2443,7 @@ async function kill() {
       return;
     }
     if (res && typeof res.run_streak === 'number') sessionStreak = res.run_streak;
+    document.dispatchEvent(new CustomEvent('lykie:onboarding-activity', { detail: { task: 'kill' } }));
   } catch (e) {
     await uiAlert(e.message || '无法斩题');
     if (asCorrect) {
@@ -4336,4 +4339,12 @@ function refreshCelestial() {
     appendLykieBubble('system', '嗨，我是 Lykie。刷题累了可以找我聊聊；卡住了就把题放到对话里。');
   }
   applyOpeningFromState(state);
+
+  // 新手演示编排器（demo-tour.js）需要的只读钩子：
+  // 演示本身全部通过真实 DOM 点击触发，不直接调用闭包函数
+  window.LykieDemo = {
+    current: () => current,
+    submitted: () => !!submitted,
+    answeredCorrect: () => !!answeredCorrectThisDraw,
+  };
 })();
