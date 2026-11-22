@@ -24,7 +24,8 @@ ABSURD_POOL = [
 ]
 
 STAGES = (
-    "warmup", "cloze", "half_cloze", "stem_pick", "free_write",
+    "warmup", "expansion", "pick_fill", "cloze", "half_cloze", "stem_pick",
+    "free_write",
     "done", "review_free", "review_cloze",
 )
 
@@ -556,7 +557,7 @@ def points_of(q: dict) -> list[str]:
 
 
 def is_learning_stage(stage: str) -> bool:
-    return stage in ("warmup", "cloze", "half_cloze", "stem_pick", "free_write")
+    return stage in ("warmup", "expansion", "pick_fill", "cloze", "half_cloze", "stem_pick", "free_write")
 
 
 def is_review_stage(stage: str) -> bool:
@@ -777,6 +778,11 @@ def ensure_item(progress: dict, qid: str, q: dict) -> dict:
         item.setdefault("srs_level", 0)
         item.setdefault("due_date", None)
         item.setdefault("lane", "learning")
+        # 旧进度迁移：过渡阶段（阶梯默写/AI 聊天引导）已下线，直接进无提示默写
+        if (item.get("stage") or "") in ("step_write", "chat_guide"):
+            item["stage"] = "free_write"
+            for k in ("chat_history", "chat_last_q", "chat_covered", "chat_turns"):
+                item.pop(k, None)
         sizes = item.get("warmup_sizes")
         if not sizes or sum(sizes) != n:
             item["warmup_sizes"] = split_round_sizes(n)
@@ -953,7 +959,111 @@ def build_warmup_card(q: dict, item: dict) -> dict | None:
     }
 
 
-def advance_after_warmup(item: dict, chosen_idx: list[int], points: list[str]) -> None:
+def has_expansion(q: dict) -> bool:
+    """题目带渐进扩展链（≥2 层）时，热身后插入「渐进扩展」阶段。"""
+    chain = q.get("expansion") or []
+    return len([c for c in chain if str(c or "").strip()]) >= 2
+
+
+def _expansion_step(prompt: str, context: str, correct: str, distractors: list[str]) -> dict:
+    """构建一个选择关卡：correct 混入干扰项，返回前端本地判分所需字段。"""
+    entries = [(correct, True)]
+    for d in distractors:
+        d = str(d or "").strip()
+        if d and d != correct and all(d != t for t, _ in entries):
+            entries.append((d, False))
+    random.shuffle(entries)
+    options = []
+    answer_id = ""
+    for i, (text, ok) in enumerate(entries):
+        oid = f"exp{i}_{uuid.uuid4().hex[:6]}"
+        options.append({"id": oid, "text": text})
+        if ok:
+            answer_id = oid
+    return {"prompt": prompt, "context": context, "options": options, "answer_id": answer_id}
+
+
+def build_expansion_card(q: dict, qs: list) -> dict | None:
+    """渐进扩展卡片（无错误学习阶段，插在热身多选与挖空之间）。
+
+    链结构：句式层 chain[0..n-2]（逐层递进）+ 末层全文 chain[-1]。
+    每步一次点击即过：选对闪绿自动进下一步；选错不惩罚，高亮正确项后
+    继续。干扰项优先用同题其他句式层（逼用户注意新增的那一截），再补
+    跨题层级；首步为送分题（荒谬句干扰，保证零门槛开场）。
+    """
+    chain = [str(c or "").strip() for c in (q.get("expansion") or [])]
+    chain = [c for c in chain if c]
+    if len(chain) < 2:
+        return None
+    last = len(chain) - 1
+    others: list[str] = []
+    for other in qs or []:
+        if other is q:
+            continue
+        for c in (other.get("expansion") or []):
+            t = str(c or "").strip()
+            if t and t not in chain and t not in others:
+                others.append(t)
+
+    steps = []
+    # 首步：送分——在荒谬句中选出最小说法
+    first = chain[0]
+    absurd = pick_absurd(2, {first})
+    m = re.match(r"^(.{1,8}?)是", first)
+    silly = [f"{m.group(1)}是{w}。" for w in absurd] if m else [f"{w}。" for w in absurd]
+    cross = [t for t in others if t != first][:1]
+    steps.append(_expansion_step("先热个身：选出正确的说法", "", first, silly + cross))
+    # 逐层扩展：上一句为语境，选出「更完整」的下一句
+    for i in range(1, last):
+        same_q = [t for j, t in enumerate(chain) if j not in (i - 1, i, last)]
+        pool = same_q + [t for t in others if t != chain[i]]
+        steps.append(_expansion_step(
+            "在上一句基础上，选出只多一点的下一句——一次只多记一小截，负担小、记得牢", chain[i - 1], chain[i], pool[:3]))
+    return {
+        "kind": "expansion",
+        "prompt": "跟着选择走：从小到大一层层选，每步只多一点点——一次只记一小截，负担小记得牢；直接跳到最完整的，中间过程没练到，记得不扎实",
+        "steps": steps,
+        "full_answer": chain[last],
+        "total_steps": len(steps),
+    }
+
+
+def build_pick_fill_card(q: dict, qs: list | None = None) -> dict | None:
+    """「选词入空」过渡卡片（扩展之后、挖空之前）。
+
+    复用挖空的空位与标准答案，但把每个空的答案做成词块选项，让用户把词
+    填回正确的空（点空位再点词）。每空一个独立词块（含重复答案），另加
+    至多 2 个跨题挖空词做干扰。判分在前端本地完成（无错误学习，不惩罚），
+    全部填对后上报推进到挖空阶段。
+    """
+    cloze = build_cloze(q)
+    answers = cloze.get("answers") or []
+    if not answers:
+        return None
+    # 干扰项：其它题的挖空词（本题答案之外的词）
+    extra: list[str] = []
+    for other in qs or []:
+        if other is q:
+            continue
+        for w in keywords_of(other):
+            w = str(w or "").strip()
+            if w and w not in answers and w not in extra:
+                extra.append(w)
+    random.shuffle(extra)
+    entries = list(answers) + extra[:2]
+    random.shuffle(entries)
+    options = [{"id": uuid.uuid4().hex[:8], "text": t} for t in entries]
+    return {
+        "kind": "pick_fill",
+        "prompt": "把下面的词放回它原来的位置：点一下空位，再点对应的词；填错会弹回，多试几次就顺了",
+        "parts": cloze.get("parts") or [],
+        "options": options,
+        "_answers": answers,
+        "blank_count": len(answers),
+    }
+
+
+def advance_after_warmup(item: dict, chosen_idx: list[int], points: list[str], next_stage: str = "cloze") -> None:
     covered = list(item.get("warmup_covered") or [])
     for i in chosen_idx:
         if i not in covered:
@@ -961,7 +1071,7 @@ def advance_after_warmup(item: dict, chosen_idx: list[int], points: list[str]) -
     item["warmup_covered"] = covered
     item["warmup_round"] = int(item.get("warmup_round") or 0) + 1
     if len(covered) >= len(points):
-        item["stage"] = "cloze"
+        item["stage"] = next_stage
 
 
 def install_short_bank(store, questions: list[dict]) -> dict:

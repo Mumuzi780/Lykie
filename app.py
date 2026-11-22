@@ -1904,12 +1904,26 @@ def _sa_build_card(q, item, qs=None):
     if stage == "warmup":
         card = lykie_sa.build_warmup_card(q, item)
         if card is None:
-            item["stage"] = "cloze"
+            item["stage"] = "expansion" if lykie_sa.has_expansion(q) else "cloze"
             return _sa_build_card(q, item, qs)
         item["pending_warmup"] = {
             "correct_ids": card.pop("_correct_ids"),
             "chosen_point_indices": card.pop("_chosen_point_indices"),
         }
+        base.update(card)
+        return base
+    if stage == "expansion":
+        card = lykie_sa.build_expansion_card(q, qs or [])
+        if card is None:
+            item["stage"] = "cloze"
+            return _sa_build_card(q, item, qs)
+        base.update(card)
+        return base
+    if stage == "pick_fill":
+        card = lykie_sa.build_pick_fill_card(q, qs or [])
+        if card is None:
+            item["stage"] = "cloze"
+            return _sa_build_card(q, item, qs)
         base.update(card)
         return base
     if stage in ("cloze", "review_cloze"):
@@ -1984,7 +1998,7 @@ def api_sa_status():
         return jsonify({"ok": False, "error": f"未找到题库「{lykie_sa.BANK_NAME}」，请先导入短题子集"})
     progress = lykie_sa.load_progress(g.store.username)
     counts = lykie_sa.count_progress(progress, qs)
-    lykie_sa.save_progress(g.store.username, progress)
+    # 统计只读不落盘：避免把旧快照写回，覆盖其它并发请求（如 expansion 上报）刚推进的 stage
     pair = progress.get("active_pair") or []
     return jsonify_user({
         "ok": True,
@@ -2058,14 +2072,23 @@ def api_sa_warmup_answer():
     sel = set(selected)
     ok = sel == correct and len(correct) > 0
     if ok:
-        lykie_sa.advance_after_warmup(item, chosen_idx, lykie_sa.points_of(q))
+        lykie_sa.advance_after_warmup(
+            item, chosen_idx, lykie_sa.points_of(q),
+            next_stage="expansion" if lykie_sa.has_expansion(q) else "cloze",
+        )
         item.pop("pending_warmup", None)
         lykie_sa.save_progress(g.store.username, progress)
+        next_stage = item.get("stage")
+        msg = "全部选对。"
+        if next_stage == "expansion":
+            msg += "已进入渐进扩展阶段。"
+        elif next_stage == "cloze":
+            msg += "已进入挖空阶段。"
         return jsonify({
             "ok": True,
             "correct": True,
-            "stage": item.get("stage"),
-            "message": "全部选对。" + ("已进入挖空阶段。" if item.get("stage") == "cloze" else "本轮热身完成。"),
+            "stage": next_stage,
+            "message": msg,
         })
     missing = len(correct - sel)
     extra = len(sel - correct)
@@ -2076,6 +2099,48 @@ def api_sa_warmup_answer():
         "stage": item.get("stage"),
         "message": f"还没勾全正确项（漏 {missing}，多选 {extra}）。再试一次。",
     })
+
+
+@app.route("/api/sa/expansion_answer", methods=["POST"])
+def api_sa_expansion_answer():
+    """渐进扩展完成上报：无论关卡对错均进入挖空（无错误学习，不做惩罚）。"""
+    data = request.json or {}
+    qid = str(data.get("qid") or "")
+    wrong = int(data.get("wrong_count") or 0)
+    _bank, qs = _sa_questions()
+    q = next((x for x in qs if str(x.get("id")) == qid), None)
+    if not q:
+        return jsonify({"ok": False, "error": "题目不存在"}), 404
+    progress = lykie_sa.load_progress(g.store.username)
+    item = lykie_sa.ensure_item(progress, qid, q)
+    if (item.get("stage") or "") == "expansion":
+        item["stage"] = "pick_fill"
+        lykie_sa.save_progress(g.store.username, progress)
+    msg = "扩展链走完，印象初步建立，接下来把关键词放回原位。"
+    if wrong:
+        msg = f"扩展链走完（中途选错 {wrong} 次，没关系，多看几遍就熟了）。接下来把关键词放回原位。"
+    return jsonify({"ok": True, "correct": True, "stage": item.get("stage"), "message": msg})
+
+
+@app.route("/api/sa/pickfill_answer", methods=["POST"])
+def api_sa_pickfill_answer():
+    """选词入空完成上报：全部填对后推进到挖空（无错误学习，不做惩罚）。"""
+    data = request.json or {}
+    qid = str(data.get("qid") or "")
+    wrong = int(data.get("wrong_count") or 0)
+    _bank, qs = _sa_questions()
+    q = next((x for x in qs if str(x.get("id")) == qid), None)
+    if not q:
+        return jsonify({"ok": False, "error": "题目不存在"}), 404
+    progress = lykie_sa.load_progress(g.store.username)
+    item = lykie_sa.ensure_item(progress, qid, q)
+    if (item.get("stage") or "") == "pick_fill":
+        item["stage"] = "cloze"
+        lykie_sa.save_progress(g.store.username, progress)
+    msg = "词都放对了，位置记住了，接下来不看词自己把它写出来。"
+    if wrong:
+        msg = f"词都放对了（中途放错过 {wrong} 次，没关系）。接下来不看词自己把它写出来。"
+    return jsonify({"ok": True, "correct": True, "stage": item.get("stage"), "message": msg})
 
 
 @app.route("/api/sa/match_answer", methods=["POST"])
@@ -2259,8 +2324,8 @@ def api_sa_stem_answer():
     correct_id = str((item.get("pending_stem") or {}).get("correct_id") or "")
     ok = selected == correct_id and bool(correct_id)
     if ok:
-        item["stage"] = "free_write"
         item.pop("pending_stem", None)
+        item["stage"] = "free_write"
         lykie_sa.save_progress(g.store.username, progress)
         return jsonify({
             "ok": True,

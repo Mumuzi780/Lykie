@@ -18,6 +18,8 @@ const $ = (id) => document.getElementById(id);
 
 const STAGE_LABEL = {
   warmup: '热身多选',
+  expansion: '渐进扩展',
+  pick_fill: '选词入空',
   cloze: '挖空关键词',
   match: '连线匹配',
   half_cloze: '半边挖空',
@@ -29,6 +31,8 @@ const STAGE_LABEL = {
 };
 
 let current = null;
+// 渲染代际：每次 renderCard +1，旧卡片的延时回调（如扩展步骤定时器）凭此失效，防止跨题串线
+let renderEpoch = 0;
 
 async function refreshStats() {
   const s = await api('/api/sa/status');
@@ -39,7 +43,7 @@ async function refreshStats() {
   const st = s.stages || {};
   const pair = s.active_pair || [];
   const pairTxt = pair.length ? ` · 本组 ${pair.join('+')}` : '';
-  const learn = s.learning != null ? s.learning : ((st.warmup || 0) + (st.cloze || 0) + (st.half_cloze || 0) + (st.stem_pick || 0) + (st.free_write || 0));
+  const learn = s.learning != null ? s.learning : ((st.warmup || 0) + (st.expansion || 0) + (st.pick_fill || 0) + (st.cloze || 0) + (st.half_cloze || 0) + (st.stem_pick || 0) + (st.free_write || 0));
   const due = s.review_due != null ? s.review_due : 0;
   const wait = s.review_waiting != null ? s.review_waiting : (st.done || 0);
   const activeR = s.review_active != null ? s.review_active : 0;
@@ -136,6 +140,218 @@ function renderWarmup(card) {
       }
     }),
   ]);
+}
+
+function renderExpansion(card) {
+  const epoch = renderEpoch;
+  const body = $('saBody');
+  body.innerHTML = '';
+  const steps = card.steps || [];
+  let stepIdx = 0;
+  let wrong = 0;
+  let locked = false;
+
+  async function finish() {
+    body.innerHTML = '';
+    const pre = document.createElement('pre');
+    pre.className = 'sa-answer-block';
+    pre.textContent = card.full_answer || '';
+    body.appendChild(pre);
+    // 先等上报落盘（stage 推进为 cloze），再刷新统计、再给按钮，避免与 next 并发读旧进度导致回滚
+    try {
+      const res = await api('/api/sa/expansion_answer', {
+        method: 'POST',
+        body: JSON.stringify({ qid: card.qid, wrong_count: wrong }),
+      });
+      setFeedback(res.message || '扩展链走完，进入挖空。', 'good');
+    } catch (e) {
+      setFeedback('扩展链走完，进入挖空。', 'good');
+    }
+    await refreshStats();
+    setControls([btn('下一步', 'primary', () => loadNext())]);
+  }
+
+  function renderStep() {
+    const step = steps[stepIdx];
+    if (!step) { finish(); return; }
+    locked = false;
+    body.innerHTML = '';
+    const meta = document.createElement('div');
+    meta.className = 'card-meta';
+    meta.textContent = `渐进扩展 第 ${stepIdx + 1}/${card.total_steps} 步 · 一层层把答案长出来`;
+    body.appendChild(meta);
+    if (step.context) {
+      const ctx = document.createElement('div');
+      ctx.className = 'sa-exp-ctx';
+      ctx.textContent = '上一句：' + step.context;
+      body.appendChild(ctx);
+    }
+    const sub = document.createElement('div');
+    sub.className = 'card-meta';
+    sub.style.marginTop = '8px';
+    sub.textContent = step.prompt;
+    body.appendChild(sub);
+    const wrap = document.createElement('div');
+    wrap.className = 'sa-options';
+    const btnById = {};
+    (step.options || []).forEach((opt) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sa-opt sa-exp-opt';
+      b.textContent = opt.text;
+      btnById[opt.id] = b;
+      b.addEventListener('click', () => {
+        if (locked) return;
+        locked = true;
+        const ok = opt.id === step.answer_id;
+        if (!ok) {
+          wrong += 1;
+          b.classList.add('stem-bad');
+        }
+        if (btnById[step.answer_id]) btnById[step.answer_id].classList.add('stem-ok');
+        stepIdx += 1;
+        setTimeout(() => {
+          if (epoch !== renderEpoch) return;
+          renderStep();
+        }, ok ? 650 : 1500);
+      });
+      wrap.appendChild(b);
+    });
+    body.appendChild(wrap);
+  }
+
+  renderStep();
+}
+
+function renderPickFill(card) {
+  const epoch = renderEpoch;
+  const body = $('saBody');
+  body.innerHTML = '';
+  const answers = card._answers || [];
+  const norm = (s) => String(s || '').trim().replace(/与/g, '和');
+  const slots = [];
+  const filled = [];
+  const lockedArr = [];
+  const wordBtns = new Map();
+  let selected = null;
+  let wrongCount = 0;
+
+  // 挖空文本：空位渲染为可点击槽
+  (card.parts || []).forEach((line) => {
+    const div = document.createElement('div');
+    div.className = 'sa-cloze-line sa-pick-line';
+    if (line.prefix) div.appendChild(document.createTextNode(line.prefix));
+    (line.segs || []).forEach((seg) => {
+      if (seg.type === 'text') {
+        div.appendChild(document.createTextNode(seg.text));
+      } else {
+        const i = Number(seg.blank_index);
+        const slot = document.createElement('span');
+        slot.className = 'sa-pick-slot';
+        slot.textContent = '？';
+        slots[i] = slot;
+        filled[i] = null;
+        lockedArr[i] = false;
+        slot.addEventListener('click', () => {
+          if (epoch !== renderEpoch || lockedArr[i]) return;
+          if (filled[i] != null) {
+            // 已填：词弹回池
+            const rec = wordBtns.get(slot.dataset.optId);
+            if (rec) rec.el.disabled = false;
+            filled[i] = null;
+            slot.dataset.optId = '';
+            slot.textContent = '？';
+            slot.classList.remove('filled', 'selected');
+            return;
+          }
+          slots.forEach((s) => s && s.classList.remove('selected'));
+          slot.classList.add('selected');
+          selected = i;
+        });
+        div.appendChild(slot);
+      }
+    });
+    body.appendChild(div);
+  });
+
+  // 词块池
+  const pool = document.createElement('div');
+  pool.className = 'sa-pick-words';
+  (card.options || []).forEach((opt) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn sa-pick-word';
+    b.textContent = opt.text;
+    b.addEventListener('click', () => {
+      if (epoch !== renderEpoch || b.disabled) return;
+      if (selected == null) {
+        setFeedback('先点一下上面的空位，再点词放进去', 'bad');
+        return;
+      }
+      const i = selected;
+      if (lockedArr[i] || filled[i] != null) return;
+      slots[i].textContent = opt.text;
+      slots[i].dataset.optId = opt.id;
+      slots[i].classList.remove('selected');
+      slots[i].classList.add('filled');
+      filled[i] = opt.text;
+      b.disabled = true;
+      selected = null;
+      if (filled.every((t) => t != null)) judge();
+    });
+    wordBtns.set(opt.id, { el: b, text: opt.text });
+    pool.appendChild(b);
+  });
+  body.appendChild(pool);
+
+  function flashBad(i) {
+    slots[i].classList.add('bad');
+    setTimeout(() => {
+      if (epoch !== renderEpoch) return;
+      slots[i].classList.remove('bad');
+    }, 1200);
+  }
+
+  // 全部填满后判分：对的锁定变绿，错的弹回；全对上报进入挖空
+  function judge() {
+    let allOk = true;
+    const wrongIdx = [];
+    for (let i = 0; i < answers.length; i++) {
+      if (norm(filled[i]) === norm(answers[i])) {
+        slots[i].classList.add('locked');
+        lockedArr[i] = true;
+      } else {
+        allOk = false;
+        wrongIdx.push(i);
+      }
+    }
+    if (allOk) { finish(); return; }
+    wrongCount += 1;
+    wrongIdx.forEach((i) => {
+      const rec = wordBtns.get(slots[i].dataset.optId);
+      if (rec) rec.el.disabled = false;
+      filled[i] = null;
+      slots[i].dataset.optId = '';
+      slots[i].textContent = '？';
+      slots[i].classList.remove('filled');
+      flashBad(i);
+    });
+    setFeedback('有的词位置不对，弹回来了；绿色是已经放对的，把剩下的放好', 'bad');
+  }
+
+  async function finish() {
+    try {
+      const res = await api('/api/sa/pickfill_answer', {
+        method: 'POST',
+        body: JSON.stringify({ qid: card.qid, wrong_count: wrongCount }),
+      });
+      setFeedback(res.message || '词都放对了，进入挖空。', 'good');
+    } catch (e) {
+      setFeedback('词都放对了，进入挖空。', 'good');
+    }
+    await refreshStats();
+    setControls([btn('下一步', 'primary', () => loadNext())]);
+  }
 }
 
 function renderMatch(card) {
@@ -566,9 +782,11 @@ function renderFree(card) {
 }
 
 function renderCard(card) {
+  renderEpoch += 1;
   current = card;
   showCard();
   setFeedback('');
+  setControls([]);
   $('saType').textContent = card.review || card.lane === 'review' ? '复习' : '简答题';
   const stageLabel =
     card.kind === 'match'
@@ -582,6 +800,8 @@ function renderCard(card) {
   $('saStem').innerHTML = window.qimgRender(card.stem, card.images, card.bank_id);
   $('saPrompt').textContent = card.prompt || card.message || '';
   if (card.kind === 'warmup') renderWarmup(card);
+  else if (card.kind === 'expansion') renderExpansion(card);
+  else if (card.kind === 'pick_fill') renderPickFill(card);
   else if (card.kind === 'match') renderMatch(card);
   else if (card.kind === 'cloze' || card.kind === 'half_cloze') renderCloze(card);
   else if (card.kind === 'stem_pick') renderStemPick(card);

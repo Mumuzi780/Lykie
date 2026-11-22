@@ -171,6 +171,9 @@
   .onboarding-card { right: 10px; left: 10px; bottom: 10px; width: auto; }
 }
 
+/* 简答训练模式：卡片贴底常驻，会盖住底部提交按钮（手机端尤其明显），整个隐藏 */
+body.mode-sa .onboarding-card { display: none; }
+
 /* driver.js 气泡配色贴合站点主题 */
 .driver-popover {
   background: var(--card);

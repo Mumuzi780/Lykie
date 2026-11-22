@@ -73,6 +73,65 @@
 .sa-opt.stem-ok { border-color: var(--green); background: var(--correct-bg); color: var(--correct-text); }
 .sa-opt.stem-bad { border-color: var(--red); background: var(--wrong-bg); color: var(--wrong-text); }
 
+/* 渐进扩展阶段：语境框 + 单击即选的选项按钮 */
+.sa-exp-ctx {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px dashed var(--border-fine);
+  line-height: 1.7;
+  font-size: 15px;
+}
+button.sa-exp-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.6;
+}
+button.sa-exp-opt:disabled { cursor: default; }
+
+/* 选词入空阶段：空位槽 + 词块池 */
+.sa-pick-line { line-height: 2.4; }
+.sa-pick-slot {
+  display: inline-block;
+  min-width: 56px;
+  padding: 2px 10px;
+  margin: 0 4px;
+  text-align: center;
+  border-bottom: 2px dashed var(--border-fine);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  background: var(--surface);
+  user-select: none;
+}
+.sa-pick-slot:hover { border-color: var(--primary); }
+.sa-pick-slot.selected { border-color: var(--primary); background: var(--active); }
+.sa-pick-slot.filled {
+  border-bottom-style: solid;
+  border-color: var(--primary);
+  background: var(--active);
+  color: var(--text);
+  font-weight: 600;
+}
+.sa-pick-slot.locked { border-color: var(--green); background: var(--correct-bg); color: var(--correct-text); }
+.sa-pick-slot.bad { border-color: var(--red); background: var(--wrong-bg); color: var(--wrong-text); }
+.sa-pick-words { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+button.sa-pick-word {
+  padding: 8px 16px;
+  border: 1px solid var(--border-fine);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+button.sa-pick-word:hover:not(:disabled) { border-color: var(--primary); background: var(--option-hover); }
+button.sa-pick-word:disabled { opacity: 0.35; cursor: default; }
+
 .sa-match {
   display: grid;
   grid-template-columns: 1fr 1.2fr 1fr;
