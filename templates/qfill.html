@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <title>补图台 · Lykie</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=m135">
+  <link rel="stylesheet" href="/static/import.css?v=13">
+  <link rel="stylesheet" href="/static/qfill.css?v=1">
+</head>
+<body class="import-page qfill-page">
+  <div class="import-shell qfill-shell">
+    <header class="import-top">
+      <h1 class="brand-title">Lykie <span class="brand-sub">补图台</span></h1>
+      <div class="actions">
+        <a class="btn ghost" href="/">返回背题</a>
+        <span class="account-name" title="当前账号">{{ username }}</span>
+        <a class="btn ghost" href="/logout">退出</a>
+      </div>
+    </header>
+
+    <main class="import-main">
+      <p class="import-lead" id="qfillLead">扫描全部题库，集中补充标记为【含图片】的题目：上传或粘贴截图，确认效果后点「完成补图」。</p>
+      <section class="qfill-list" id="qfillList"><p class="hint">加载中…</p></section>
+    </main>
+  </div>
+
+  <script src="/static/dialog.js?v=2"></script>
+  <script src="/static/qimg.js?v=5"></script>
+  <script src="/static/qfill.js?v=1"></script>
+</body>
+</html>

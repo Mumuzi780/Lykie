@@ -1,0 +1,164 @@
+/* 补图台（复用 import.css 的页面壳，主题跟随 style.css） */
+
+.qfill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.qfill-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 600;
+  padding: 0 2px;
+}
+
+.qfill-group-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.qfill-card {
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.qfill-card.is-leaving {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.qfill-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.qfill-badge {
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-xl);
+  padding: 1px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.qfill-badge.is-warn {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.qfill-stem {
+  line-height: 1.7;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.qfill-stem img.qimg {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.qfill-stem .miss-mark {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+
+.qfill-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.qfill-thumb {
+  position: relative;
+  border: 1px solid var(--border-fine);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  background: var(--bg);
+}
+
+.qfill-thumb img {
+  display: block;
+  max-height: 84px;
+  max-width: 160px;
+  border-radius: var(--radius-sm);
+}
+
+.qfill-thumb-del {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-fine);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.qfill-thumb-del:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.qfill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.qfill-paste-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.qfill-done-btn.is-ready {
+  /* 有图后强调完成按钮 */
+}
+
+.qfill-stem-edit {
+  border-top: 1px dashed var(--border-fine);
+  padding-top: 10px;
+}
+
+.qfill-stem-edit summary {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.qfill-stem-edit textarea {
+  width: 100%;
+  min-height: 120px;
+  margin-top: 8px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+.qfill-empty {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--muted);
+}

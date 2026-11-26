@@ -22,6 +22,12 @@ from lykie import accounts as lykie_accounts
 
 IMG_MARKER_RE = re.compile(r"\[图:([A-Za-z0-9_\-]+)\]")
 
+# 缺图标记：导入时文本无法还原图的题在题干标【含图片：…】（补图台按此扫描）
+MISSING_MARK_RE = re.compile(r"【含图片[^】]*】")
+
+# 缺图题里随标记附带的文字描述（补图完成后一并移除；描述内可能嵌套一层括号）
+MISSING_DESC_RE = re.compile(r"（图片(?:表格)?内容：(?:[^（）]|（[^（）]*）)*）")
+
 ALLOWED_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
