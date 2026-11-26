@@ -125,7 +125,7 @@ function extractContent(opt) {
   return m ? m[1] : opt;
 }
 
-const TYPE_MAP = { choice: '选择题', judge: '判断题', fill: '填空题', short_answer: '简答题' };
+const TYPE_MAP = { choice: '选择题', judge: '判断题', fill: '填空题', short_answer: '简答题', cloze: '一题多空' };
 
 // ==================== 主题切换 ====================
 function applyTheme(theme) {
@@ -548,6 +548,7 @@ async function applyReadingView(textId, sec, paper) {
   document.body.classList.add('mode-reading');
   const rv = $('readView');
   if (rv) rv.hidden = false;
+  if (window.LykieStudyTime) window.LykieStudyTime.resetArea();
   document.querySelectorAll('.rd-bubble, .rd-toast').forEach((el) => el.remove());
   if (window.RD) window.RD.init(res, { sec: sec || '', paper: paper || '' });
   syncReadingSidebar(sec || undefined); // 进入即联动侧栏高亮（有 sec 先亮目标节）
@@ -563,6 +564,7 @@ async function openReadingView(textId, sec) {
 function showStudyView() {
   // 退出阅读：宿主隐藏即可，刷题 DOM 的显隐本就由各自的态管理（CSS 只在 mode-reading 下压掉它们）
   document.body.classList.remove('mode-reading');
+  if (window.LykieStudyTime) window.LykieStudyTime.resetArea();
   const rv = $('readView');
   if (rv) rv.hidden = true;
   document.querySelectorAll('.rd-toolbar-only').forEach((b) => { b.hidden = true; });
@@ -2197,6 +2199,7 @@ async function loadNext() {
     if (window.LykieFx) LykieFx.setComboBadge(sessionStreak, false);
   }
   renderQuestion();
+  if (window.LykieStudyTime) window.LykieStudyTime.questionShown();
 }
 
 function bumpCardMotion(el) {
@@ -2211,7 +2214,179 @@ function bumpCardMotion(el) {
   el.classList.add('card-enter');
 }
 
+// ==================== 一题多空（cloze）渲染与判分 ====================
+// 背题与模考共用；状态独立维护，不依赖跨文件的 current 绑定。
+window.LykieCloze = (function () {
+  let blanks = [];   // 每空 {options:[{letter,text}], answer, answerText}
+  let choices = [];  // 每空用户选择 {letter,text} 或 null
+  let done = false;  // 是否已判分
+  let active = 0;     // 当前正在填写的空位下标
+  let shared = true;  // 各空选项是否完全一致（一致时选项区为跨空通用池）
+  let optBtns = [];   // 通用选项区按钮
+  let hintEl = null;  // 选项区顶部提示（当前填写：空N）
+  let curImages = null;
+  let curBankId = null;
+
+  function parseOpt(opt) {
+    const m = String(opt || '').match(/^([A-H])[.、．\s]*(.*)$/i);
+    return { letter: m ? m[1].toUpperCase() : '', text: m ? m[2] : String(opt || '') };
+  }
+
+  function reset() {
+    blanks = [];
+    choices = [];
+    done = false;
+    active = 0;
+    shared = true;
+    optBtns = [];
+    hintEl = null;
+    const optBox = $('options');
+    if (optBox) optBox.innerHTML = '';
+  }
+
+  function normOpts(b) {
+    return (b.options || []).map((o) => o.letter + '.' + o.text).join('|');
+  }
+
+  // 渲染题干到 #cardStem：按（　）拆分，段间插入空位按钮（点击切换当前填写的空）
+  function render(q, images, bankId) {
+    reset();
+    curImages = images;
+    curBankId = bankId;
+    blanks = (q.blanks || []).map((b) => ({
+      options: (b.options || []).map((o) => parseOpt(o)),
+      answer: b.answer || '',
+      answerText: b.answer_text || '',
+    }));
+    choices = blanks.map(() => null);
+    shared = blanks.length < 2 || blanks.every((b) => normOpts(b) === normOpts(blanks[0]));
+    const host = $('cardStem');
+    if (!host) return { degraded: true };
+    const parts = String(q.stem || '').split('（　）');
+    if (parts.length - 1 !== blanks.length) {
+      host.innerHTML = window.qimgRender(q.stem || '', images, bankId);
+      return { degraded: true };
+    }
+    host.innerHTML = '';
+    parts.forEach((seg, i) => {
+      if (seg) {
+        const span = document.createElement('span');
+        span.innerHTML = window.qimgRender(seg, images, bankId);
+        host.appendChild(span);
+      }
+      if (i < parts.length - 1) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cloze-blank' + (i === 0 ? ' active' : '');
+        btn.dataset.i = String(i);
+        btn.textContent = '空' + (i + 1);
+        btn.onclick = () => setActive(i);
+        host.appendChild(btn);
+      }
+    });
+    renderOptionPanel();
+    return { degraded: false };
+  }
+
+  // 通用选项区常显在题目底部（#options）：点击题干空位切换，再点选项填入当前空
+  function renderOptionPanel() {
+    const box = $('options');
+    if (!box) return;
+    box.innerHTML = '';
+    box.hidden = false;
+    hintEl = document.createElement('div');
+    hintEl.className = 'cloze-pool-hint';
+    const wrap = document.createElement('div');
+    wrap.className = 'cloze-pool-opts';
+    optBtns = [];
+    const b = blanks[active] || blanks[0];
+    (b ? b.options : []).forEach((o) => {
+      const ob = document.createElement('button');
+      ob.type = 'button';
+      ob.className = 'opt cloze-opt';
+      ob.innerHTML = window.qimgRender(o.letter ? o.letter + '. ' + o.text : o.text, curImages, curBankId);
+      ob.dataset.letter = o.letter || '';
+      if (choices[active] && choices[active].letter === o.letter) ob.classList.add('selected');
+      ob.onclick = () => pick(o, ob);
+      wrap.appendChild(ob);
+      optBtns.push(ob);
+    });
+    box.appendChild(hintEl);
+    box.appendChild(wrap);
+    updateHint();
+  }
+
+  function updateHint() {
+    if (!hintEl) return;
+    if (!blanks.length) { hintEl.textContent = ''; return; }
+    hintEl.textContent = done
+      ? '已判分'
+      : '当前填写：空' + (active + 1) + '，点击题干中其他空位可切换';
+  }
+
+  function setActive(i) {
+    if (done || !blanks[i]) return;
+    active = i;
+    document.querySelectorAll('.cloze-blank').forEach((b) => {
+      b.classList.toggle('active', Number(b.dataset.i) === i);
+    });
+    if (shared) {
+      const picked = choices[active];
+      optBtns.forEach((ob) => ob.classList.toggle('selected', !!picked && ob.dataset.letter === picked.letter));
+    } else {
+      renderOptionPanel();
+    }
+    updateHint();
+  }
+
+  function pick(o, btn) {
+    if (done) return;
+    const i = active;
+    choices[i] = o;
+    const blankBtn = document.querySelector(`.cloze-blank[data-i="${i}"]`);
+    if (blankBtn) {
+      blankBtn.classList.add('filled');
+      blankBtn.textContent = o.letter ? o.letter + '. ' + o.text : o.text;
+    }
+    optBtns.forEach((ob) => ob.classList.toggle('selected', ob === btn));
+    // 自动切到下一个未填的空，减少手动点击
+    const next = choices.findIndex((c) => !c);
+    if (next !== -1 && next !== i) setActive(next);
+    else updateHint();
+  }
+
+  function state() {
+    return { blanks, choices, done };
+  }
+
+  // 逐空判分并染色，返回 {ok}（全部空对才 ok）
+  function grade() {
+    done = true;
+    let ok = true;
+    blanks.forEach((b, i) => {
+      const picked = choices[i];
+      const correct = !!(picked && picked.letter === b.answer);
+      if (!correct) ok = false;
+      const btn = document.querySelector(`.cloze-blank[data-i="${i}"]`);
+      if (btn) {
+        btn.classList.remove('filled', 'active');
+        btn.classList.add(correct ? 'correct' : 'wrong');
+        btn.disabled = true;
+        btn.textContent = correct
+          ? b.answerText
+          : picked ? (picked.letter ? picked.letter + '. ' + picked.text : picked.text) : '未填';
+      }
+    });
+    optBtns.forEach((ob) => { ob.disabled = true; });
+    updateHint();
+    return { ok };
+  }
+
+  return { render, grade, state, reset };
+})();
+
 function renderQuestion() {
+
   setSettleView(false);
   $('emptyState').hidden = true;
   if ($('studyHost')) $('studyHost').hidden = false;
@@ -2226,7 +2401,9 @@ function renderQuestion() {
   $('cardType').textContent = current.type === 'choice'
     ? (current.multi ? '多选题' : '选择题')
     : (TYPE_MAP[current.type] || '');
-  $('cardStem').innerHTML = window.qimgRender(current.stem, current.images, currentBankId);
+  if (current.type !== 'cloze') {
+    $('cardStem').innerHTML = window.qimgRender(current.stem, current.images, currentBankId);
+  }
   renderMeta();
 
   const optBox = $('options');
@@ -2262,6 +2439,12 @@ function renderQuestion() {
       btn.onclick = () => chooseJudge(btn, v);
       optBox.appendChild(btn);
     });
+  } else if (current.type === 'cloze') {
+    const r = window.LykieCloze.render(current, current.images, currentBankId);
+    if (!r.degraded) {
+      $('confirmBtn').hidden = false;
+      $('confirmBtn').textContent = '提交答案';
+    }
   } else {
     fillArea.hidden = false;
     $('confirmBtn').hidden = false;
@@ -2343,6 +2526,7 @@ function revealAnswerUi(opts) {
 
 /** 先播结算动画，再揭解析/下一题，避免卡片上移抢走注意力 */
 function settleThenReveal(kind, revealOpts) {
+  if (window.LykieStudyTime) window.LykieStudyTime.questionDone();
   const streak = sessionStreak;
   const run = () => revealAnswerUi(revealOpts);
   if (window.LykieFx && LykieFx.afterReveal) LykieFx.afterReveal(kind, streak, run);
@@ -2396,6 +2580,22 @@ async function submitMultiChoice() {
   settleThenReveal(ok ? 'correct' : 'wrong', { answer: true, next: true });
 }
 
+async function submitCloze() {
+  if (submitted || !current || current.type !== 'cloze') return;
+  const st = window.LykieCloze.state();
+  if (st.choices.some((c) => !c)) {
+    await uiAlert('请先填完所有空');
+    return;
+  }
+  const r = window.LykieCloze.grade();
+  userChoice = st.choices.map((c) => (c ? c.letter : '')).join('');
+  submitted = true;
+  $('confirmBtn').hidden = true;
+  $('confirmBtn').textContent = '提交答案';
+  apiAnswer(r.ok);
+  settleThenReveal(r.ok ? 'correct' : 'wrong', { answer: true, next: true });
+}
+
 function chooseJudge(btn, v) {
   if (submitted) return;
   userChoice = v;
@@ -2414,6 +2614,10 @@ async function confirmFill() {
   if (submitted) return;
   if (current && current.type === 'choice' && current.multi) {
     submitMultiChoice();
+    return;
+  }
+  if (current && current.type === 'cloze') {
+    submitCloze();
     return;
   }
   const val = $('fillInput').value.trim();
@@ -2816,6 +3020,7 @@ function currentToRaw(c) {
 
 function openEditFromCard() {
   if (!current) return;
+  if (current.type === 'cloze') { uiAlert('该题型暂不支持在线编辑'); return; }
   editSource = 'card';
   editBankId = null;
   editQuestionId = current.id;
@@ -2826,6 +3031,7 @@ function openEditFromCard() {
 }
 
 function openEditFromList(q, bankId) {
+  if (q && q.type === 'cloze') { uiAlert('该题型暂不支持在线编辑'); return; }
   editSource = 'list';
   editBankId = bankId;
   editQuestionId = q.id;

@@ -1704,6 +1704,57 @@ body.modal-scroll-lock .modal:not([hidden]) {
 .opt:disabled { cursor: default; }
 .opt:active:not(:disabled) { transform: scale(0.985); }
 
+/* ==================== 一题多空（cloze） ==================== */
+.cloze-blank {
+  display: inline-block;
+  min-width: 64px;
+  text-align: center;
+  border: none;
+  border-bottom: 1.5px dashed var(--primary);
+  background: var(--option-hover);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 2px 10px;
+  margin: 0 3px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.5;
+  cursor: pointer;
+  vertical-align: baseline;
+  transition:
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.cloze-blank:hover:not(:disabled) { background: var(--option-hover); opacity: 0.9; }
+.cloze-blank.filled { border-bottom-style: solid; }
+.cloze-blank.correct {
+  border-bottom: 1.5px solid var(--green);
+  background: var(--correct-bg);
+  color: var(--correct-text);
+}
+.cloze-blank.wrong {
+  border-bottom: 1.5px solid var(--red);
+  background: var(--wrong-bg);
+  color: var(--wrong-text);
+}
+.cloze-blank:disabled { cursor: default; opacity: 1; }
+.cloze-blank.active:not(:disabled) {
+  border: 1.5px solid var(--primary);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: var(--lift-1);
+}
+/* 通用选项区：常显在题目底部，跨空共用 */
+.cloze-pool-hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.cloze-pool-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloze-opt { flex: 0 1 auto; max-width: 100%; padding: 10px 14px; font-size: 15px; }
+
 .edit-options-list {
   display: flex;
   flex-direction: column;
@@ -4503,3 +4554,228 @@ img.qimg:hover { opacity: 0.92; }
   cursor: pointer;
 }
 .edit-images-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ==================== 学习时长 ==================== */
+.study-timer-wrap {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--muted);
+}
+.study-timer-btn {
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.study-timer-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--primary);
+}
+.study-timer-paused {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--answer-text);
+  border: 1px solid var(--answer-border);
+  background: var(--answer-bg);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+@media (hover: hover) and (pointer: fine) {
+  .study-timer-btn:hover {
+    color: var(--primary);
+    background: var(--tag-primary-bg);
+  }
+}
+/* 翻译页顶栏的计时入口（链接样式） */
+.study-timer-link {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.study-timer-link .study-timer-num { color: var(--primary); }
+@media (hover: hover) and (pointer: fine) {
+  .study-timer-link:hover {
+    color: var(--primary);
+    background: var(--tag-primary-bg);
+  }
+}
+
+/* 统计面板 */
+.study-stats-box { max-width: 620px; }
+.study-stats-range {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.study-stats-range .btn.is-active {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+}
+.study-stats-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.study-stats-summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.study-stats-summary-item b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.study-stats-summary-item.is-total b { color: var(--primary); }
+.study-stats-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  flex: none;
+}
+.study-stats-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.study-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.study-bar-date {
+  width: 42px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.study-bar-track {
+  flex: 1;
+  height: 14px;
+  background: var(--surface);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.study-bar-fill {
+  display: flex;
+  height: 100%;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.study-bar-seg { display: block; height: 100%; }
+.study-bar-seg.is-bank { background: var(--primary); }
+.study-bar-seg.is-english { background: var(--answer-text); }
+.study-bar-value {
+  width: 52px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 题块用时明细 */
+.study-stats-sections {
+  margin-top: 18px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 14px;
+}
+.study-stats-sub {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.study-stats-empty {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.study-sec-list {
+  list-style: none;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.study-sec-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 2px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-fine);
+}
+.study-sec-item:last-child { border-bottom: none; }
+.study-sec-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.study-sec-paper {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.study-sec-last {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.study-sec-time {
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--answer-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 侧栏节选项处的节计时 */
+.bank-item.paper-item {
+  position: relative;
+}
+.paper-item:has(.paper-item-time) .bank-name {
+  padding-right: 52px;
+}
+.paper-item-time {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.bank-item.paper-item.is-timing {
+  border-color: color-mix(in srgb, var(--answer-text) 55%, var(--border));
+  border-left-color: var(--answer-text);
+  background: color-mix(in srgb, var(--answer-text) 8%, var(--card));
+}
+.bank-item.paper-item.is-timing .paper-item-time {
+  color: var(--answer-text);
+  animation: study-timing-pulse 1.2s ease-in-out infinite;
+}
+@keyframes study-timing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}

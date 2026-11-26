@@ -45,6 +45,7 @@ from lykie import releases as lykie_releases
 from lykie import assets as lykie_assets
 from lykie import readings as lykie_readings
 from lykie import short_answer as lykie_sa
+from lykie import study_time as lykie_study_time
 from lykie import typo as lykie_typo
 from lykie import verify_codes
 from story import load_story, list_stories
@@ -741,6 +742,28 @@ def api_assets_vocab_delete(entry_id):
     if not ok:
         return jsonify({"ok": False, "error": "未找到"}), 404
     return jsonify({"ok": True})
+
+
+# ==================== 学习时长 ====================
+@app.route("/api/study/heartbeat", methods=["POST"])
+def api_study_heartbeat():
+    """心跳上报：body 形如 {"bank": 秒, "english": 秒,
+    "sections": {"<text_id>::<sec_key>": {"seconds": 秒, "label": …, "kind": …, "text_title": …}}}。"""
+    data = request.get_json(force=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+    pairs = {area: data.get(area) for area in lykie_study_time.AREAS}
+    today = lykie_study_time.add_seconds(g.store.username, pairs, data.get("sections"))
+    return jsonify_user({"ok": True, "today": today})
+
+
+@app.route("/api/study/stats", methods=["GET"])
+def api_study_stats():
+    days = request.args.get("days") or 30
+    payload = lykie_study_time.stats(g.store.username, days)
+    payload["ok"] = True
+    payload["areas"] = lykie_study_time.AREA_NAMES
+    return jsonify_user(payload)
 
 
 _TIDY_PROMPT = """你是词汇条目整理助手。下面是一个英语词条的当前结构：词头、各义项、全部例句（带全局编号）。
@@ -1796,6 +1819,52 @@ def render_question(q, bank=None):
                 f"{LETTERS[i]}.{order[i]}" for i, c in enumerate(order) if c in correct_set
             ) or out["answer"]
             out["multi"] = multi
+    elif q["type"] == "cloze":
+        # 一题多空：每空独立选项池与答案；各空选项内容一致时共用同一份顺序
+        # （phase=right 只打乱一次，跨空字母保持一致，前端通用选项区可直接按字母作答）
+        blanks = q.get("blanks") or []
+        contents_list = [list(b.get("options") or []) for b in blanks]
+        shared_contents = (
+            contents_list[0]
+            if contents_list and all(c == contents_list[0] for c in contents_list)
+            else None
+        )
+        shared_order = (
+            random.sample(shared_contents, len(shared_contents))
+            if shared_contents is not None and q.get("phase") == "right"
+            else shared_contents
+        )
+        out_blanks = []
+        for b, contents in zip(blanks, contents_list):
+            ans = str(b.get("answer") or "").strip().upper()
+            try:
+                correct_content = contents[LETTERS.index(ans)] if ans else None
+            except (ValueError, IndexError):
+                correct_content = None
+            if not contents:
+                out_blanks.append({"options": [], "answer": "", "answer_text": ans})
+                continue
+            if shared_order is not None:
+                order = shared_order
+            elif q.get("phase") == "right":
+                order = random.sample(contents, len(contents))
+            else:
+                order = contents[:]
+            letter = ""
+            if correct_content is not None and correct_content in order:
+                letter = LETTERS[order.index(correct_content)]
+            out_blanks.append({
+                "options": [f"{LETTERS[i]}.{order[i]}" for i in range(len(order))],
+                "answer": letter,
+                "answer_text": (letter + "." + correct_content) if letter else ans,
+            })
+        out["blanks"] = out_blanks
+        out["options"] = []
+        out["answer"] = q.get("answer", "")
+        out["answer_text"] = "；".join(
+            f"空{i + 1}：{b['answer_text']}" for i, b in enumerate(out_blanks)
+        ) or q.get("answer", "")
+        out["multi"] = False
     elif q["type"] == "judge":
         out["options"] = ["对", "错"]
         out["answer"] = q["answer"]
@@ -1842,6 +1911,12 @@ def publish_page():
     if g.store.username not in OFFICIAL_AUTHORS:
         return redirect(url_for("index") + f"?_={int(time.time())}")
     return render_template("publish.html", username=g.store.username)
+
+
+@app.route("/qfill")
+def qfill_page():
+    """补图台：集中补充各题库里标记为【含图片】的缺图题目。"""
+    return render_template("qfill.html", username=g.store.username)
 
 
 @app.route("/translate")
@@ -3735,6 +3810,7 @@ def api_bank_questions():
             "type": q["type"],
             "stem": q["stem"],
             "options": q.get("options", []),
+            "blanks": q.get("blanks", []),
             "answer": q["answer"],
             "analysis": q.get("analysis", ""),
             "keywords": q.get("keywords") or [],
@@ -3822,6 +3898,36 @@ def api_bank_image_delete(bank_id, qid, img_id):
         q["options"] = [lykie_bank_images.strip_marker(o, img_id) for o in q["options"]]
     g.store.save()
     return jsonify({"ok": True, "images": q["images"]})
+
+
+@app.route("/api/missing_images")
+def api_missing_images():
+    """补图台扫描：列出当前账号所有题干带【含图片】标记的题目（按题库分组）。
+
+    已补图但未点「完成」的题（images 非空、标记仍在）继续列出，方便续补。
+    """
+    groups = []
+    for b in g.store.banks:
+        items = []
+        for q in b.get("questions") or []:
+            if not lykie_bank_images.MISSING_MARK_RE.search(q.get("stem") or ""):
+                continue
+            items.append({
+                "id": str(q.get("id") or ""),
+                "num": str(q.get("num") or ""),
+                "type": q.get("type") or "",
+                "stem": q.get("stem") or "",
+                "analysis": q.get("analysis") or "",
+                "images": q.get("images") or [],
+            })
+        if items:
+            groups.append({
+                "bank_id": b["id"],
+                "bank_name": b.get("name") or b["id"],
+                "questions": items,
+            })
+    total = sum(len(g_["questions"]) for g_ in groups)
+    return jsonify({"ok": True, "groups": groups, "total": total})
 
 
 @app.route("/api/rename_bank", methods=["POST"])

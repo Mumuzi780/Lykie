@@ -1308,6 +1308,20 @@
     const isRevealed = (n) => Object.prototype.hasOwnProperty.call(answerState.revealed, String(n));
 
     const secOf = (kind) => sections.find((s) => s.kind === kind);
+    // 学习时长：题号 → 所属大题（节）；无归属返回 null
+    const secOfQ = (num) => sections.find((s) => (s.questions || []).some((q) => String(q.num) === String(num))) || null;
+    const studyAnswerStarted = (num, sec) => {
+      if (!window.LykieStudyTime) return;
+      const s = sec || secOfQ(num);
+      window.LykieStudyTime.answerStarted({
+        qId: num,
+        secKey: s ? String(s.key || '') : null,
+        textId: textId,
+        label: s ? (s.label || '') : '',
+        kind: s ? (s.kind || '') : '',
+        textTitle: ($('rdTitle') || {}).textContent || '',
+      });
+    };
     const bankWord = (key) => {
       const sec = secOf('bank');
       const o = sec && (sec.bank || []).find((x) => x.key === key);
@@ -1657,6 +1671,10 @@
     const doJudge = async (payload) => {
       const data = await post(`/api/reading/${textId}/judge`, payload);
       Object.assign(answerState.judged, data.result || {});
+      if (window.LykieStudyTime) {
+        if (payload && payload.num != null) window.LykieStudyTime.answerDone(payload.num);
+        else window.LykieStudyTime.answerDoneAll();
+      }
       rerender();
     };
 
@@ -1670,6 +1688,7 @@
         try {
           await post(`/api/reading/${textId}/answer`, { num: opt.dataset.num, key: opt.dataset.key });
           answerState.answers[opt.dataset.num] = opt.dataset.key;
+          studyAnswerStarted(opt.dataset.num);
           rerender();
         } catch (e) { alert(e.message); }
         return;
@@ -1841,6 +1860,7 @@
       const evalBtn = qBody.querySelector('.rd-tr-eval-btn');
       if (next) next.disabled = !has;
       if (evalBtn) evalBtn.disabled = !has;
+      if (has) studyAnswerStarted('translation', secOf('translation'));
     });
 
     // 失焦静默保存：切 tab / 收卡片 / 关页面前不丢已写的译文
@@ -2060,6 +2080,7 @@
           try {
             await post(`/api/reading/${textId}/reveal`, { num: reveal.dataset.num });
             answerState.revealed[reveal.dataset.num] = true;
+            if (window.LykieStudyTime) window.LykieStudyTime.answerDone(reveal.dataset.num);
             closePicker();
             rerender();
           } catch (e) { alert(e.message); }
@@ -2074,6 +2095,7 @@
             await post(`/api/reading/${textId}/answer`, body);
             answerState.answers[body.num] = body.key;
             delete answerState.judged[body.num]; // 判错重选：清判分态（后端同款），等再次对答案
+            studyAnswerStarted(body.num);
             closePicker();
             rerender();
           } catch (e) { alert(e.message); }

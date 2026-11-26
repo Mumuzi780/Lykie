@@ -376,6 +376,9 @@
       var has = ev.target.value.trim().length > 0;
       var eb = workArea.querySelector('#btnEval');
       if (eb) eb.disabled = !has;
+      if (has && window.LykieStudyTime) {
+        window.LykieStudyTime.answerStarted({ area: 'english', qId: 'translate-' + ev.target.dataset.i });
+      }
     });
 
     // 失焦静默保存

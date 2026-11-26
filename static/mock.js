@@ -593,11 +593,14 @@
     global.current = q;
     global.submitted = false;
     global.userChoice = null;
+    if (window.LykieStudyTime) window.LykieStudyTime.questionShown();
     if ($('cardType')) {
       $('cardType').textContent =
-        q.type === 'choice' ? (q.multi ? '多选题' : '选择题') : q.type === 'judge' ? '判断题' : '填空题';
+        q.type === 'choice' ? (q.multi ? '多选题' : '选择题') : q.type === 'judge' ? '判断题' : q.type === 'cloze' ? '一题多空' : '填空题';
     }
-    if ($('cardStem')) $('cardStem').innerHTML = global.qimgRender(q.stem, q.images, q.source_bank_id || global.currentBankId);
+    if ($('cardStem') && q.type !== 'cloze') {
+      $('cardStem').innerHTML = global.qimgRender(q.stem, q.images, q.source_bank_id || global.currentBankId);
+    }
     if ($('cardMeta')) {
       $('cardMeta').textContent = q.bank_name ? `来自：${q.bank_name}` : '';
       $('cardMeta').hidden = !q.bank_name;
@@ -610,7 +613,18 @@
     const opts = $('options');
     const fill = $('fillArea');
     opts.innerHTML = '';
-    if (q.type === 'fill') {
+    if (q.type === 'cloze') {
+      opts.hidden = true;
+      fill.hidden = true;
+      $('nextBtn').hidden = true;
+      $('judgeBtns').hidden = true;
+      const r = global.LykieCloze.render(q, q.images, q.source_bank_id || global.currentBankId);
+      if (!r.degraded) {
+        $('confirmBtn').hidden = false;
+        $('confirmBtn').textContent = '提交答案';
+        $('confirmBtn').onclick = () => submitMockCloze();
+      }
+    } else if (q.type === 'fill') {
       opts.hidden = true;
       fill.hidden = false;
       $('fillInput').value = '';
@@ -670,6 +684,7 @@
   }
 
   async function afterJudge(ok) {
+    if (window.LykieStudyTime) window.LykieStudyTime.questionDone();
     const q = global.current;
     document.querySelectorAll('.opt').forEach((b) => {
       b.disabled = true;
@@ -735,6 +750,20 @@
     global.submitted = true;
     const ok = gradeChoice(picked);
     await afterJudge(ok);
+  }
+
+  async function submitMockCloze() {
+    if (global.submitted) return;
+    const st = global.LykieCloze.state();
+    if (st.choices.some((c) => !c)) {
+      await uiAlert('请先填完所有空');
+      return;
+    }
+    global.submitted = true;
+    const r = global.LykieCloze.grade();
+    global.userChoice = st.choices.map((c) => (c ? c.letter : '')).join('');
+    $('confirmBtn').hidden = true;
+    await afterJudge(r.ok);
   }
 
   async function submitMockFill() {

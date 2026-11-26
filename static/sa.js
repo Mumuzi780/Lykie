@@ -830,7 +830,10 @@ async function loadNext() {
       setControls([]);
       return;
     }
+    // 学习时长：上一题结束（提交后看到「下一题」即视为完成），本题开始计时
+    if (window.LykieStudyTime) window.LykieStudyTime.questionDone();
     renderCard(card);
+    if (window.LykieStudyTime) window.LykieStudyTime.questionShown();
   } catch (e) {
     showEmpty('加载失败', e.message || String(e));
   }

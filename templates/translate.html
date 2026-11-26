@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m112">
+  <link rel="stylesheet" href="/static/style.css?v=m115">
   <link rel="stylesheet" href="/static/translate.css?v=2">
 </head>
 <body class="translate-page">
@@ -25,6 +25,12 @@
       <h1 class="brand-title">Lykie <span class="brand-sub">翻译</span></h1>
       <div class="actions">
         <a class="btn ghost" href="/" id="btnBack">返回背题</a>
+        <a class="study-timer-link" id="studyTimerWrap" href="/?stats=1" hidden title="学习时长：开始输入译文才计时，30 秒无操作自动暂停；点击查看统计">
+          <span id="studyTimerArea">英语</span>
+          今日 <span class="study-timer-num" id="studyTimerToday">0:00</span>
+          · 本次 <span class="study-timer-num" id="studyTimerSession">0:00</span>
+          <span class="study-timer-paused" id="studyTimerPaused" hidden>已暂停</span>
+        </a>
         <span class="account-name" title="当前账号">{{ username }}</span>
         <a class="btn ghost" href="/logout">退出</a>
       </div>
@@ -52,6 +58,8 @@
     </main>
   </div>
 
+  <script>window.LykieStudyTimeConfig = { area: 'english' };</script>
+  <script src="/static/study-timer.js?v=3"></script>
   <script src="/static/translate.js?v=1"></script>
   <div class="beian-bar">
     <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">冀ICP备2026049654号</a>

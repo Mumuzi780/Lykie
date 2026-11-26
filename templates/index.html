@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m132">
+  <link rel="stylesheet" href="/static/style.css?v=m138">
   <link rel="stylesheet" href="/static/sa.css?v=m11">
   <link rel="stylesheet" href="/static/reading.css?v=33">
   <link rel="stylesheet" href="/static/vendor/driver.css?v=1">
@@ -42,6 +42,14 @@
         <div class="stats" id="stats">加载中…</div>
         <div class="stats" id="saStats" hidden>加载中…</div>
         <div class="stats mock-timer-wrap" id="mockTimerWrap" hidden>用时 <span id="mockTimer">0:00</span></div>
+        <div class="stats study-timer-wrap" id="studyTimerWrap" hidden>
+          <button type="button" class="study-timer-btn" id="studyTimerBtn" title="学习时长：开始作答才计时，30 秒无操作自动暂停；点击查看统计" aria-label="学习统计">
+            <span id="studyTimerArea">题库</span>
+            今日 <span class="study-timer-num" id="studyTimerToday">0:00</span>
+            · 本次 <span class="study-timer-num" id="studyTimerSession">0:00</span>
+            <span class="study-timer-paused" id="studyTimerPaused" hidden>已暂停</span>
+          </button>
+        </div>
         <div class="actions" id="headerActions">
           <button type="button" id="bankDrawerBtn" class="btn ghost bank-drawer-btn">题库</button>
           <a class="btn ghost" id="assetsLink" href="/assets" title="把学会的变成自己的">资产</a>
@@ -62,6 +70,7 @@
           {% if username == 'LiZF' %}
           <button type="button" id="adminAccBtn" class="btn ghost" title="创建新账号">建号</button>
           <a class="btn ghost" href="/publish" title="上架官方共享题库">发布</a>
+          <a class="btn ghost" href="/qfill" title="集中补充各题库缺图片的题目">补图</a>
           <a class="btn ghost" href="/annotations" title="// 反馈收件箱：回放她当时看到的现场">标注</a>
           <button type="button" id="replayOnboardingBtn" class="btn ghost" title="重置新手引导状态，重新体验完整流程（仅自己可见）">重看引导</button>
           {% endif %}
@@ -317,6 +326,28 @@
     </div>
   </div>
 
+  <!-- 学习统计面板 -->
+  <div class="modal" id="studyStatsModal" hidden>
+    <div class="modal-box study-stats-box">
+      <div class="modal-header">
+        <h3>学习统计</h3>
+        <button type="button" class="btn ghost" id="studyStatsCloseBtn">关闭</button>
+      </div>
+      <div class="study-stats-range" role="tablist" aria-label="统计范围">
+        <button type="button" class="btn ghost is-active" data-days="7">近 7 天</button>
+        <button type="button" class="btn ghost" data-days="30">近 30 天</button>
+        <button type="button" class="btn ghost" data-days="1">今日</button>
+      </div>
+      <div class="study-stats-summary" id="studyStatsSummary"></div>
+      <div class="study-stats-bars" id="studyStatsBars"></div>
+      <div class="study-stats-sections">
+        <h4 class="study-stats-sub">题块用时（累计）</h4>
+        <div id="studyStatsSections"></div>
+      </div>
+      <p class="hint">开始作答才计时：题库区显示题目即开始、提交后暂停；英语阅读区做出作答动作才开始，该题答完即停，30 秒无操作自动暂停。阅读卷按大题（选词填空、段落匹配…）单独记时。</p>
+    </div>
+  </div>
+
   <div class="modal" id="bankShareModal" hidden>
     <div class="modal-box">
       <div class="modal-header">
@@ -521,14 +552,16 @@
   </aside>
 
   <script src="/static/dialog.js?v=1"></script>
-  <script src="/static/qimg.js?v=1"></script>
+  <script src="/static/qimg.js?v=5"></script>
   <script src="/static/sa.js?v=sa32"></script>
   <script src="/static/sfx.js?v=11"></script>
   <script src="/static/fx.js?v=10"></script>
   {% if rd_payload %}
   <script>window.RD_BOOT = {{ rd_payload|tojson }};</script>
   {% endif %}
-  <script src="/static/script.js?v=m108"></script>
+  <script>window.LykieStudyTimeConfig = { area: 'auto' };</script>
+  <script src="/static/study-timer.js?v=3"></script>
+  <script src="/static/script.js?v=m110"></script>
   <script src="/static/mock.js?v=8"></script>
   <script src="/static/story.js?v=m6"></script>
   <script src="/static/reading.js?v=45"></script>
