@@ -10,6 +10,7 @@ data/official_banks.json
 data/secret_key
 .venv/
 venv/
+.trae/
 dist/
 *.zip
 story-editor/node_modules/
