@@ -685,6 +685,7 @@
 
   async function afterJudge(ok) {
     if (window.LykieStudyTime) window.LykieStudyTime.questionDone();
+    if (window.LykieOnboarding) window.LykieOnboarding.scene('bankTimer'); // 计时说明：第一次提交后才提示，只播一次
     const q = global.current;
     document.querySelectorAll('.opt').forEach((b) => {
       b.disabled = true;

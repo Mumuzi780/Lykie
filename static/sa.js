@@ -832,6 +832,7 @@ async function loadNext() {
     }
     // 学习时长：上一题结束（提交后看到「下一题」即视为完成），本题开始计时
     if (window.LykieStudyTime) window.LykieStudyTime.questionDone();
+    if (window.LykieOnboarding) window.LykieOnboarding.scene('bankTimer'); // 计时说明：第一次提交后才提示，只播一次
     renderCard(card);
     if (window.LykieStudyTime) window.LykieStudyTime.questionShown();
   } catch (e) {

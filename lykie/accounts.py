@@ -265,6 +265,7 @@ def _default_onboarding():
         "tasks": {"claim": False, "study": False, "kill": False},
         "tour_done": False,
         "checklist_dismissed": False,
+        "guide": {},  # 场景引导：{ <sceneKey>: True }，进入对应页面/动作后才提示，各只播一次
     }
 
 
@@ -275,6 +276,7 @@ def _done_onboarding():
     state["tasks"] = {"claim": True, "study": True, "kill": True}
     state["tour_done"] = True
     state["checklist_dismissed"] = True
+    state["guide"] = None  # 前端据此判定：场景引导一律不自动播
     return state
 
 
@@ -295,6 +297,9 @@ def get_onboarding(username):
         for key in result["tasks"]:
             if isinstance(tasks.get(key), bool):
                 result["tasks"][key] = tasks[key]
+    guide = raw.get("guide")
+    if isinstance(guide, dict):
+        result["guide"] = {k: v for k, v in guide.items() if isinstance(v, bool)}
     return result
 
 
@@ -319,6 +324,11 @@ def update_onboarding(username, patch):
                 for key in tasks:
                     if isinstance(patch_tasks.get(key), bool):
                         tasks[key] = patch_tasks[key]
+            patch_guide = patch.get("guide")
+            if isinstance(patch_guide, dict):
+                # 整体覆盖（前端回传完整的已播列表），重置引导时传空字典即可清空
+                raw["guide"] = {k: v for k, v in patch_guide.items()
+                                if isinstance(k, str) and len(k) <= 40 and isinstance(v, bool)}
             u["onboarding"] = raw
             _save_users(data)
             return True

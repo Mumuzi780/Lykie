@@ -748,12 +748,16 @@ def api_assets_vocab_delete(entry_id):
 @app.route("/api/study/heartbeat", methods=["POST"])
 def api_study_heartbeat():
     """心跳上报：body 形如 {"bank": 秒, "english": 秒,
-    "sections": {"<text_id>::<sec_key>": {"seconds": 秒, "label": …, "kind": …, "text_title": …}}}。"""
+    "sections": {"<text_id>::<sec_key>": {"seconds": 秒, "label": …, "kind": …, "text_title": …}},
+    "attempts": [{"id": "<text_id>::<sec_key>", "dur": 秒, "paused": 秒, "answered": n,
+                  "total": n, "fresh": bool, "done": bool, "label": …, "kind": …, "text_title": …}]}。"""
     data = request.get_json(force=True) or {}
     if not isinstance(data, dict):
         data = {}
     pairs = {area: data.get(area) for area in lykie_study_time.AREAS}
-    today = lykie_study_time.add_seconds(g.store.username, pairs, data.get("sections"))
+    today = lykie_study_time.add_seconds(
+        g.store.username, pairs, data.get("sections"), data.get("attempts")
+    )
     return jsonify_user({"ok": True, "today": today})
 
 
@@ -2645,11 +2649,13 @@ def api_banks_share():
 
 @app.route("/api/onboarding", methods=["GET", "POST"])
 def api_onboarding():
-    """新手引导进度：GET 查询；POST 更新弹窗/导览/清单的开闭状态。"""
+    """新手引导进度：GET 查询；POST 更新弹窗/导览/清单的开闭状态，以及场景引导的已播列表（guide）。"""
     if request.method == "GET":
         return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
     data = request.get_json(force=True) or {}
     patch = {k: data.get(k) for k in ("welcome_done", "tour_done", "checklist_dismissed") if isinstance(data.get(k), bool)}
+    if isinstance(data.get("guide"), dict):
+        patch["guide"] = data["guide"]  # 场景引导已播列表（整体覆盖）
     if not patch:
         return jsonify({"ok": False, "error": "没有可更新的字段"}), 400
     lykie_accounts.update_onboarding(g.store.username, patch)
@@ -2666,6 +2672,7 @@ def api_onboarding_reset():
         "tour_done": False,
         "checklist_dismissed": False,
         "tasks": {"claim": False, "study": False, "kill": False},
+        "guide": {},
     })
     return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
 
@@ -2687,6 +2694,7 @@ def api_onboarding_newbie():
         "tour_done": False,
         "checklist_dismissed": False,
         "tasks": {"claim": False, "study": False, "kill": False},
+        "guide": {},
     })
     return jsonify_user({"ok": True, "onboarding": lykie_accounts.get_onboarding(g.store.username)})
 

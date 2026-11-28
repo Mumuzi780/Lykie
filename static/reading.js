@@ -1310,17 +1310,40 @@
     const secOf = (kind) => sections.find((s) => s.kind === kind);
     // 学习时长：题号 → 所属大题（节）；无归属返回 null
     const secOfQ = (num) => sections.find((s) => (s.questions || []).some((q) => String(q.num) === String(num))) || null;
-    const studyAnswerStarted = (num, sec) => {
-      if (!window.LykieStudyTime) return;
-      const s = sec || secOfQ(num);
-      window.LykieStudyTime.answerStarted({
-        qId: num,
-        secKey: s ? String(s.key || '') : null,
-        textId: textId,
-        label: s ? (s.label || '') : '',
-        kind: s ? (s.kind || '') : '',
-        textTitle: ($('rdTitle') || {}).textContent || '',
-      });
+    // 学习时长：按节计时，一次连续作答 = 一条记录（读文章、读题干、思考都算）
+    const secTotal = (s) => (s.kind === 'translation' ? (s.sents || []).length : (s.questions || []).length);
+    const secAnswered = (s) => (s.kind === 'translation'
+      ? (s.sents || []).filter((_, i) => trState && trState.answers[String(i)]).length
+      : (s.questions || []).filter((q) => answerState.answers[q.num]).length);
+    // 整节答完：选择题/选词/匹配要全部已答且已判分或看答案；翻译要每句都写了
+    const secFinished = (s) => {
+      const n = secTotal(s);
+      if (s.kind === 'translation') return n > 0 && secAnswered(s) >= n;
+      return n > 0 && secAnswered(s) >= n
+        && (s.questions || []).every((q) => isRevealed(q.num) || isJudged(q.num));
+    };
+    const studyInfo = (s) => ({
+      secKey: String(s.key || ''),
+      textId: textId,
+      label: s.label || '',
+      kind: s.kind || '',
+      name: shortLabel(s),
+      unit: s.kind === 'translation' ? '句' : '题',
+      textTitle: ($('rdTitle') || {}).textContent || '',
+      fresh: secAnswered(s) === 0, // 全新开始：这次记录才拿来对照考场时限
+      finished: secFinished(s), // 已答完的节不再计时
+      total: secTotal(s),
+      // 记录结束时回读：答了几题；离开时已答满也算做完
+      snapshot: () => {
+        const answered = secAnswered(s);
+        const total = secTotal(s);
+        return { answered, total, done: total > 0 && answered >= total };
+      },
+    });
+    const studyInView = (s) => { if (window.LykieStudyTime && s) window.LykieStudyTime.sectionInView(() => studyInfo(s)); };
+    const studyLeave = (s) => { if (window.LykieStudyTime) window.LykieStudyTime.sectionLeave(s ? String(textId) + '::' + String(s.key || '') : ''); };
+    const studyCheckDone = (s) => {
+      if (window.LykieStudyTime && s && secFinished(s)) window.LykieStudyTime.sectionDone(String(s.key || ''));
     };
     const bankWord = (key) => {
       const sec = secOf('bank');
@@ -1671,10 +1694,8 @@
     const doJudge = async (payload) => {
       const data = await post(`/api/reading/${textId}/judge`, payload);
       Object.assign(answerState.judged, data.result || {});
-      if (window.LykieStudyTime) {
-        if (payload && payload.num != null) window.LykieStudyTime.answerDone(payload.num);
-        else window.LykieStudyTime.answerDoneAll();
-      }
+      // 判分后整节都答完（已判/已看答案）→ 本次记录结束；否则继续计时
+      studyCheckDone(payload && payload.num != null ? secOfQ(payload.num) : sections[activeTab]);
       rerender();
     };
 
@@ -1688,7 +1709,6 @@
         try {
           await post(`/api/reading/${textId}/answer`, { num: opt.dataset.num, key: opt.dataset.key });
           answerState.answers[opt.dataset.num] = opt.dataset.key;
-          studyAnswerStarted(opt.dataset.num);
           rerender();
         } catch (e) { alert(e.message); }
         return;
@@ -1803,8 +1823,8 @@
       }
       const fullBtn = ev.target.closest('.rd-tr-full-btn');
       if (fullBtn) {
-        // 完成整段：落当前译文后进终态视图
-        if (await saveTrAnswer()) { trView = 'full'; renderPanel(); }
+        // 完成整段：落当前译文后进终态视图（整节写完 → 本次记录结束）
+        if (await saveTrAnswer()) { trView = 'full'; studyCheckDone(secOf('translation')); renderPanel(); }
         return;
       }
       const backsents = ev.target.closest('.rd-tr-backsents-btn');
@@ -1860,7 +1880,6 @@
       const evalBtn = qBody.querySelector('.rd-tr-eval-btn');
       if (next) next.disabled = !has;
       if (evalBtn) evalBtn.disabled = !has;
-      if (has) studyAnswerStarted('translation', secOf('translation'));
     });
 
     // 失焦静默保存：切 tab / 收卡片 / 关页面前不丢已写的译文
@@ -2080,7 +2099,7 @@
           try {
             await post(`/api/reading/${textId}/reveal`, { num: reveal.dataset.num });
             answerState.revealed[reveal.dataset.num] = true;
-            if (window.LykieStudyTime) window.LykieStudyTime.answerDone(reveal.dataset.num);
+            studyCheckDone(secOfQ(reveal.dataset.num));
             closePicker();
             rerender();
           } catch (e) { alert(e.message); }
@@ -2095,7 +2114,6 @@
             await post(`/api/reading/${textId}/answer`, body);
             answerState.answers[body.num] = body.key;
             delete answerState.judged[body.num]; // 判错重选：清判分态（后端同款），等再次对答案
-            studyAnswerStarted(body.num);
             closePicker();
             rerender();
           } catch (e) { alert(e.message); }
@@ -2398,6 +2416,9 @@
           const pass = document.querySelector(`.rd-pass[data-key="${CSS.escape(sec)}"]`);
           if (pass) pass.scrollIntoView({ behavior: 'smooth', block: 'start' });
           activeTab = idx;
+          // 点侧栏节条目切节：当前节立即停止；目标节等正文停留 5 秒再开始
+          studyLeave(sections[idx]);
+          studyInView(sections[idx]);
         }
       }
 
@@ -2445,7 +2466,17 @@
       }
       setHint('');
     }
-    window.RD = { init };
+    // studyInView：宿主滚动联动（script.js）发现正文停到某一节时调用，停留满 5 秒才开始计时
+    // studyToggle：双击侧栏节条目，手动开始/停止这一节的计时（只对当前打开的这篇文章生效）
+    window.RD = {
+      init,
+      studyInView: (key) => studyInView(sections.find((s) => String(s.key || '') === String(key))),
+      studyToggle: (tid, key) => {
+        if (String(tid) !== String(textId) || !window.LykieStudyTime) return;
+        const s = sections.find((x) => String(x.key || '') === String(key));
+        if (s) window.LykieStudyTime.sectionToggle(() => studyInfo(s));
+      },
+    };
 
     // ---- 顶栏答案入口（有题才有这些按钮） ----
     const keyImportBtn = $('rdKeyImportBtn');

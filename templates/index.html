@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=m138">
+  <link rel="stylesheet" href="/static/style.css?v=m139">
   <link rel="stylesheet" href="/static/sa.css?v=m11">
   <link rel="stylesheet" href="/static/reading.css?v=33">
   <link rel="stylesheet" href="/static/vendor/driver.css?v=1">
@@ -43,7 +43,7 @@
         <div class="stats" id="saStats" hidden>加载中…</div>
         <div class="stats mock-timer-wrap" id="mockTimerWrap" hidden>用时 <span id="mockTimer">0:00</span></div>
         <div class="stats study-timer-wrap" id="studyTimerWrap" hidden>
-          <button type="button" class="study-timer-btn" id="studyTimerBtn" title="学习时长：开始作答才计时，30 秒无操作自动暂停；点击查看统计" aria-label="学习统计">
+          <button type="button" class="study-timer-btn" id="studyTimerBtn" title="学习时长：题库区显示题目即计时，30 秒无操作暂停；英语阅读区按节计时，正文在同一节停留超过 5 秒才开始（读文章、思考都算），作答等操作不触发计时，双击侧栏节条目可手动开始/停止（手动停止后 10 分钟内该节不自动开始计时）；60 秒无操作提醒、3 分钟无操作暂停；点击查看统计" aria-label="学习统计">
             <span id="studyTimerArea">题库</span>
             今日 <span class="study-timer-num" id="studyTimerToday">0:00</span>
             · 本次 <span class="study-timer-num" id="studyTimerSession">0:00</span>
@@ -331,7 +331,10 @@
     <div class="modal-box study-stats-box">
       <div class="modal-header">
         <h3>学习统计</h3>
-        <button type="button" class="btn ghost" id="studyStatsCloseBtn">关闭</button>
+        <div class="modal-header-actions">
+          <button type="button" class="btn ghost" id="studyGuideBtn" title="用分步气泡讲解计时规则">计时说明</button>
+          <button type="button" class="btn ghost" id="studyStatsCloseBtn">关闭</button>
+        </div>
       </div>
       <div class="study-stats-range" role="tablist" aria-label="统计范围">
         <button type="button" class="btn ghost is-active" data-days="7">近 7 天</button>
@@ -341,10 +344,10 @@
       <div class="study-stats-summary" id="studyStatsSummary"></div>
       <div class="study-stats-bars" id="studyStatsBars"></div>
       <div class="study-stats-sections">
-        <h4 class="study-stats-sub">题块用时（累计）</h4>
+        <h4 class="study-stats-sub">题块用时</h4>
         <div id="studyStatsSections"></div>
       </div>
-      <p class="hint">开始作答才计时：题库区显示题目即开始、提交后暂停；英语阅读区做出作答动作才开始，该题答完即停，30 秒无操作自动暂停。阅读卷按大题（选词填空、段落匹配…）单独记时。</p>
+      <p class="hint">题库区：显示题目即开始、提交后暂停，30 秒无操作暂停。英语阅读区按大题（选词填空、段落匹配…）逐节计时：正文在同一节停留超过 5 秒才开始，作答、切 tab 等操作不触发计时；读文章、读题干、思考都算，整节答完对答案结束，答完的节不再计时，每次记一条用时。停在别的节超过 5 秒或退出阅读，当前这次记为未完成（换节等待的 5 秒不计入上一节，新的一节从 0:05 起算）；接着之前的作答再计的算续作。双击侧栏节条目可手动开始/停止计时，手动停止后 10 分钟内这一节不会自动开始计时（双击可立即开始）。只有全新开始且一次做完的记录才按考场参考时限判达标/超时。60 秒无操作先提醒，3 分钟无操作暂停（暂停时长不计入）。</p>
     </div>
   </div>
 
@@ -553,20 +556,20 @@
 
   <script src="/static/dialog.js?v=1"></script>
   <script src="/static/qimg.js?v=5"></script>
-  <script src="/static/sa.js?v=sa33"></script>
+  <script src="/static/sa.js?v=sa34"></script>
   <script src="/static/sfx.js?v=11"></script>
   <script src="/static/fx.js?v=10"></script>
   {% if rd_payload %}
   <script>window.RD_BOOT = {{ rd_payload|tojson }};</script>
   {% endif %}
   <script>window.LykieStudyTimeConfig = { area: 'auto' };</script>
-  <script src="/static/study-timer.js?v=3"></script>
-  <script src="/static/script.js?v=m112"></script>
-  <script src="/static/mock.js?v=9"></script>
+  <script src="/static/study-timer.js?v=7"></script>
+  <script src="/static/script.js?v=m116"></script>
+  <script src="/static/mock.js?v=10"></script>
   <script src="/static/story.js?v=m6"></script>
-  <script src="/static/reading.js?v=46"></script>
+  <script src="/static/reading.js?v=49"></script>
   <script src="/static/vendor/driver.min.js?v=1"></script>
-  <script src="/static/onboarding.js?v=1"></script>
+  <script src="/static/onboarding.js?v=3"></script>
   <script src="/static/demo-tour.js?v=1"></script>
 
   <div class="beian-bar">

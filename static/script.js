@@ -513,6 +513,12 @@ function makePaperLi(p, opts) {
     // 主界面多视图：原地切阅读视图（pushState 免整页刷新），不再跳 /reading
     openReadingView(String(p.id), opts.sec || '');
   };
+  // 双击试卷节条目：手动开始/停止这一节的计时（单击仍是一次，已触发切到该节）
+  if (opts.sec) {
+    li.ondblclick = () => {
+      if (window.RD && window.RD.studyToggle) window.RD.studyToggle(String(p.id), opts.sec);
+    };
+  }
   // 试卷可拖（活跃卷：移动/归档；归档卷：拖出恢复）；普通文章仅入口不可拖
   if (p.is_paper) {
     li.style.cursor = 'grab';
@@ -548,10 +554,11 @@ async function applyReadingView(textId, sec, paper) {
   document.body.classList.add('mode-reading');
   const rv = $('readView');
   if (rv) rv.hidden = false;
-  if (window.LykieStudyTime) window.LykieStudyTime.resetArea();
+  if (window.LykieStudyTime) window.LykieStudyTime.resetArea(textId); // 同一篇内切换不中断节计时
   document.querySelectorAll('.rd-bubble, .rd-toast').forEach((el) => el.remove());
   if (window.RD) window.RD.init(res, { sec: sec || '', paper: paper || '' });
   syncReadingSidebar(sec || undefined); // 进入即联动侧栏高亮（有 sec 先亮目标节）
+  if (window.LykieOnboarding) window.LykieOnboarding.scene('englishTimer'); // 计时说明：进入阅读后才提示，只播一次
   const assetsLink = $('assetsLink');
   if (assetsLink) assetsLink.href = '/assets?back=' + encodeURIComponent(`/?read=${textId}`);
 }
@@ -603,16 +610,24 @@ function syncReadingSidebar(preferSec) {
     const li = matchLi(preferSec);
     if (li) { li.classList.add('active'); return; }
   }
-  // 滚动侦测：找阈值线（140px，标题区之下）所在的节
+  // 滚动侦测：找阈值线所在的节。阈值线必须跟随正文滚动容器（.card-area）顶边——
+  // 不能写死视口坐标：顶栏按钮换行变高时，写死的线会落在正文区上方，
+  // 导致高亮永远慢一节、末节（翻译）怎么滚都到不了
   const passes = Array.from(document.querySelectorAll('#rdPassHost .rd-pass'));
-  if (!passes.length) return;
-  const TH = 140;
+  const scroller = document.querySelector('.card-area');
+  if (!passes.length || !scroller) return;
+  const cr = scroller.getBoundingClientRect();
+  const TH = cr.top + Math.max(60, cr.height * 0.2);
   let cur = passes[0];
   for (const p of passes) {
     if (p.getBoundingClientRect().top <= TH) cur = p; else break;
   }
+  // 已滚到底：末节下方没有内容可滚，标题顶永远到不了阈值线 → 直接亮最后一节
+  if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 4) cur = passes[passes.length - 1];
   const li = matchLi(cur.dataset.key || '');
   if (li) li.classList.add('active');
+  // 学习时长：某节滚入视野且当前没有进行中的节 → 开始给这一节计时（已有则保持不切换）
+  if (window.RD && window.RD.studyInView) window.RD.studyInView(cur.dataset.key || '');
 }
 
 // 正文区滚动 → rAF 节流联动（capture 捕获 .card-area 滚动；其他容器滚动不触发）
@@ -2527,6 +2542,7 @@ function revealAnswerUi(opts) {
 /** 先播结算动画，再揭解析/下一题，避免卡片上移抢走注意力 */
 function settleThenReveal(kind, revealOpts) {
   if (window.LykieStudyTime) window.LykieStudyTime.questionDone();
+  if (window.LykieOnboarding) window.LykieOnboarding.scene('bankTimer'); // 计时说明：第一次提交后才提示，只播一次
   const streak = sessionStreak;
   const run = () => revealAnswerUi(revealOpts);
   if (window.LykieFx && LykieFx.afterReveal) LykieFx.afterReveal(kind, streak, run);

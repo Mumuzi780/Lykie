@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """学习时长：按天、按区域（题库区 bank / 英语作答区 english）累计；
-英语作答区再下钻到题块（阅读卷的大题，如选词填空/段落匹配）。
+英语作答区再下钻到题块（阅读卷的大题，如选词填空/段落匹配），
+并按「次」保存每个题块的作答记录（用时、是否答完），用来对照考场参考时限。
 
-前端打开页面即计时、空闲自动暂停，周期性心跳上报秒数；本模块只做累加，
+前端作答时计时、空闲自动暂停，周期性心跳上报秒数；本模块只做累加，
 统计接口负责聚合，供顶部计时器与统计面板使用。
 """
 from __future__ import annotations
@@ -27,6 +28,20 @@ _MAX_SECTION_ROWS = 40
 # 单次上报上限：一天 24 小时
 _MAX_SECONDS = 24 * 3600
 
+# 每个题块保留的作答记录条数
+_MAX_ATTEMPTS = 30
+
+# 统计接口每个题块返回的最近作答记录条数
+_MAX_ATTEMPT_ROWS = 8
+
+# 考场参考时限（秒），按题型；未列出的题型不限时
+SECTION_STANDARD = {
+    "bank": 8 * 60,        # 选词填空
+    "match": 10 * 60,      # 段落匹配
+    "choice": 10 * 60,     # 仔细阅读（每篇）
+    "translation": 30 * 60,
+}
+
 
 def study_time_path(username: str) -> str:
     return os.path.join(lykie_accounts.user_dir(username), "study_time.json")
@@ -34,6 +49,30 @@ def study_time_path(username: str) -> str:
 
 def _empty() -> dict:
     return {"days": {}, "sections": {}}
+
+
+def _to_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _clean_attempt(raw) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    dur = max(0, min(_to_int(raw.get("dur")), _MAX_SECONDS))
+    if dur <= 0:
+        return None
+    return {
+        "ts": str(raw.get("ts") or "")[:16],
+        "dur": dur,
+        "paused": max(0, min(_to_int(raw.get("paused")), _MAX_SECONDS)),
+        "answered": max(0, _to_int(raw.get("answered"))),
+        "total": max(0, _to_int(raw.get("total"))),
+        "fresh": bool(raw.get("fresh")),
+        "done": bool(raw.get("done")),
+    }
 
 
 def load_study_time(username: str) -> dict:
@@ -71,12 +110,19 @@ def load_study_time(username: str) -> dict:
                     clean_days[str(d)] = max(0, int(v or 0))
                 except (TypeError, ValueError):
                     continue
+            attempts = []
+            if isinstance(entry.get("attempts"), list):
+                for a in entry["attempts"]:
+                    item = _clean_attempt(a)
+                    if item:
+                        attempts.append(item)
             clean["sections"][str(sec_id)] = {
                 "label": str(entry.get("label") or "")[:120],
                 "kind": str(entry.get("kind") or "")[:40],
                 "text_title": str(entry.get("text_title") or "")[:120],
                 "last": str(entry.get("last") or ""),
                 "days": clean_days,
+                "attempts": attempts[:_MAX_ATTEMPTS],
             }
     return clean
 
@@ -97,6 +143,8 @@ def _prune(data: dict) -> None:
             for d in list(entry.get("days") or {}):
                 if str(d) < cutoff:
                     del entry["days"][d]
+            if len(entry.get("attempts") or []) > _MAX_ATTEMPTS:
+                del entry["attempts"][_MAX_ATTEMPTS:]
 
 
 def save_study_time(username: str, data: dict) -> None:
@@ -122,12 +170,29 @@ def today_str(when=None) -> str:
     return (when or datetime.now()).strftime("%Y-%m-%d")
 
 
-def add_seconds(username: str, pairs: dict, sections: dict | None = None, when=None) -> dict:
+def _apply_meta(entry: dict, info: dict) -> None:
+    for field in ("label", "kind", "text_title"):
+        v = str(info.get(field) or "").strip()[:120]
+        if v:
+            entry[field] = v
+
+
+def add_seconds(
+    username: str,
+    pairs: dict,
+    sections: dict | None = None,
+    attempts: list | None = None,
+    when=None,
+) -> dict:
     """批量累计当日时长。一次读盘一次写盘。
 
     pairs 形如 {"bank": 秒, "english": 秒}；
     sections 形如 {"<text_id>::<sec_key>": {"seconds": 秒, "label": 题块名,
     "kind": 题型, "text_title": 卷标题}}，key 不合法/秒数无效的条目跳过。
+    attempts 是本题块的一次作答记录列表：{"id": "<text_id>::<sec_key>",
+    "dur": 有效用时秒, "paused": 暂停秒, "answered": 已答数, "total": 总数,
+    "fresh": 是否全新开始, "done": 是否答完, 外加 label/kind/text_title}；
+    同样跳过不合法的条目。
 
     返回当日各区累计秒数。
     """
@@ -159,10 +224,24 @@ def add_seconds(username: str, pairs: dict, sections: dict | None = None, when=N
             continue
         entry = data["sections"].setdefault(sec_id, {"days": {}})
         entry["days"][day] = int(entry["days"].get(day) or 0) + sec
-        for field in ("label", "kind", "text_title"):
-            v = str(info.get(field) or "").strip()[:120]
-            if v:
-                entry[field] = v
+        _apply_meta(entry, info)
+        entry["last"] = day
+        dirty = True
+    ts = (when or datetime.now()).strftime("%Y-%m-%d %H:%M")
+    for raw in (attempts or []):
+        if not isinstance(raw, dict):
+            continue
+        sec_id = str(raw.get("id") or "").strip()
+        if not sec_id or "::" not in sec_id:
+            continue
+        item = _clean_attempt(raw)
+        if not item:
+            continue
+        entry = data["sections"].setdefault(sec_id, {"days": {}})
+        _apply_meta(entry, raw)
+        item["ts"] = ts
+        entry.setdefault("attempts", []).insert(0, item)
+        del entry["attempts"][_MAX_ATTEMPTS:]
         entry["last"] = day
         dirty = True
     if dirty:
@@ -172,7 +251,7 @@ def add_seconds(username: str, pairs: dict, sections: dict | None = None, when=N
 
 
 def stats(username: str, days: int = 30) -> dict:
-    """近 N 天逐日数据 + 今日 + 范围总计 + 题块用时明细（累计，按最近活跃排序）。"""
+    """近 N 天逐日数据 + 今日 + 范围总计 + 题块用时明细（累计 + 每次作答记录，按最近活跃排序）。"""
     try:
         days = int(days)
     except (TypeError, ValueError):
@@ -202,12 +281,15 @@ def stats(username: str, days: int = 30) -> dict:
                 total += int(v)
             except (TypeError, ValueError):
                 pass
-        if total <= 0:
+        attempts = entry.get("attempts") or []
+        if total <= 0 and not attempts:
             continue
         try:
             today_sec = int((entry.get("days") or {}).get(today_date) or 0)
         except (TypeError, ValueError):
             today_sec = 0
+        # 平均/最快只看「全新开始且一次做完」的记录：接着上次做的时间不反映考场用时
+        full = [a["dur"] for a in attempts if a.get("fresh") and a.get("done")]
         sec_rows.append({
             "id": sec_id,
             "label": entry.get("label") or "",
@@ -216,6 +298,10 @@ def stats(username: str, days: int = 30) -> dict:
             "total": total,
             "today": today_sec,
             "last": entry.get("last") or "",
+            "standard": SECTION_STANDARD.get(entry.get("kind") or "", 0),
+            "attempts": attempts[:_MAX_ATTEMPT_ROWS],
+            "avg": round(sum(full) / len(full)) if full else 0,
+            "best": min(full) if full else 0,
         })
     sec_rows.sort(key=lambda r: (r["last"], r["total"]), reverse=True)
     return {
@@ -227,4 +313,5 @@ def stats(username: str, days: int = 30) -> dict:
             "all": totals["bank"] + totals["english"],
         },
         "sections": sec_rows[:_MAX_SECTION_ROWS],
+        "standards": SECTION_STANDARD,
     }
